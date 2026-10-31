@@ -652,20 +652,7 @@ Các thư mục cụ thể được tạo tùy theo đường dẫn khai báo tr
 
 ## 14. Giới hạn hiện tại và việc cần kiểm tra
 
-Các điểm sau cần được xác nhận trước khi giới thiệu ứng dụng là production-ready:
 
-1. **LLM provider và model ID:** bảo đảm class integration trong `agent.py` khớp với provider thực tế. Nếu dùng Groq, xác nhận đang dùng `ChatGroq` và model ID còn được hỗ trợ.
-2. **Embedding collection:** bảo đảm `collection_name` và `persist_directory` đồng nhất với collection được dùng để thêm và truy xuất tài liệu. Khi đổi model embedding, cần re-index dữ liệu.
-3. **Memory recall:** kiểm tra hàm `search_memory()` có thực sự sử dụng `query` hay chỉ lấy các memory gần đây theo thread.
-4. **Quyền riêng tư theo thread:** kiểm tra backend xác thực người dùng và xác minh quyền sở hữu `thread_id`; không nên tin hoàn toàn `thread_id` do frontend gửi.
-5. **Biến `CURRENT_THREAD_ID` toàn cục:** nếu `tools.py` lưu thread hiện tại bằng biến global, các request đồng thời có thể ghi đè thread của nhau. Nên truyền thread context theo cách an toàn cho concurrency.
-6. **Streaming đồng bộ trong endpoint async:** `agent.stream()` nằm trong generator đồng bộ được trả bởi endpoint bất đồng bộ. Nên kiểm tra ảnh hưởng khi có nhiều request; cân nhắc async streaming hoặc chạy tác vụ đồng bộ ngoài event loop.
-7. **Calculator dùng `eval`:** nếu vẫn sử dụng `eval(expression, {"__builtins__": {}}, allowed)`, hãy kiểm thử kỹ và cân nhắc parser biểu thức toán học an toàn hơn. Không dùng code này như một sandbox bảo mật tuyệt đối cho input không đáng tin cậy.
-8. **Lỗi từ LLM/tool:** hiện tại lỗi trong stream có thể được gửi về frontend trong SSE. Không nên gửi traceback, secret hoặc chi tiết nội bộ nhạy cảm ra client ở môi trường production.
-9. **Upload file:** cần giới hạn dung lượng file, xử lý file lỗi/độc hại, tên file và thời gian xử lý; chỉ kiểm tra phần mở rộng chưa đủ để xác minh định dạng thật.
-10. **Bảo mật web:** nếu triển khai ngoài máy cá nhân, cần bổ sung authentication, authorization, rate limiting, CORS/HTTPS phù hợp, quản lý secrets và logging an toàn.
-11. **Chất lượng RAG:** kết quả phụ thuộc chất lượng trích xuất văn bản, chunk size/overlap, embedding model, số chunk truy xuất và nội dung tài liệu. RAG không bảo đảm câu trả lời luôn đúng; nên trả lời có căn cứ và xử lý trường hợp không tìm thấy context.
-12. **Lịch sử và summarization:** việc lưu messages/checkpoint không tự động cung cấp chức năng tóm tắt lịch sử; cần triển khai riêng nếu muốn giảm context hoặc tạo conversation summary.
 
 ## 15. Từ điển thuật ngữ
 
