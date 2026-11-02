@@ -1,19 +1,34 @@
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy import (
+    create_engine, Column, Integer,
+    String, Text, DateTime, inspect
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-Path("data").mkdir(exist_ok=True)
+# Xác định thư mục gốc chứa database.py
+PROJECT_DIR = Path(__file__).resolve().parent
 
-DATABASE_URL = "sqlite:///data/chatbot_memory.db"
+# Luôn lưu database trong PROJECT_DIR/data
+DATA_DIR = PROJECT_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = DATA_DIR / "chatbot_memory.db"
+
+DATABASE_URL = f"sqlite:///{DB_PATH.as_posix()}"
 
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
 )
 
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False
+)
+
 Base = declarative_base()
 
 

@@ -21,3 +21,5 @@ sqlalchemy==2.0.50
 langchain_groq
 langchain-huggingface
 certifi
+langsmith
+pandas
