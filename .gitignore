@@ -250,3 +250,5 @@ chroma_db_hf/
 
 # Hugging Face cache
 .cache/
+
+/Desktop
