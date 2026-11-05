@@ -1,8 +1,7 @@
-import os              
-import sqlite3          # Kết nối và thao tác database SQLite
-from pathlib import Path  
+import os
+from pathlib import Path
 
-from dotenv import load_dotenv  
+from dotenv import load_dotenv
 import certifi                  # Cung cấp chứng chỉ SSL/TLS chuẩn để verify HTTPS an toàn
 
 load_dotenv()
@@ -17,12 +16,10 @@ from langchain_core.messages import SystemMessage
 from langgraph.graph import StateGraph, START, MessagesState
 # ToolNode: Node chạy các công cụ; tools_condition: Điều kiện rẽ nhánh kiểm tra xem LLM có gọi tool không
 from langgraph.prebuilt import ToolNode, tools_condition
-# SqliteSaver: Lưu trạng thái và lịch sử hội thoại vào SQLite để duy trì ngữ cảnh nhiều lượt chat
-from langgraph.checkpoint.sqlite import SqliteSaver
+# MongoDBSaver: Lưu trạng thái và lịch sử hội thoại vào MongoDB để duy trì ngữ cảnh nhiều lượt chat
+from langgraph.checkpoint.mongodb import MongoDBSaver
+from mongo_client import get_client
 from tools import tools
-
-
-Path("data").mkdir(exist_ok=True)
 
 
 # Update default and allowed models to use Gemini 2.5
@@ -36,25 +33,18 @@ ALLOWED_MODELS = {
 
 
 SYSTEM_PROMPT = """
-You are a helpful Agentic AI assistant named Tit similar to ChatGPT.
+You are a helpful Agentic AI assistant named Tit, similar to ChatGPT.
 
-You can:
-1. Answer normal questions.
-2. Use tools when needed.
-3. Search uploaded documents using the RAG tool.
-4. Search the web for latest/current information using Tavily Search.
-5. Remember important user information using the memory tool.
-6. Recall memory when useful.
-7. Use calculator for math.
+You have access to a set of tools. Each tool's description explains exactly
+when and how to use it — always read the tool description before deciding
+whether to call it.
 
-Rules:
-- If the user asks about latest news, current events, recent updates, today's information, current prices, current people, current versions, new releases, or anything time-sensitive, use Tavily Search.
-- If the user asks about an uploaded document, use search_uploaded_documents.
-- If the user asks you to remember something, use remember_this.
-- If the user asks about previous preferences or saved facts, use recall_memory.
-- Use calculator for math questions.
-- When using web search, summarize clearly and mention that the answer is based on web search results.
-- Be clear, helpful, and concise.
+General rules:
+- Use tools whenever they would produce a more accurate or up-to-date answer.
+- Do NOT fabricate information; prefer tool results over guesses.
+- After using a tool, summarize the result clearly and concisely.
+- Be friendly, structured, and easy to understand.
+- When code or math is involved, use proper formatting.
 """
 
 
@@ -94,7 +84,7 @@ def build_agent(model_name: str):
         * Luồng chạy: START -> chatbot -> kiểm tra tools_condition:
           - Nếu cần gọi tool -> chuyển sang node 'tools' -> chạy xong quay về 'chatbot' để tổng hợp câu trả lời.
           - Nếu không cần gọi tool -> kết thúc lượt xử lý.
-      + Thiết lập SqliteSaver để lưu trạng thái phiên chat (checkpoint/memory) vào SQLite.
+      + Thiết lập MongoDBSaver để lưu trạng thái phiên chat (checkpoint/memory) vào MongoDB.
       + Trả về workflow đã được compile sẵn sàng hoạt động.
     """
 
@@ -144,14 +134,17 @@ def build_agent(model_name: str):
     # 3. Sau khi node 'tools' chạy xong -> trả kết quả về lại node 'chatbot' để LLM đọc và trả lời người dùng
     workflow.add_edge("tools", "chatbot")
 
-    # Mở kết nối đến database SQLite để lưu lịch sử và checkpoints của các phiên chat
-    conn = sqlite3.connect(
-        "data/langgraph_checkpoints.sqlite",
-        check_same_thread=False  # Cho phép nhiều thread dùng chung kết nối (phù hợp với môi trường web server)
-    )
+    # Lấy MongoDB client singleton từ mongo_client để tái sử dụng kết nối
+    mongo_client = get_client()
 
-    # Tạo checkpointer dùng SQLite để lưu và khôi phục trạng thái cuộc trò chuyện theo session
-    checkpointer = SqliteSaver(conn)
+    # Tên database riêng cho LangGraph checkpoints (tách biệt với data chính)
+    checkpoint_db_name = os.getenv("MONGODB_CHECKPOINT_DB", "tit_chatbot_checkpoints")
+
+    # Tạo checkpointer dùng MongoDB để lưu và khôi phục trạng thái cuộc trò chuyện theo session
+    checkpointer = MongoDBSaver(
+        client=mongo_client,
+        db_name=checkpoint_db_name,
+    )
 
     # Biên dịch đồ thị luồng làm việc thành runnable agent có gắn bộ nhớ checkpoint
     return workflow.compile(checkpointer=checkpointer)
