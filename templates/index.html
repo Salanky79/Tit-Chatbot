@@ -223,6 +223,39 @@
             word-break: break-word;
         }
 
+        .followup-suggestions {
+            max-width: 820px;
+            margin: -16px auto 28px;
+            padding-left: 46px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .followup-suggestions-label {
+            flex: 0 0 100%;
+            color: #aaa;
+            font-size: 12px;
+        }
+
+        .followup-suggestion {
+            border: 1px solid #484848;
+            border-radius: 14px;
+            background: #292929;
+            color: #ddd;
+            padding: 8px 12px;
+            cursor: pointer;
+            text-align: left;
+            font: inherit;
+            font-size: 13px;
+            max-width: min(100%, 360px);
+        }
+
+        .followup-suggestion:hover {
+            background: #383838;
+            border-color: #666;
+        }
+
         /* ---- Markdown rendered styles ---- */
         .message-content p {
             margin: 0 0 10px;
@@ -977,6 +1010,43 @@
         return messageContent;
     }
 
+    function addFollowupSuggestions(questions, assistantMessage) {
+        const cleanQuestions = questions
+            .filter(question => typeof question === "string" && question.trim())
+            .slice(0, 2);
+        if (cleanQuestions.length !== 2) return;
+
+        const oldSuggestions = assistantMessage.parentElement.nextElementSibling;
+        if (oldSuggestions && oldSuggestions.classList.contains("followup-suggestions")) {
+            oldSuggestions.remove();
+        }
+
+        const container = document.createElement("div");
+        container.className = "followup-suggestions";
+
+        const label = document.createElement("span");
+        label.className = "followup-suggestions-label";
+        label.textContent = "Suggested follow-up questions";
+        container.appendChild(label);
+
+        for (const question of cleanQuestions) {
+            const button = document.createElement("button");
+            button.className = "followup-suggestion";
+            button.type = "button";
+            button.textContent = question;
+            button.title = "Put this question in the message box";
+            button.onclick = () => {
+                messageInput.value = question;
+                autoResize(messageInput);
+                messageInput.focus();
+            };
+            container.appendChild(button);
+        }
+
+        assistantMessage.parentElement.insertAdjacentElement("afterend", container);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
     function detectLikelyTool(message) {
         const text = message.toLowerCase();
 
@@ -1248,6 +1318,14 @@
 
         function handleStreamData(data) {
             if (!data) return;
+
+            if (data.suggestions_pending) {
+                statusText.textContent = "Creating follow-up suggestions...";
+            }
+
+            if (Array.isArray(data.suggestions)) {
+                addFollowupSuggestions(data.suggestions, botElement);
+            }
 
             if (data.token !== undefined && data.token !== null) {
                 if (!firstTokenReceived) {
