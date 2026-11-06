@@ -382,9 +382,42 @@
             border: 1px solid #444;
             border-radius: 18px;
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-end;
             padding: 12px;
             box-shadow: 0 0 18px rgba(0, 0, 0, 0.25);
+        }
+
+        .attachment-preview {
+            display: flex;
+            flex: 0 0 100%;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 8px 46px;
+            color: #ddd;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .attachment-preview[hidden] {
+            display: none;
+        }
+
+        .attachment-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: min(520px, 70vw);
+        }
+
+        .remove-attachment {
+            border: 0;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            background: #444;
+            color: #fff;
+            cursor: pointer;
         }
 
         .attach-btn {
@@ -605,13 +638,15 @@
                 onchange="uploadFile()"
             >
 
+            <div class="attachment-preview" id="attachmentPreview" hidden></div>
+
             <button class="attach-btn" onclick="openFilePicker()" title="Upload document or image">
                 📎
             </button>
 
             <textarea
                 id="messageInput"
-                placeholder="Ask anything..."
+                placeholder="Ask anything, or attach a file and ask about it..."
                 rows="1"
                 oninput="autoResize(this)"
                 onkeydown="handleKeyDown(event)"
@@ -691,6 +726,7 @@
     const noticeText = document.getElementById("noticeText");
     const micBtn = document.getElementById("micBtn");
 
+    let pendingFile = null;
     let threadId = localStorage.getItem("thread_id");
 
     if (!threadId) {
@@ -874,6 +910,37 @@
         document.getElementById("fileInput").click();
     }
 
+    function clearPendingAttachment() {
+        pendingFile = null;
+        document.getElementById("fileInput").value = "";
+        const preview = document.getElementById("attachmentPreview");
+        preview.innerHTML = "";
+        preview.hidden = true;
+    }
+
+    function showPendingAttachment(file) {
+        const preview = document.getElementById("attachmentPreview");
+        preview.innerHTML = "";
+
+        const name = document.createElement("span");
+        name.className = "attachment-name";
+        name.textContent = `Attached: ${file.name}`;
+
+        const remove = document.createElement("button");
+        remove.className = "remove-attachment";
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.title = "Remove attachment";
+        remove.onclick = clearPendingAttachment;
+
+        preview.append(name, remove);
+        preview.hidden = false;
+    }
+
+    function isImageFile(file) {
+        return file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name);
+    }
+
     function addMessage(role, content = "") {
         hideWelcome();
 
@@ -1018,6 +1085,7 @@
     }
 
     async function loadConversation(selectedThreadId) {
+        clearPendingAttachment();
         threadId = selectedThreadId;
         localStorage.setItem("thread_id", threadId);
 
@@ -1097,17 +1165,68 @@
     }
 
     async function sendMessage() {
-        const message = messageInput.value.trim();
+        if (sendBtn.disabled) return;
 
-        if (!message) return;
+        let message = messageInput.value.trim();
+        const attachment = pendingFile;
+        const targetThreadId = threadId;
+
+        if (!message && !attachment) return;
 
         if (isDictating) {
             stopDictation();
         }
 
         const selectedModel = modelSelect ? modelSelect.value : "openai/gpt-oss-20b";
+        let uploadResult = null;
 
-        addMessage("user", message);
+        if (attachment) {
+            sendBtn.disabled = true;
+            statusText.textContent = "Uploading attachment...";
+            const uploadProgress = addToolProgress("File Upload");
+
+            try {
+                const formData = new FormData();
+                formData.append("file", attachment);
+                formData.append("thread_id", targetThreadId);
+
+                const uploadResponse = await fetch("/upload", {
+                    method: "POST",
+                    body: formData
+                });
+                const uploadData = await uploadResponse.json();
+
+                if (!uploadResponse.ok || !uploadData.success) {
+                    throw new Error(uploadData.message || "Upload failed.");
+                }
+
+                uploadResult = uploadData;
+                completeToolProgress(uploadProgress, "File Upload");
+                clearPendingAttachment();
+            } catch (error) {
+                completeToolProgress(uploadProgress, "File Upload");
+                addMessage("assistant", "Upload failed: " + error.message);
+                sendBtn.disabled = false;
+                statusText.textContent = "Ready";
+                return;
+            }
+        }
+
+        if (attachment && !message) {
+            addMessage("user", `📎 ${attachment.name}`);
+            addMessage("assistant", uploadResult.message);
+            sendBtn.disabled = false;
+            statusText.textContent = "Ready";
+            await loadConversations();
+            return;
+        }
+
+        const fileKind = attachment && isImageFile(attachment) ? "image" : "file";
+        const submittedMessage = attachment
+            ? `${message}\n\n[Attached ${fileKind}: ${attachment.name}]`
+            : message;
+
+        addMessage("user", attachment ? `${message}\n\n📎 ${attachment.name}` : message);
 
         messageInput.value = "";
         messageInput.style.height = "auto";
@@ -1115,7 +1234,7 @@
         sendBtn.disabled = true;
         statusText.textContent = `Thinking with ${selectedModel}...`;
 
-        const likelyTool = detectLikelyTool(message);
+        const likelyTool = detectLikelyTool(submittedMessage);
         let toolProgress = null;
 
         if (likelyTool) {
@@ -1175,8 +1294,8 @@
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    message: message,
-                    thread_id: threadId,
+                    message: submittedMessage,
+                    thread_id: targetThreadId,
                     model: selectedModel
                 })
             });
@@ -1262,48 +1381,13 @@
             return;
         }
 
-        const file = fileInput.files[0];
-
-        addMessage("user", `📎 Uploaded file: ${file.name}`);
-
-        const toolProgress = addToolProgress("File Upload");
-        statusText.textContent = "Uploading file...";
-
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("thread_id", threadId);
-
-        try {
-            const response = await fetch("/upload", {
-                method: "POST",
-                body: formData
-            });
-
-            const data = await response.json();
-
-            completeToolProgress(toolProgress, "File Upload");
-
-            if (data.success) {
-                addMessage(
-                    "assistant",
-                    data.message
-                );
-
-                await loadConversations();
-            } else {
-                addMessage("assistant", "Upload failed: " + data.message);
-            }
-
-        } catch (error) {
-            completeToolProgress(toolProgress, "File Upload");
-            addMessage("assistant", "Upload failed: " + error.message);
-        }
-
-        statusText.textContent = "Ready";
+        pendingFile = fileInput.files[0];
+        showPendingAttachment(pendingFile);
         fileInput.value = "";
     }
 
     async function newChat() {
+        clearPendingAttachment();
         threadId = crypto.randomUUID();
         localStorage.setItem("thread_id", threadId);
 
