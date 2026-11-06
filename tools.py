@@ -3,7 +3,13 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from database import save_memory, search_memory
-from rag import get_document_chunks, list_document_sources, retrieve_from_rag
+from rag import (
+    get_document_chunks,
+    list_document_sources,
+    list_uploaded_images,
+    retrieve_from_rag,
+)
+from image_analysis import analyze_image
 from summarization import summarize_documents
 
 
@@ -134,6 +140,44 @@ def summarize_uploaded_document(filename: str = "") -> str:
     return f'Summary of "{selected}" (all {len(chunks)} stored chunks):\n\n{summary}'
 
 
+@tool
+def analyze_uploaded_image(question: str, filename: str = "") -> str:
+    """Answer questions about an image uploaded in this conversation.
+
+    Use for image descriptions, visual questions, charts, diagrams, or text/OCR
+    in an uploaded image. Pass the image filename when named or clearly
+    identified. An empty filename selects the only uploaded image; when several
+    images exist, ask which one instead of combining or guessing.
+    """
+    images = list_uploaded_images(CURRENT_THREAD_ID)
+    if not images:
+        return "No uploaded images were found in this conversation. Upload a JPG, PNG, or WEBP image first."
+
+    requested = (filename or "").strip().strip('"\'')
+    if not requested:
+        if len(images) != 1:
+            names = ", ".join(f'"{image["source"]}"' for image in images)
+            return f"Which image should I inspect? Images in this conversation: {names}."
+        selected = images[0]
+    else:
+        exact = [image for image in images if image["source"].casefold() == requested.casefold()]
+        matches = exact or [
+            image for image in images if requested.casefold() in image["source"].casefold()
+        ]
+        if len(matches) != 1:
+            names = ", ".join(f'"{image["source"]}"' for image in matches or images)
+            if matches:
+                return f"The image name matches multiple uploads. Which one did you mean: {names}?"
+            return f'No uploaded image named "{requested}" was found. Available images: {names}.'
+        selected = matches[0]
+
+    try:
+        answer = analyze_image(selected["image_path"], question)
+    except Exception as exc:
+        return f'Could not analyze "{selected["source"]}": {exc}'
+    return f'Image analysis of "{selected["source"]}":\n\n{answer}'
+
+
 # ---------------------------------------------------------------------------
 # Long-term memory - Save
 # ---------------------------------------------------------------------------
@@ -182,6 +226,7 @@ tools = [
     calculator,
     search_uploaded_documents,
     summarize_uploaded_document,
+    analyze_uploaded_image,
     remember_this,
     recall_memory,
     web_search,

@@ -31,7 +31,8 @@ from database import (
     create_or_update_conversation,
     list_conversations)
 
-from rag import add_document_to_rag
+from rag import add_document_to_rag, add_image_to_rag
+from image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
 from tools import set_current_thread_id
 
 
@@ -97,16 +98,16 @@ async def upload_document(
     thread_id: str = Form(...)
 ):
     try:
-        allowed_extensions = [".pdf", ".docx", ".txt", ".md", ".py", ".csv"]
+        allowed_extensions = {".pdf", ".docx", ".txt", ".md", ".py", ".csv"}
 
-        filename = file.filename or "uploaded_file"
+        filename = Path(file.filename or "uploaded_file").name
         suffix = Path(filename).suffix.lower()
 
-        if suffix not in allowed_extensions:
+        if suffix not in allowed_extensions and suffix not in SUPPORTED_IMAGE_TYPES:
             return JSONResponse(
                 {
                     "success": False,
-                    "message": "Unsupported file type. Upload PDF, DOCX, TXT, MD, PY, or CSV."
+                    "message": "Unsupported file type. Upload PDF, DOCX, TXT, MD, PY, CSV, JPG, PNG, or WEBP."
                 },
                 status_code=400
             )
@@ -114,11 +115,31 @@ async def upload_document(
         file_id = str(uuid.uuid4())
         safe_filename = filename.replace(" ", "_")
         file_path = f"uploads/{file_id}_{safe_filename}"
+        contents = await file.read()
+
+        if suffix in SUPPORTED_IMAGE_TYPES:
+            if len(contents) > MAX_IMAGE_BYTES:
+                return JSONResponse(
+                    {"success": False, "message": "Image is too large (maximum 14 MB)."},
+                    status_code=413,
+                )
+            if not _looks_like_image(contents, suffix):
+                return JSONResponse(
+                    {"success": False, "message": "The uploaded file is not a valid JPG, PNG, or WEBP image."},
+                    status_code=400,
+                )
 
         with open(file_path, "wb") as f:
-            f.write(await file.read())
+            f.write(contents)
 
         create_or_update_conversation(thread_id, "Uploaded document")
+
+        if suffix in SUPPORTED_IMAGE_TYPES:
+            result = add_image_to_rag(file_path, thread_id, filename)
+            return JSONResponse({
+                "success": True,
+                "message": f"Uploaded image {result['filename']}. You can now ask questions about it.",
+            })
 
         result = add_document_to_rag(
             file_path=file_path,
@@ -138,6 +159,16 @@ async def upload_document(
             },
             status_code=500
         )
+
+
+def _looks_like_image(contents: bytes, suffix: str) -> bool:
+    if suffix in {".jpg", ".jpeg"}:
+        return contents.startswith(b"\xff\xd8\xff")
+    if suffix == ".png":
+        return contents.startswith(b"\x89PNG\r\n\x1a\n")
+    if suffix == ".webp":
+        return len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP"
+    return False
 
 
 

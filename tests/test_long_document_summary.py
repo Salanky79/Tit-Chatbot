@@ -113,3 +113,33 @@ def test_tool_summarizes_only_the_named_file():
     assert "complete summary" in answer
     get_chunks.assert_called_once_with("b.txt", tools.CURRENT_THREAD_ID)
     summarize.assert_called_once_with(chunks)
+
+
+def test_image_tool_asks_when_multiple_images_are_available():
+    import tools
+
+    images = [
+        {"source": "one.png", "image_path": "uploads/one.png"},
+        {"source": "two.jpg", "image_path": "uploads/two.jpg"},
+    ]
+    with patch.object(tools, "list_uploaded_images", return_value=images), \
+         patch.object(tools, "analyze_image") as analyze:
+        answer = tools.analyze_uploaded_image.invoke({"question": "What is shown?", "filename": ""})
+    assert "Which image" in answer
+    analyze.assert_not_called()
+
+
+def test_image_tool_uses_only_the_named_image():
+    import tools
+
+    images = [
+        {"source": "one.png", "image_path": "uploads/one.png"},
+        {"source": "two.jpg", "image_path": "uploads/two.jpg"},
+    ]
+    with patch.object(tools, "list_uploaded_images", return_value=images), \
+         patch.object(tools, "analyze_image", return_value="A red car.") as analyze:
+        answer = tools.analyze_uploaded_image.invoke({
+            "question": "What color is the car?", "filename": "two.jpg"
+        })
+    assert "A red car." in answer
+    analyze.assert_called_once_with("uploads/two.jpg", "What color is the car?")

@@ -19,7 +19,7 @@ import docx2txt
 
 
 Path("uploads").mkdir(exist_ok=True)
-Path("chroma_db").mkdir(exist_ok=True)
+Path("chroma_db_hf").mkdir(exist_ok=True)
 
 
 # Embeddings model chạy local trên CPU
@@ -271,3 +271,37 @@ def list_document_sources(thread_id: str) -> List[str]:
         for metadata in (result.get("metadatas") or [])
         if metadata and metadata.get("source")
     }, key=str.casefold)
+
+
+def add_image_to_rag(file_path: str, thread_id: str, filename: str) -> dict:
+    """Register an uploaded image so image tools can find it in this thread."""
+    path = Path(file_path).resolve()
+    if not path.is_file():
+        raise ValueError("Uploaded image could not be found on the server.")
+    image_doc = Document(
+        page_content=f"Uploaded image: {filename}",
+        metadata={
+            "thread_id": thread_id,
+            "source": filename,
+            "file_type": "image",
+            "image_path": str(path),
+        },
+    )
+    vectorstore.add_documents([image_doc])
+    return {"filename": filename, "images": 1}
+
+
+def list_uploaded_images(thread_id: str) -> list[dict]:
+    """Return image metadata for one conversation without exposing other files."""
+    result = vectorstore._collection.get(
+        where={"$and": [{"thread_id": thread_id}, {"file_type": "image"}]},
+        include=["metadatas"],
+    )
+    images = {}
+    for metadata in result.get("metadatas") or []:
+        if metadata and metadata.get("source") and metadata.get("image_path"):
+            images[(metadata["source"], metadata["image_path"])] = {
+                "source": metadata["source"],
+                "image_path": metadata["image_path"],
+            }
+    return sorted(images.values(), key=lambda item: item["source"].casefold())

@@ -576,7 +576,7 @@
     <div class="chat-container" id="chatContainer">
         <div class="welcome" id="welcome">
             <h1>How can I help you today?</h1>
-            <p>Ask questions, upload documents, use tools, search the web, and chat with memory.</p>
+            <p>Ask questions about text, documents, and images, use tools, search the web, and chat with memory.</p>
         </div>
 
         <div class="cards" id="cards">
@@ -601,11 +601,11 @@
                 type="file"
                 id="fileInput"
                 style="display: none;"
-                accept=".pdf,.docx,.txt,.md,.py,.csv"
+                accept=".pdf,.docx,.txt,.md,.py,.csv,.jpg,.jpeg,.png,.webp"
                 onchange="uploadFile()"
             >
 
-            <button class="attach-btn" onclick="openFilePicker()" title="Upload document">
+            <button class="attach-btn" onclick="openFilePicker()" title="Upload document or image">
                 📎
             </button>
 
@@ -914,6 +914,7 @@
         const text = message.toLowerCase();
 
         const mathPattern = /(\d+\s*[\+\-\*\/]\s*\d+)|calculate|calculation|math|solve/;
+        const imagePattern = /image|photo|picture|chart|diagram|ảnh|hình/;
         const ragPattern = /document|pdf|file|uploaded|summarize|summary|according to|based on/;
         const memorySavePattern = /remember that|save this|store this|keep in memory|memorize/;
         const memoryRecallPattern = /what do you remember|recall|my memory|remember about me/;
@@ -927,6 +928,10 @@
 
         if (memoryRecallPattern.test(text)) {
             return "Memory Recall";
+        }
+
+        if (imagePattern.test(text)) {
+            return "Image Analysis";
         }
 
         if (ragPattern.test(text)) {
@@ -1046,7 +1051,7 @@
         chatContainer.innerHTML = `
             <div class="welcome" id="welcome">
                 <h1>How can I help you today?</h1>
-                <p>Ask questions, upload documents, use tools, search the web, and chat with memory.</p>
+                <p>Ask questions about text, documents, and images, use tools, search the web, and chat with memory.</p>
             </div>
 
             <div class="cards" id="cards">
@@ -1259,10 +1264,10 @@
 
         const file = fileInput.files[0];
 
-        addMessage("user", `📎 Uploaded document: ${file.name}`);
+        addMessage("user", `📎 Uploaded file: ${file.name}`);
 
-        const toolProgress = addToolProgress("Document Ingestion");
-        statusText.textContent = "Using Document Ingestion...";
+        const toolProgress = addToolProgress("File Upload");
+        statusText.textContent = "Uploading file...";
 
         const formData = new FormData();
         formData.append("file", file);
@@ -1276,12 +1281,12 @@
 
             const data = await response.json();
 
-            completeToolProgress(toolProgress, "Document Ingestion");
+            completeToolProgress(toolProgress, "File Upload");
 
             if (data.success) {
                 addMessage(
                     "assistant",
-                    data.message + "\n\nYou can now ask questions about this document."
+                    data.message
                 );
 
                 await loadConversations();
@@ -1290,7 +1295,7 @@
             }
 
         } catch (error) {
-            completeToolProgress(toolProgress, "Document Ingestion");
+            completeToolProgress(toolProgress, "File Upload");
             addMessage("assistant", "Upload failed: " + error.message);
         }
 
