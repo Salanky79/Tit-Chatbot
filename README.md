@@ -74,6 +74,8 @@ Các định dạng được endpoint upload cho phép theo đoạn code hiện 
 
 Sau khi nhận file, backend lưu file vào thư mục `uploads/`, đọc nội dung, chia thành chunks, tạo embedding và thêm dữ liệu vào ChromaDB cùng metadata như `thread_id` và tên file. Các định dạng được chấp nhận còn phụ thuộc vào thư viện đọc file đã được cài đặt.
 
+PDF scan không có lớp text sẽ được xử lý bằng OCR: Tit thử trích text thông thường trước, sau đó dùng PyMuPDF/Tesseract cho trang scan hoặc có ít text. Ngôn ngữ mặc định là tiếng Việt và tiếng Anh (`vie+eng`). OCR có thể nhận dạng chữ viết tay, công thức hoặc ảnh mờ không chính xác; hãy kiểm tra lại các con số và ký hiệu quan trọng.
+
 ### 2.4. Truy xuất tài liệu bằng RAG
 
 Khi agent cần hỏi đáp trên tài liệu, tool RAG thực hiện tìm kiếm tương đồng trong ChromaDB và ưu tiên lấy các chunk có metadata `thread_id` trùng với hội thoại hiện tại. Nhờ vậy, trong cấu hình hiện tại, việc truy xuất được giới hạn theo thread thay vì mặc định lấy mọi tài liệu trong collection.
@@ -593,6 +595,24 @@ Nếu repository có `requirements.txt`:
 python -m pip install -r requirements.txt
 ```
 
+#### Cài OCR cho PDF scan trên Windows
+
+PyMuPDF được cài qua `requirements.txt`, nhưng Tesseract OCR là chương trình hệ thống nên phải cài riêng:
+
+1. Tải bộ cài Windows 64-bit từ [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki), nơi được [tài liệu Tesseract hướng dẫn cho Windows](https://tesseract-ocr.github.io/tessdoc/Installation.html).
+2. Đảm bảo cài dữ liệu ngôn ngữ English (`eng`) và Vietnamese (`vie`). Các file tương ứng là `eng.traineddata` và `vie.traineddata` trong thư mục `tessdata` của Tesseract.
+3. Mở PowerShell mới và xác minh cài đặt:
+
+   ```powershell
+   tesseract --version
+   tesseract --list-langs
+   ```
+
+   Kết quả `--list-langs` cần có cả `eng` và `vie`. Nếu lệnh `tesseract` không được nhận diện, thêm thư mục cài Tesseract vào Windows `PATH`, rồi mở lại terminal.
+4. Khởi động lại Tit-Chatbot để ứng dụng nhận các biến môi trường mới.
+
+Mặc định OCR chạy ở 300 DPI và được kích hoạt khi trang PDF có ít hơn 40 ký tự text trích xuất được. Có thể đổi các giá trị này trong `.env` bằng `PDF_OCR_DPI`, `PDF_OCR_TRIGGER_CHARS` và `PDF_OCR_LANGUAGES`. Nếu Tesseract không tự tìm thấy dữ liệu ngôn ngữ, đặt `TESSDATA_PREFIX` đến thư mục chứa các file `.traineddata`.
+
 Nếu chưa có file này, hãy tạo một file dependency dựa trên các import thực sự trong project. Các thư viện đã xuất hiện trong code được trao đổi gồm FastAPI, Uvicorn, Jinja2, LangGraph, LangChain Core, gói tích hợp provider LLM, Chroma, Hugging Face embeddings, Sentence Transformers, SQLAlchemy, python-dotenv, certifi, pypdf, docx2txt và Tavily integration.
 
 Không nên cài tất cả package theo tên đoán nếu project đã có dependency file; hãy ưu tiên file dependency hiện tại để tránh xung đột phiên bản.
@@ -626,6 +646,13 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 # Web search — chỉ cần nếu bật Tavily tool
 TAVILY_API_KEY=your_tavily_api_key
+
+# OCR PDF scan (yêu cầu Tesseract và dữ liệu eng + vie được cài riêng)
+PDF_OCR_LANGUAGES=vie+eng
+PDF_OCR_DPI=300
+PDF_OCR_TRIGGER_CHARS=40
+# Bỏ comment và sửa đường dẫn nếu Tesseract không tự tìm thấy tessdata:
+# TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata
 ```
 
 Các lưu ý:

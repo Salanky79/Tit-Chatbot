@@ -41,24 +41,86 @@ vectorstore = Chroma(
 # ---------------------------------------------------------------------------
 
 def _read_pdf(file_path: str, filename: str, thread_id: str) -> List[Document]:
-    """Đọc PDF, trả về 1 Document mỗi trang với metadata page số."""
+    """Extract each PDF page, falling back to OCR for scanned/sparse pages."""
     reader = PdfReader(file_path)
     docs = []
-    for page_num, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        text = text.strip()
-        if not text:
-            continue  # bỏ qua trang trắng
-        docs.append(Document(
-            page_content=text,
-            metadata={
-                "thread_id": thread_id,
-                "source": filename,
-                "page": page_num,
-                "total_pages": len(reader.pages),
-                "file_type": "pdf",
-            }
-        ))
+    ocr_pdf = None
+
+    try:
+        try:
+            min_native_chars = int(os.getenv("PDF_OCR_TRIGGER_CHARS", "40"))
+        except ValueError:
+            min_native_chars = 40
+        try:
+            ocr_dpi = int(os.getenv("PDF_OCR_DPI", "300")) # Độ phân giải DPI cho OCR, mặc định 300 DPI. Tăng DPI có thể cải thiện độ chính xác nhận dạng ký tự nhưng cũng làm chậm quá trình OCR và tăng kích thước dữ liệu.
+        except ValueError:
+            ocr_dpi = 300
+        ocr_languages = os.getenv("PDF_OCR_LANGUAGES", "vie+eng")
+
+        for page_num, page in enumerate(reader.pages, start=1):
+            text = (page.extract_text() or "").strip()
+            extraction_method = "native"
+
+            # Scanned pages usually have no text layer. Sparse text can also
+            # indicate a scanned page with only a selectable header/footer.
+            if len(text) < min_native_chars:
+                if ocr_pdf is None:
+                    try:
+                        import pymupdf
+                        ocr_pdf = pymupdf.open(file_path)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "This PDF page needs OCR, but PyMuPDF could not be opened. "
+                            "Install the Python dependency 'pymupdf'."
+                        ) from exc
+
+                try:
+                    ocr_page = ocr_pdf[page_num - 1]
+                    # Empty PDF pages have nothing for OCR to recognize. Avoid
+                    # requiring Tesseract for pages with no text or visual data.
+                    if (
+                        not text
+                        and not ocr_page.get_images(full=True) # ảnh
+                        and not ocr_page.get_drawings() # hình vẽ vector
+                    ):
+                        continue
+                    text_page = ocr_page.get_textpage_ocr( # yêu cầu PyMuPDF thực hiện nhận dạng ký tự trên trang
+                        language=ocr_languages,
+                        dpi=ocr_dpi,
+                        full=True, # scan toàn bộ trang, không chỉ vùng văn bản
+                        tessdata=os.getenv("TESSDATA_PREFIX") or None,
+                    )
+                    ocr_text = ocr_page.get_text("text", textpage=text_page).strip()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"OCR failed on page {page_num} of '{filename}'. "
+                        f"Check that Tesseract and its language data ({ocr_languages}) "
+                        "are installed and available. "
+                        f"Root cause: {exc}"
+                    ) from exc
+
+                if ocr_text and len(ocr_text) > len(text):
+                    text = ocr_text
+                    extraction_method = "ocr"
+
+            if not text:
+                continue  # blank page or no text recognized by OCR
+
+            docs.append(Document(
+                page_content=text,
+                metadata={
+                    "thread_id": thread_id,
+                    "source": filename,
+                    "page": page_num,
+                    "total_pages": len(reader.pages),
+                    "file_type": "pdf",
+                    "extraction_method": extraction_method,
+                }
+            ))
+    finally:
+        if ocr_pdf is not None:
+            ocr_pdf.close()
+
     return docs
 
 
