@@ -211,3 +211,63 @@ def retrieve_from_rag(query: str, thread_id: str, k: int = 4) -> str:
         results.append(f"{label}\n{doc.page_content}")
 
     return "\n\n".join(results)
+
+
+def get_document_chunks(source: str, thread_id: str) -> List[Document]:
+    """Return every stored chunk for one uploaded file in one conversation.
+
+    This deliberately reads the Chroma collection directly instead of using
+    similarity search, which would omit chunks unrelated to a query.
+    """
+    source = (source or "").strip()
+    thread_id = (thread_id or "").strip()
+    if not source:
+        raise ValueError("A file name is required to summarize a document.")
+    if not thread_id:
+        raise ValueError("A conversation ID is required to find the document.")
+
+    result = vectorstore._collection.get(
+        where={"$and": [{"thread_id": thread_id}, {"source": source}]},
+        include=["documents", "metadatas"],
+    )
+    contents = result.get("documents") or []
+    metadatas = result.get("metadatas") or []
+    docs = [
+        Document(page_content=content, metadata=metadata or {})
+        for content, metadata in zip(contents, metadatas)
+        if isinstance(content, str) and content.strip()
+    ]
+
+    if not docs:
+        raise ValueError(
+            f'No content found for "{source}" in this conversation. '
+            "Check the file name or upload the file first."
+        )
+
+    # page orders PDF pages; start_index restores chunk order within a page.
+    # chunk_index is retained as a fallback for records without start_index.
+    docs.sort(key=lambda doc: (
+        _sort_number(doc.metadata.get("page")),
+        _sort_number(doc.metadata.get("start_index")),
+        _sort_number(doc.metadata.get("chunk_index")),
+    ))
+    return docs
+
+
+def _sort_number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def list_document_sources(thread_id: str) -> List[str]:
+    """List distinct filenames uploaded in a conversation."""
+    result = vectorstore._collection.get(
+        where={"thread_id": thread_id}, include=["metadatas"]
+    )
+    return sorted({
+        metadata.get("source")
+        for metadata in (result.get("metadatas") or [])
+        if metadata and metadata.get("source")
+    }, key=str.casefold)

@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from database import save_memory, search_memory
-from rag import retrieve_from_rag
+from rag import get_document_chunks, list_document_sources, retrieve_from_rag
+from summarization import summarize_documents
 
 
 load_dotenv()
@@ -80,13 +81,57 @@ def search_uploaded_documents(query: str) -> str:
     Use this tool when the user:
     - Asks about an uploaded PDF, DOCX, TXT, Markdown, CSV, or Python file.
     - Says "according to the document / file / report / paper ...".
-    - Asks to summarize, explain, or find specific information from an upload.
+    - Asks to explain or find specific information from an upload.
     - References "the file I uploaded" or "the document you have".
 
+    For a summary of an entire file, use summarize_uploaded_document instead.
     Do NOT use this for general knowledge questions that do not relate to an
     uploaded file. Returns the most relevant passages found in the documents.
     """
     return retrieve_from_rag(query=query, thread_id=CURRENT_THREAD_ID)
+
+
+@tool
+def summarize_uploaded_document(filename: str = "") -> str:
+    """Summarize the complete contents of one uploaded file in this conversation.
+
+    Use this when the user asks for a summary of an entire uploaded document or
+    file. Pass its exact filename when it is named or clearly identified in the
+    conversation. If only one file is uploaded, an empty filename selects that
+    file. If several files exist and the user has not identified one, call with
+    an empty filename to return a clarification request. Never combine files.
+    """
+    sources = list_document_sources(CURRENT_THREAD_ID)
+    if not sources:
+        return "No uploaded documents were found in this conversation."
+
+    requested = (filename or "").strip().strip('"\'')
+    if not requested:
+        if len(sources) != 1:
+            names = ", ".join(f'"{source}"' for source in sources)
+            return f"Which file should I summarize? Files in this conversation: {names}."
+        selected = sources[0]
+    else:
+        exact = [source for source in sources if source.casefold() == requested.casefold()]
+        if len(exact) == 1:
+            selected = exact[0]
+        else:
+            partial = [source for source in sources if requested.casefold() in source.casefold()]
+            if len(partial) == 1:
+                selected = partial[0]
+            elif len(partial) > 1:
+                names = ", ".join(f'"{source}"' for source in partial)
+                return f"The file name matches multiple uploads. Which one did you mean: {names}?"
+            else:
+                names = ", ".join(f'"{source}"' for source in sources)
+                return f'No uploaded file named "{requested}" was found. Available files: {names}.'
+
+    try:
+        chunks = get_document_chunks(selected, CURRENT_THREAD_ID)
+        summary = summarize_documents(chunks)
+    except Exception as exc:
+        return f'Could not summarize "{selected}": {exc}'
+    return f'Summary of "{selected}" (all {len(chunks)} stored chunks):\n\n{summary}'
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +181,7 @@ def recall_memory(query: str) -> str:
 tools = [
     calculator,
     search_uploaded_documents,
+    summarize_uploaded_document,
     remember_this,
     recall_memory,
     web_search,
