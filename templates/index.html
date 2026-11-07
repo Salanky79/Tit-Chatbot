@@ -1014,7 +1014,7 @@
         const cleanQuestions = questions
             .filter(question => typeof question === "string" && question.trim())
             .slice(0, 2);
-        if (cleanQuestions.length !== 2) return;
+        if (cleanQuestions.length !== 2) return false;
 
         const oldSuggestions = assistantMessage.parentElement.nextElementSibling;
         if (oldSuggestions && oldSuggestions.classList.contains("followup-suggestions")) {
@@ -1045,6 +1045,21 @@
 
         assistantMessage.parentElement.insertAdjacentElement("afterend", container);
         chatContainer.scrollTop = chatContainer.scrollHeight;
+        return true;
+    }
+
+    function buildFallbackFollowups(message) {
+        const text = String(message || "");
+        const isVietnamese = /[À-ỹ]|\b(tôi|toi|bạn|ban|thời tiết|thoi tiet|như nào|nhu nao)\b/i.test(text);
+        return isVietnamese
+            ? [
+                "Bạn có thể giải thích kỹ hơn về câu hỏi vừa rồi không?",
+                "Bạn có thể đưa ra một ví dụ cụ thể liên quan đến chủ đề này không?"
+            ]
+            : [
+                "Could you explain the previous answer in more detail?",
+                "Could you give a concrete example related to this topic?"
+            ];
     }
 
     function detectLikelyTool(message) {
@@ -1315,6 +1330,7 @@
         const botElement = addMessage("assistant", "");
 
         let firstTokenReceived = false;
+        let followupSuggestionsShown = false;
 
         function handleStreamData(data) {
             if (!data) return;
@@ -1324,7 +1340,8 @@
             }
 
             if (Array.isArray(data.suggestions)) {
-                addFollowupSuggestions(data.suggestions, botElement);
+                followupSuggestionsShown = addFollowupSuggestions(data.suggestions, botElement)
+                    || followupSuggestionsShown;
             }
 
             if (data.token !== undefined && data.token !== null) {
@@ -1357,6 +1374,13 @@
             }
 
             if (data.done) {
+                if (!followupSuggestionsShown) {
+                    followupSuggestionsShown = addFollowupSuggestions(
+                        buildFallbackFollowups(submittedMessage),
+                        botElement
+                    );
+                }
+
                 if (likelyTool && toolProgress && !firstTokenReceived) {
                     completeToolProgress(toolProgress, likelyTool);
                 }
@@ -1389,11 +1413,19 @@
                 }
 
                 botElement.textContent = errorText;
+                followupSuggestionsShown = addFollowupSuggestions(
+                    buildFallbackFollowups(submittedMessage),
+                    botElement
+                );
                 return;
             }
 
             if (!response.body) {
                 botElement.textContent = "Streaming is not supported by this browser.";
+                followupSuggestionsShown = addFollowupSuggestions(
+                    buildFallbackFollowups(submittedMessage),
+                    botElement
+                );
                 return;
             }
 
@@ -1442,6 +1474,12 @@
 
             botElement.dataset.raw = "**Something went wrong:** " + error.message;
             renderMarkdown(botElement, botElement.dataset.raw);
+            if (!followupSuggestionsShown) {
+                followupSuggestionsShown = addFollowupSuggestions(
+                    buildFallbackFollowups(submittedMessage),
+                    botElement
+                );
+            }
 
         } finally {
             sendBtn.disabled = false;

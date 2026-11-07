@@ -1,4 +1,4 @@
-"""Generate optional follow-up prompts for a completed assistant response."""
+"""Generate two follow-up suggestions for each chat turn."""
 
 from __future__ import annotations
 
@@ -29,19 +29,109 @@ def _response_text(response) -> str:
     return ""
 
 
+def _clean_question(question: str) -> str:
+    question = re.sub(r"^\s*(?:[-*•]+\s*|\d+[.)、]\s*)", "", question)
+    question = question.strip().strip("`\"' “”‘’")
+    if question and not question.endswith(("?", "？")):
+        question += "?"
+    return question
+
+
+def _parse_questions(raw: str) -> list[str]:
+    """Parse JSON, numbered lines, or two plain questions from model output."""
+    text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.I)
+    candidates: list[str] = []
+
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            payload = payload.get("questions", payload.get("followups", []))
+        if isinstance(payload, list):
+            candidates.extend(item for item in payload if isinstance(item, str))
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    if not candidates:
+        # This also handles two questions that the model puts on one line.
+        candidates = re.findall(r"[^?？\n]*[?？]", text)
+
+    if len(candidates) < 2:
+        question_lines = [
+            line for line in text.splitlines()
+            if line.strip().endswith(("?", "？"))
+        ]
+        if len(question_lines) >= 2:
+            candidates = question_lines
+
+    if len(candidates) < 2:
+        # Accept exactly two non-empty lines even if punctuation was omitted.
+        plain_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(plain_lines) == 2:
+            candidates = plain_lines
+
+    questions = []
+    for candidate in candidates:
+        question = _clean_question(candidate)
+        if question and question.casefold() not in {q.casefold() for q in questions}:
+            questions.append(question)
+        if len(questions) == 2:
+            break
+    return questions if len(questions) == 2 else []
+
+
+def fallback_followup_questions(user_message: str) -> list[str]:
+    """Return two local suggestions when the follow-up model is unavailable."""
+    text = re.sub(r"\[\s*Attached\s+(?:file|image):[^\]]+\]", " ", user_message or "", flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip().rstrip("?？.!。 ")
+
+    vietnamese = bool(re.search(
+        r"[À-ỹ]|\b(tôi|toi|bạn|ban|minh|cho tôi|cho toi|thời tiết|thoi tiet|như nào|nhu nao|làm sao|lam sao|giúp|giup|không|khong)\b",
+        text,
+        re.I,
+    ))
+    if vietnamese:
+        topic = re.sub(
+            r"^(?:cho (?:tôi|toi) (?:biết|biet|hỏi|hoi|xem)|(?:tôi|toi) muốn biết|giúp (?:tôi|toi)|giup (?:tôi|toi)|hãy|hay)\s+",
+            "",
+            text,
+            flags=re.I,
+        ).strip()
+        topic = topic[:70].rstrip(" ,;:")
+        if topic:
+            return [
+                f"Bạn có thể giải thích cụ thể hơn về {topic} bằng một ví dụ không?",
+                f"Có lưu ý hoặc trường hợp đặc biệt nào liên quan đến {topic}?",
+            ]
+        return [
+            "Bạn có thể giải thích kỹ hơn câu trả lời vừa rồi không?",
+            "Bạn có thể đưa ra một ví dụ cụ thể liên quan đến câu hỏi này không?",
+        ]
+
+    topic = re.sub(
+        r"^(?:can you tell me|tell me|please explain|please|how do i|what is)\s+",
+        "",
+        text,
+        flags=re.I,
+    ).strip()[:70].rstrip(" ,;:")
+    if topic:
+        return [
+            f"Could you explain {topic} with a concrete example?",
+            f"What important details or exceptions should I know about {topic}?",
+        ]
+    return [
+        "Could you explain the answer in more detail?",
+        "Could you give a concrete example related to this question?",
+    ]
+
+
 def generate_followup_questions(
     user_message: str,
     assistant_answer: str,
     model_name: str,
 ) -> list[str]:
-    """Ask the selected chat model for exactly two relevant follow-up questions.
-
-    Suggestions are optional: API, parsing, or model errors return an empty list
-    and never fail the completed chat response.
-    """
-    # Không gọi thêm LLM nếu agent không tạo được câu trả lời.
+    """Generate exactly two relevant follow-up questions, with a local fallback."""
     if not assistant_answer.strip():
-        return []
+        return fallback_followup_questions(user_message)
 
     # Giới hạn độ dài context để lượt sinh câu hỏi không gửi lại toàn bộ lịch sử
     # dài. Giữ phần cuối vì thường chứa nội dung câu trả lời mới nhất.
@@ -91,22 +181,11 @@ def generate_followup_questions(
             # Đóng gói câu hỏi và câu trả lời vừa tạo thành context JSON.
             HumanMessage(content=json.dumps(context, ensure_ascii=False)),
         ])
-        # Lấy text từ phản hồi model, rồi kiểm tra/chuẩn hóa thành list hai câu.
         raw = _response_text(response)
-
-        questions = [
-            line.strip().lstrip("-•0123456789.) ")
-            for line in raw.splitlines()
-            if line.strip()
-        ]
-
-        questions = questions[:2] if len(questions) >= 2 else []
-
-        if len(questions) != 2:
-            logger.warning("Follow-up model returned an unrecognized format.")
-        return questions
+        questions = _parse_questions(raw)
+        if len(questions) == 2:
+            return questions
+        logger.warning("Follow-up model returned an unrecognized format; using fallback.")
     except Exception as exc:
-        # Gợi ý là tính năng phụ: nếu API/model lỗi thì trả [] để không làm hỏng
-        # câu trả lời chính đã được gửi cho người dùng.
         logger.warning("Follow-up generation failed: %s", exc)
-        return []
+    return fallback_followup_questions(user_message)

@@ -24,7 +24,7 @@ from langchain_core.messages import (
 )
 
 from agent import get_agent, normalize_model_name
-from followups import generate_followup_questions
+from followups import generate_followup_questions, fallback_followup_questions
 from database import (
     init_db,
     save_chat_message,
@@ -282,6 +282,7 @@ async def chat_stream(request: Request):
 
     def event_generator():
         final_answer = ""
+        stream_error = None
 
         try:
             inputs = {
@@ -306,21 +307,29 @@ async def chat_stream(request: Request):
 
             if final_answer.strip():
                 save_chat_message(thread_id, "assistant", final_answer)
-                # Gợi ý câu hỏi follow-up / yield: response SSE cho frontend biết rằng gợi ý đang được tạo ra
-                yield sse_data({"suggestions_pending": True})
+        except Exception as e:
+            stream_error = e
+            yield sse_data({"error": str(e)})
+
+        # Mỗi lượt chat hợp lệ luôn kết thúc bằng đúng hai gợi ý. Khi Agent bị
+        # lỗi, dùng gợi ý cục bộ để không gọi thêm LLM trong lúc API đang lỗi.
+        yield sse_data({"suggestions_pending": True})
+        if stream_error:
+            questions = fallback_followup_questions(user_message)
+        else:
+            try:
                 questions = generate_followup_questions(
                     user_message=user_message,
                     assistant_answer=final_answer,
                     model_name=followup_model,
                 )
-                if len(questions) == 2:
-                    yield sse_data({"suggestions": questions})
+            except Exception:
+                questions = fallback_followup_questions(user_message)
 
-            yield sse_data({"done": True})
-
-        except Exception as e:
-            yield sse_data({"error": str(e)})
-            yield sse_data({"done": True})
+        if len(questions) != 2:
+            questions = fallback_followup_questions(user_message)
+        yield sse_data({"suggestions": questions})
+        yield sse_data({"done": True})
 
     return StreamingResponse(
         event_generator(),
