@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+from typing import Annotated
+from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
 import certifi                  # Cung cấp chứng chỉ SSL/TLS chuẩn để verify HTTPS an toàn
@@ -12,14 +14,32 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 from langchain_groq import ChatGroq
 # Định dạng tin nhắn hệ thống (System Prompt) cho mô hình
-from langchain_core.messages import SystemMessage
-from langgraph.graph import StateGraph, START, MessagesState
+from langchain_core.messages import SystemMessage, BaseMessage
+from langgraph.graph import StateGraph, START
+from langgraph.graph.message import add_messages
 # ToolNode: Node chạy các công cụ; tools_condition: Điều kiện rẽ nhánh kiểm tra xem LLM có gọi tool không
 from langgraph.prebuilt import ToolNode, tools_condition
 # MongoDBSaver: Lưu trạng thái và lịch sử hội thoại vào MongoDB để duy trì ngữ cảnh nhiều lượt chat
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from mongo_client import get_client
 from tools import tools
+from context_manager import (
+    prepare_context_for_llm,
+    DEFAULT_MAX_HISTORY_TURNS,
+    DEFAULT_MAX_CONTEXT_TOKENS,
+    DEFAULT_EXPECTED_OUTPUT_TOKENS,
+)
+
+
+class AgentState(TypedDict, total=False):
+    """Trạng thái hội thoại mở rộng cho Agentic Chatbot:
+
+    - messages: Danh sách tin nhắn trò chuyện được cộng dồn (add_messages).
+    - conversation_summary: Bản tóm tắt các lượt hội thoại cũ đã được trim,
+      giúp duy trì ngữ cảnh dài hạn mà không làm tràn context window.
+    """
+    messages: Annotated[list[BaseMessage], add_messages]
+    conversation_summary: str
 
 
 # Update default and allowed models to use Gemini 2.5
@@ -46,6 +66,7 @@ General rules:
 - After using a tool, summarize the result clearly and concisely.
 - Be friendly, structured, and easy to understand.
 - When code or math is involved, use proper formatting.
+- Answer the user's latest question directly. Never repeat, quote, or output internal conversation summaries or background context unless explicitly asked by the user.
 """
 
 
@@ -102,26 +123,39 @@ def build_agent(model_name: str):
     # Khai báo các công cụ (tools) cho mô hình để LLM có thể chủ động kích hoạt Function Calling
     llm_with_tools = llm.bind_tools(tools)
 
-    def chatbot_node(state: MessagesState):
+    def chatbot_node(state: AgentState):
         """
         Node xử lý hội thoại của Chatbot:
-        - Ghép SYSTEM_PROMPT vào đầu danh sách tin nhắn để luôn duy trì vai trò và chỉ dẫn hệ thống.
-        - Gọi LLM kèm theo các công cụ đã bind để sinh ra câu trả lời hoặc lệnh gọi tool.
-        - Trả về tin nhắn mới để cập nhật vào trạng thái (state).
+        Thực hiện tuần tự 4 bước tối ưu ngữ cảnh & token trước khi gọi LLM:
+        1. Trimming conversation history: Giới hạn số lượt chat đưa vào LLM, tóm tắt các lượt cũ.
+        2. Loại bỏ tool results cũ: Loại bỏ kết quả web search, RAG hoặc nội dung tool dài
+           không liên quan từ các lượt đã hoàn thành.
+        3. Tách context theo tác vụ: Đảm bảo prompt đưa vào LLM hoàn toàn tập trung vào hội thoại.
+        4. Giới hạn token trước mỗi lần gọi LLM: Tính cả system prompt, lịch sử, tool schemas,
+           tài liệu và output dự kiến; tự động trim / chia nhỏ nếu quá giới hạn.
         """
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+        existing_summary = state.get("conversation_summary", "")
 
-        response = llm_with_tools.invoke(messages)
+        final_messages, updated_summary = prepare_context_for_llm(
+            messages=state.get("messages", []),
+            system_prompt=SYSTEM_PROMPT,
+            tools=tools,
+            existing_summary=existing_summary,
+            model_name=selected_model,
+        )
+
+        response = llm_with_tools.invoke(final_messages)
 
         return {
-            "messages": [response]
+            "messages": [response],
+            "conversation_summary": updated_summary,
         }
 
     # Node phụ trách thực thi các tool khi mô hình yêu cầu
     tool_node = ToolNode(tools)
 
-    # Khởi tạo đồ thị trạng thái quản lý chuỗi tin nhắn MessagesState
-    workflow = StateGraph(MessagesState)
+    # Khởi tạo đồ thị trạng thái quản lý AgentState
+    workflow = StateGraph(AgentState)
 
     # Đăng ký các node vào đồ thị
     workflow.add_node("chatbot", chatbot_node)

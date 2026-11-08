@@ -1,728 +1,585 @@
-# Tit Chatbot — Agentic AI Chatbot with RAG
+# Tit Chatbot — Agentic AI Chatbot with RAG & Context Optimization
 
-Tit Chatbot là chatbot AI được xây dựng bằng Python. Ứng dụng hướng tới trải nghiệm trò chuyện có thể sử dụng công cụ (tools), tìm kiếm thông tin trong tài liệu người dùng tải lên (Retrieval-Augmented Generation — RAG), lưu lịch sử hội thoại và stream câu trả lời ra giao diện theo từng phần.
+Tit Chatbot là một hệ thống chatbot AI toàn diện, đa phương thức (Multimodal Agentic AI) được phát triển bằng **Python 3.12+**, **FastAPI**, **LangGraph**, **Groq LLM**, **ChromaDB**, và **MongoDB**. 
 
+Hệ thống được thiết kế hướng tới khả năng tự chủ của Agent: tự động lập luận và gọi công cụ (Function Calling), hỏi đáp thông minh trên tài liệu cá nhân (RAG), tóm tắt văn bản dài đệ quy (Recursive Map-Reduce Summarization), phân tích hình ảnh (Vision AI), ghi nhớ ngữ cảnh dài hạn (Long-term Memory), và stream phản hồi theo thời gian thực (Server-Sent Events — SSE).
+
+Đặc biệt, dự án tích hợp **Bộ Tối Ưu Hóa Ngữ Cảnh & Ngân Sách Token (`context_manager.py`)** giúp giải quyết triệt để các bài toán thường gặp của Agentic AI: phình to ngữ cảnh, cạn kiệt token, tràn context window và vượt ngưỡng rate-limit (TPM) của nhà cung cấp LLM.
+
+---
 
 ## Mục lục
 
-- [1. Tổng quan](#1-tổng-quan)
-- [2. Chức năng chính](#2-chức-năng-chính)
-- [3. Công nghệ sử dụng](#3-công-nghệ-sử-dụng)
-- [4. Kiến trúc dự án](#4-kiến-trúc-dự-án)
-- [5. Luồng xử lý tin nhắn](#5-luồng-xử-lý-tin-nhắn)
-- [6. Agent, LangGraph và tools](#6-agent-langgraph-và-tools)
-- [7. RAG: hỏi đáp trên tài liệu tải lên](#7-rag-hỏi-đáp-trên-tài-liệu-tải-lên)
-- [8. Bộ nhớ và cơ sở dữ liệu](#8-bộ-nhớ-và-cơ-sở-dữ-liệu)
-- [9. Streaming: async, await, yield và chunk](#9-streaming-async-await-yield-và-chunk)
-- [10. Các API endpoint](#10-các-api-endpoint)
-- [11. Cài đặt và chạy ứng dụng](#11-cài-đặt-và-chạy-ứng-dụng)
-- [12. Cấu hình biến môi trường](#12-cấu-hình-biến-môi-trường)
-- [13. Thư mục và dữ liệu được tạo](#13-thư-mục-và-dữ-liệu-được-tạo)
-- [14. Giới hạn hiện tại và việc cần kiểm tra](#14-giới-hạn-hiện-tại-và-việc-cần-kiểm-tra)
-- [15. Từ điển thuật ngữ](#15-từ-điển-thuật-ngữ)
+- [1. Kiến trúc tổng thể hệ thống](#1-kiến-trúc-tổng-thể-hệ-thống)
+- [2. Luồng xử lý End-to-End (Workflow)](#2-luồng-xử-lý-end-to-end-workflow)
+  - [2.1. Luồng hội thoại thời gian thực (SSE Stream)](#21-luồng-hội-thoại-thời-gian-thực-sse-stream)
+  - [2.2. Luồng tải lên và xử lý tài liệu đa định dạng (RAG & OCR)](#22-luồng-tải-lên-và-xử-lý-tài-liệu-đa-định-dạng-rag--ocr)
+  - [2.3. Luồng tóm tắt văn bản dài đệ quy (Map-Reduce Pipeline)](#23-luồng-tóm-tắt-văn-bản-dài-đệ-quy-map-reduce-pipeline)
+  - [2.4. Luồng phân tích hình ảnh (Vision AI)](#24-luồng-phân-tích-hình-ảnh-vision-ai)
+  - [2.5. Luồng sinh câu hỏi gợi ý thông minh (Follow-up Suggestions)](#25-luồng-sinh-câu-hỏi-gợi-ý-thông-minh-follow-up-suggestions)
+- [3. Bộ Tối Ưu Hóa Ngữ Cảnh & Ngân Sách Token (Core Feature)](#3-bộ-tối-ưu-hóa-ngữ-cảnh--ngân-sách-token-core-feature)
+  - [Bước 1: Trimming conversation history (Cắt tỉa & Tóm tắt lượt cũ)](#bước-1-trimming-conversation-history-cắt-tỉa--tóm-tắt-lượt-cũ)
+  - [Bước 2: Loại bỏ tool results cũ (Pruning Old Tool Results)](#bước-2-loại-bỏ-tool-results-cũ-pruning-old-tool-results)
+  - [Bước 3: Tách context theo tác vụ (Task Context Isolation)](#bước-3-tách-context-theo-tác-vụ-task-context-isolation)
+  - [Bước 4: Kiểm soát token trước khi gọi LLM (Token Budget Enforcement)](#bước-4-kiểm-soát-token-trước-khi-gọi-llm-token-budget-enforcement)
+- [4. Chi tiết các Module & Thành phần trong Codebase](#4-chi-tiết-các-module--thành-phần-trong-codebase)
+  - [4.1. Web Server & API Gateway (`app.py`)](#41-web-server--api-gateway-apppy)
+  - [4.2. LangGraph Agent Orchestrator (`agent.py`)](#42-langgraph-agent-orchestrator-agentpy)
+  - [4.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)](#43-quản-lý-ngữ-cảnh--token-context_managerpy)
+  - [4.4. Hệ thống 7 Công cụ Agent (`tools.py`)](#44-hệ-thống-7-công-cụ-agent-toolspy)
+  - [4.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)](#45-xử-lý-tài-liệu-ocr--vector-store-ragpy)
+  - [4.6. Tóm tắt đệ quy Map-Reduce (`summarization.py`)](#46-tóm-tắt-đệ-quy-map-reduce-summarizationpy)
+  - [4.7. Thị giác máy tính (`image_analysis.py`)](#47-thị-giác-máy-tính-image_analysispy)
+  - [4.8. Sinh gợi ý tiếp nối (`followups.py`)](#48-sinh-gợi-ý-tiếp-nối-followupspy)
+  - [4.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)](#49-cơ-sở-dữ-liệu-mongodb-dal-databasepy--mongo_clientpy)
+  - [4.10. Giao diện người dùng Web (`templates/index.html`)](#410-giao-diện-người-dùng-web-templatesindexhtml)
+- [5. Bảng công nghệ & Thư viện sử dụng](#5-bảng-công-nghệ--thư-viện-sử-dụng)
+- [6. Cấu trúc thư mục dự án](#6-cấu-trúc-thư-mục-dự-án)
+- [7. Các API Endpoints](#7-các-api-endpoints)
+- [8. Hướng dẫn cài đặt và khởi chạy](#8-hướng-dẫn-cài-đặt-và-khởi-chạy)
+- [9. Cấu hình biến môi trường (`.env`)](#9-cấu-hình-biến-môi-trường-env)
+- [10. Kiểm thử tự động (Test Suite)](#10-kiểm-thử-tự-động-test-suite)
+- [11. Từ điển thuật ngữ](#11-từ-điển-thuật-ngữ)
 
 ---
 
-## 1. Tổng quan
+## 1. Kiến trúc tổng thể hệ thống
 
-Tit Chatbot là một ứng dụng chatbot có kiến trúc backend/frontend:
+Hệ thống được tổ chức theo kiến trúc phân tầng dạng module, tách biệt rõ ràng giữa tầng giao diện, tầng gateway, tầng điều phối Agent, tầng tối ưu context và tầng lưu trữ:
 
-- **Frontend:** trang web HTML/Jinja2 và JavaScript để người dùng gửi tin nhắn, xem câu trả lời, xem hội thoại và tải tài liệu lên.
-- **Backend:** FastAPI nhận request từ frontend, gọi AI agent, lưu dữ liệu và trả kết quả.
-- **AI agent:** LangGraph điều phối LLM và các tools. Tùy yêu cầu, agent có thể trả lời trực tiếp hoặc gọi công cụ.
-- **RAG:** tài liệu được đọc, chia thành các đoạn nhỏ (*chunks*), biến thành embedding và lưu trong ChromaDB để tìm các đoạn liên quan khi đặt câu hỏi.
-- **Database:** SQLite lưu hội thoại, tin nhắn và các ghi nhớ dài hạn.
-- **Streaming:** câu trả lời được gửi ra frontend từng phần thông qua Server-Sent Events (SSE), thay vì đợi toàn bộ câu trả lời mới hiển thị.
+```mermaid
+flowchart TD
+    subgraph ClientLayer ["Client Layer (Trình duyệt)"]
+        UI["Web UI: HTML5, CSS3, JS<br/>(Markdown, Syntax Highlight, Voice Input, SSE Client)"]
+    end
 
-### Mục tiêu thiết kế
+    subgraph GatewayLayer ["Gateway Layer (FastAPI app.py)"]
+        Router["FastAPI Routes & Middlewares"]
+        SSEGen["SSE Event Generator"]
+        Filter["Chunk Filter (should_stream_chunk)"]
+    end
 
-1. Trò chuyện với LLM qua giao diện web.
-2. Hỗ trợ agent gọi tools để thực hiện các tác vụ ngoài việc sinh văn bản trực tiếp.
-3. Hỏi đáp dựa trên nội dung tài liệu đã tải lên.
-4. Lưu lịch sử hội thoại để người dùng xem lại.
-5. Lưu các ghi nhớ tách biệt theo hội thoại/thread.
-6. Hiển thị câu trả lời theo thời gian thực nhờ streaming.
+    subgraph AgentLayer ["Agentic Orchestration (LangGraph agent.py)"]
+        GraphState["AgentState: messages + conversation_summary"]
+        ChatbotNode["Chatbot Node (ChatGroq)"]
+        Condition{"tools_condition"}
+        ToolNode["ToolNode (LangGraph Prebuilt)"]
+    end
 
-## 2. Chức năng chính
+    subgraph OptimizationLayer ["Context Optimization (context_manager.py)"]
+        S1["(1) Trimming turns & Tóm tắt lượt cũ"]
+        S2["(2) Loại bỏ tool results cũ khỏi completed turns"]
+        S3["(3) Tách context theo tác vụ chuyên biệt"]
+        S4["(4) Kiểm soát token budget trước khi invoke"]
+    end
 
-### 2.1. Chat với AI
+    subgraph ToolsLayer ["Execution Engines & Tools"]
+        T1["calculator"]
+        T2["search_uploaded_documents (RAG)"]
+        T3["summarize_uploaded_document (Map-Reduce)"]
+        T4["analyze_uploaded_image (Vision)"]
+        T5["remember_this & recall_memory"]
+        T6["web_search (Tavily Search)"]
+    end
 
-Người dùng nhập tin nhắn trên giao diện. Frontend gửi nội dung và `thread_id` tới backend. Backend gọi agent, nhận các phần nội dung AI tạo ra và stream chúng về frontend.
+    subgraph StorageLayer ["Persistence & Vector Database"]
+        MongoDB[("MongoDB Atlas<br/>• conversations<br/>• chat_messages<br/>• long_term_memory<br/>• Checkpoints")]
+        ChromaDB[("ChromaDB Vector Store<br/>Embeddings local CPU")]
+        LocalFiles[("Local Storage<br/>uploads/ & temp files")]
+    end
 
-### 2.2. Agent sử dụng tools
+    UI <-->|HTTP / SSE Stream| Router
+    Router --> SSEGen
+    SSEGen --> Filter
+    Filter <--> AgentLayer
 
-Agent có thể được cung cấp các công cụ như:
+    AgentLayer --> OptimizationLayer
+    OptimizationLayer --> ChatbotNode
+    ChatbotNode --> Condition
+    Condition -->|Cần gọi Tool| ToolNode
+    Condition -->|Hoàn tất| SSEGen
+    ToolNode --> ToolsLayer
+    ToolsLayer --> ChatbotNode
 
-- **Calculator:** tính các biểu thức toán học được hỗ trợ.
-- **Search uploaded documents:** truy xuất nội dung liên quan từ tài liệu đã tải lên bằng RAG.
-- **Remember:** lưu một thông tin vào bộ nhớ dài hạn.
-- **Recall memory:** lấy các ghi nhớ đã lưu của hội thoại.
-- **Web search:** tìm kiếm thông tin trên web thông qua Tavily, nếu API key và cấu hình hợp lệ.
-
-LLM quyết định khi nào cần gọi tool dựa trên ngữ cảnh và định nghĩa tool. LangGraph điều phối quá trình gọi tool và đưa kết quả trở lại cho LLM để tiếp tục tạo câu trả lời.
-
-### 2.3. Tải tài liệu lên
-
-Các định dạng được endpoint upload cho phép theo đoạn code hiện tại:
-
-- PDF: `.pdf`
-- Word: `.docx`
-- Text: `.txt`
-- Markdown: `.md`
-- Python: `.py`
-- CSV: `.csv`
-
-Sau khi nhận file, backend lưu file vào thư mục `uploads/`, đọc nội dung, chia thành chunks, tạo embedding và thêm dữ liệu vào ChromaDB cùng metadata như `thread_id` và tên file. Các định dạng được chấp nhận còn phụ thuộc vào thư viện đọc file đã được cài đặt.
-
-PDF scan không có lớp text sẽ được xử lý bằng OCR: Tit thử trích text thông thường trước, sau đó dùng PyMuPDF/Tesseract cho trang scan hoặc có ít text. Ngôn ngữ mặc định là tiếng Việt và tiếng Anh (`vie+eng`). OCR có thể nhận dạng chữ viết tay, công thức hoặc ảnh mờ không chính xác; hãy kiểm tra lại các con số và ký hiệu quan trọng.
-
-### 2.4. Truy xuất tài liệu bằng RAG
-
-Khi agent cần hỏi đáp trên tài liệu, tool RAG thực hiện tìm kiếm tương đồng trong ChromaDB và ưu tiên lấy các chunk có metadata `thread_id` trùng với hội thoại hiện tại. Nhờ vậy, trong cấu hình hiện tại, việc truy xuất được giới hạn theo thread thay vì mặc định lấy mọi tài liệu trong collection.
-
-### 2.5. Lưu lịch sử và bộ nhớ
-
-SQLite được sử dụng để lưu:
-
-- Danh sách hội thoại và tiêu đề.
-- Tin nhắn của người dùng và assistant.
-- Các ghi nhớ dài hạn gắn với `thread_id`.
-
-Ngoài database của ứng dụng, LangGraph có thể dùng SQLite checkpoint để lưu trạng thái thực thi của graph theo `thread_id`. Đây là một cơ chế khác với việc lưu lịch sử chat và cũng khác với kho vector RAG.
-
-### 2.6. Streaming câu trả lời
-
-Backend gửi các sự kiện SSE có dạng gần như:
-
-```text
-data: {"token": "Xin "}
-
-data: {"token": "chào bạn"}
-
-data: {"done": true}
-
+    AgentLayer <-->|State Checkpoint| MongoDB
+    Router <-->|Lưu chat & history| MongoDB
+    ToolsLayer <-->|Query & Read| ChromaDB
+    ToolsLayer <-->|Read File / Image| LocalFiles
 ```
 
-Frontend có thể nhận và hiển thị từng phần câu trả lời khi chúng đến. Backend đồng thời nối các phần văn bản lại để lưu câu trả lời hoàn chỉnh vào database sau khi stream kết thúc.
+---
 
-## 3. Công nghệ sử dụng
+## 2. Luồng xử lý End-to-End (Workflow)
 
-| Thành phần | Công nghệ / thư viện | Vai trò |
+### 2.1. Luồng hội thoại thời gian thực (SSE Stream)
+1. **Người dùng nhập tin nhắn:** Client gửi `POST /chat/stream` chứa `message`, `thread_id`, và `model` đã chọn.
+2. **Khởi tạo và lưu vết:**
+   - FastAPI (`app.py`) ghi nhận hoặc cập nhật cuộc hội thoại (`create_or_update_conversation`).
+   - Tin nhắn của người dùng được lưu vào collection `chat_messages` của MongoDB.
+   - Luồng kích hoạt `set_current_thread_id(thread_id)` để mọi công cụ bên trong đều nắm được thread hiện hành.
+3. **Gọi Agent qua LangGraph:**
+   - Graph tải trạng thái `AgentState` từ MongoDB Checkpointer ứng với `thread_id`.
+   - Node `chatbot` tiếp nhận danh sách tin nhắn.
+4. **Tiền xử lý tối ưu hóa Context (`context_manager.py`):**
+   - **Trimming:** Giữ $N$ lượt gần nhất (`MAX_HISTORY_TURNS = 4`), tóm tắt các lượt cũ đưa vào `SystemMessage`.
+   - **Pruning:** Xóa kết quả công cụ cũ (web search, RAG) từ các lượt trước; chỉ giữ lượt hỏi-đáp sạch.
+   - **Enforce Budget:** Tính toán tổng token (System + Tools + History + Output) và cắt ngắn nếu vượt ngưỡng `MAX_CONTEXT_TOKENS = 6000`.
+5. **LLM xử lý và rẽ nhánh:**
+   - `llm_with_tools.invoke(final_messages)`: ChatGroq suy luận.
+   - Nếu LLM sinh `tool_calls` $\rightarrow$ `tools_condition` chuyển sang `tool_node` $\rightarrow$ công cụ thực thi $\rightarrow$ kết quả `ToolMessage` quay lại `chatbot` để LLM tổng hợp lời giải.
+   - Nếu LLM sinh văn bản cuối cùng $\rightarrow$ kết thúc graph.
+6. **Streaming & Gợi ý tiếp nối:**
+   - `should_stream_chunk` lọc bỏ các gói tin kỹ thuật, chỉ stream văn bản thuần qua SSE: `data: {"token": "..."}`.
+   - Lưu câu trả lời của Assistant vào MongoDB `chat_messages`.
+   - Kích hoạt `generate_followup_questions` sinh 2 gợi ý câu hỏi tiếp theo và stream về client: `data: {"suggestions": [...]}`.
+
+---
+
+### 2.2. Luồng tải lên và xử lý tài liệu đa định dạng (RAG & OCR)
+
+```mermaid
+flowchart TD
+    Upload([Người dùng Upload File / Ảnh]) --> Endpoint["POST /upload (app.py)"]
+    Endpoint --> CheckType{Kiểm tra đuôi file}
+
+    CheckType -->|Ảnh: JPG, PNG, WEBP| ImageFlow["_looks_like_image & Kiểm tra <= 14MB"]
+    ImageFlow --> SaveImg["Lưu vào uploads/ và gọi add_image_to_rag"]
+    SaveImg --> ChromaImg["Lưu Document vào ChromaDB (file_type: image)"]
+
+    CheckType -->|Tài liệu: PDF, DOCX, TXT, MD, PY, CSV| DocFlow["Lưu vào uploads/"]
+    DocFlow --> Dispatcher["_load_documents (rag.py)"]
+    
+    Dispatcher -->|PDF| PDFReader["_read_pdf (pypdf + PyMuPDF OCR fallback)"]
+    Dispatcher -->|DOCX| DOCXReader["_read_docx (docx2txt)"]
+    Dispatcher -->|TXT/MD/PY/CSV| TextReader["_read_text (UTF-8)"]
+
+    PDFReader --> CheckScan{Số ký tự < 40?}
+    CheckScan -->|Đúng| PyMuPDF["Kích hoạt PyMuPDF OCR (Tesseract DPI 300, vie+eng)"]
+    CheckScan -->|Sai| NativeText["Lấy text trực tiếp từ trang PDF"]
+
+    PyMuPDF --> Splitter["RecursiveCharacterTextSplitter (chunk_size=900, overlap=150)"]
+    NativeText --> Splitter
+    DOCXReader --> Splitter
+    TextReader --> Splitter
+
+    Splitter --> Embeddings["HuggingFaceEmbeddings (paraphrase-multilingual local CPU)"]
+    Embeddings --> ChromaDocs["Lưu vào ChromaDB kèm metadata (thread_id, page, source, index)"]
+    ChromaDocs --> Response["Trả JSON: success, chunks count, pages count"]
+```
+
+---
+
+### 2.3. Luồng tóm tắt văn bản dài đệ quy (Map-Reduce Pipeline)
+
+Khi người dùng yêu cầu tóm tắt toàn bộ file (ví dụ sách, tiểu luận, giáo trình):
+1. Tool `summarize_uploaded_document` kiểm tra tên file cần tóm tắt trong thread hiện tại.
+2. Hàm `get_document_chunks` đọc **toàn bộ các chunk** của file trong ChromaDB (sắp xếp tuần tự theo `page`, `start_index`, `chunk_index`), không dùng similarity search để tránh bỏ sót thông tin.
+3. Chuyển giao các chunk cho pipeline [`summarize_documents`](file:///d:/Tit-Chatbot/summarization.py#L107):
+   - **Tách biệt ngữ cảnh tuyệt đối (Step 3):** Hàm `validate_and_isolate_summarization_context` lọc sạch các chunk, chỉ truyền nội dung tài liệu và metadata trang vào pipeline, **tuyệt đối không đưa lịch sử chat vào**.
+   - **Pha Map:** Chia chunks thành các nhóm nhỏ theo ngân sách `effective_chunk_budget`. Mỗi nhóm được LLM tóm tắt trung thực, bảo toàn các định nghĩa, số liệu và kết luận cốt lõi.
+   - **Pha Reduce:** Gom các bản tóm tắt trung gian thành nhóm mới và tiếp tục gọi LLM gộp lại. Quá trình này lặp đệ quy qua từng cấp độ (`level 1`, `level 2`,...) cho đến khi chỉ còn đúng 1 bản tóm tắt hoàn chỉnh duy nhất.
+4. Trả kết quả tóm tắt về cho Agent. Khi đưa vào `ToolMessage`, cơ chế Step 4 sẽ kiểm soát ngân sách token để không làm tràn context của Agent.
+
+---
+
+### 2.4. Luồng phân tích hình ảnh (Vision AI)
+1. Người dùng đặt câu hỏi về hình ảnh (ví dụ: *"Bức ảnh này vẽ biểu đồ gì?", "Đọc văn bản trong ảnh"*).
+2. Agent kích hoạt tool `analyze_uploaded_image(question, filename)`.
+3. Hàm tìm đường dẫn ảnh đã upload thuộc `thread_id` hiện hành.
+4. [`analyze_image`](file:///d:/Tit-Chatbot/image_analysis.py#L25) thực hiện:
+   - Đọc bytes, kiểm tra kích thước ($\le 14\text{ MB}$), chuyển đổi thành chuỗi Base64 Data URL.
+   - **Kiểm soát token:** Giới hạn câu hỏi $\le 400$ token để không làm tràn cửa sổ ngữ cảnh của model thị giác.
+   - **Tách context tác vụ:** Prompt thị giác hoàn toàn độc lập, chỉ gồm ảnh và câu hỏi trực quan.
+   - Gọi mô hình Vision (`qwen/qwen3.8-27b` hoặc cấu hình qua `GROQ_VISION_MODEL`) để sinh lời giải thích chi tiết.
+
+---
+
+### 2.5. Luồng sinh câu hỏi gợi ý thông minh (Follow-up Suggestions)
+1. Ngay sau khi câu trả lời chính hoàn thành stream, `app.py` gọi hàm [`generate_followup_questions`](file:///d:/Tit-Chatbot/followups.py#L149).
+2. **Tối ưu hóa token:**
+   - Loại bỏ các khối code dài ````...```` bằng `[Code snippet omitted]` và gỡ bỏ các attachment thô.
+   - Cắt tỉa `user_message` xuống tối đa 250 token và `assistant_answer` xuống tối đa 500 token.
+   - Giúp tiết kiệm hơn **70% token** so với việc gửi nguyên văn văn bản dài.
+3. LLM sinh đúng 2 câu hỏi tiếp nối mang tính gợi mở, phân tích theo tiếng Việt hoặc tiếng Anh tương ứng với ngôn ngữ người dùng.
+4. Nếu gặp sự cố mạng hoặc lỗi API, hệ thống tự động kích hoạt `fallback_followup_questions` tạo 2 gợi ý cục bộ bằng biểu thức chính quy (Regex) mà không cần gọi API.
+
+---
+
+## 3. Bộ Tối Ưu Hóa Ngữ Cảnh & Ngân Sách Token (Core Feature)
+
+Module [`context_manager.py`](file:///d:/Tit-Chatbot/context_manager.py) triển khai 4 bước chuẩn mực theo đúng thứ tự logic:
+
+```mermaid
+flowchart LR
+    M[Messages từ MongoDB State] --> Step1["(1) Trimming turns<br/>Tóm tắt các lượt cũ"]
+    Step1 --> Step2["(2) Loại bỏ tool results cũ<br/>Xóa dumps khỏi completed turns"]
+    Step2 --> Step3["(3) Tách context tác vụ<br/>Cách ly Map-Reduce & Vision"]
+    Step3 --> Step4["(4) Kiểm soát Token Budget<br/>Tính toán tổng & Trim an toàn"]
+    Step4 --> LLM[ChatGroq Invoke]
+```
+
+### Bước 1: Trimming conversation history (Cắt tỉa & Tóm tắt lượt cũ)
+- **Hàm:** `group_messages_into_turns`, `summarize_old_messages`, `trim_conversation_history`.
+- **Cơ chế:**
+  - Nhóm tin nhắn thành các lượt hội thoại (`turns`).
+  - Giữ lại tối đa `DEFAULT_MAX_HISTORY_TURNS = 4` lượt gần nhất trong bộ nhớ tích cực.
+  - Các lượt cũ hơn được chuyển cho hàm `summarize_old_messages` để tóm tắt thành các gạch đầu dòng ngắn gọn (bảo toàn sở thích, thông tin cá nhân, tên riêng, nội dung cốt lõi).
+  - Bản tóm tắt được lưu vào `AgentState.conversation_summary`, tự động đồng bộ vào MongoDB Checkpoint và đưa vào đầu prompt qua `SystemMessage`.
+  - Có cơ chế **Local Extractive Fallback** đảm bảo hệ thống không gián đoạn khi LLM tóm tắt gặp sự cố mạng.
+
+### Bước 2: Loại bỏ tool results cũ (Pruning Old Tool Results)
+- **Hàm:** `prune_old_tool_results`.
+- **Cơ chế:**
+  - **Active Turn (Lượt đang diễn ra):** Từ `HumanMessage` cuối cùng trở đi, nếu có `AIMessage(tool_calls)` và `ToolMessage` vừa được trả về, chúng **bắt buộc được giữ nguyên 100%** để LLM đọc và tổng hợp câu trả lời.
+  - **Completed Turns (Các lượt trong quá khứ đã kết thúc):** Kết quả web search, RAG chunks hay memory dumps của các lượt cũ đã được Assistant tổng hợp xong ở lượt trước. Hàm sẽ loại bỏ toàn bộ `ToolMessage` và `AIMessage(tool_calls)` trung gian cũ, chỉ giữ lại cặp `HumanMessage` và `AIMessage(final answer)`.
+  - Giảm thiểu ngay lập tức từ **2.000 đến 6.000+ token thừa** trong mỗi request tiếp theo!
+
+### Bước 3: Tách context theo tác vụ (Task Context Isolation)
+- **Hàm:** `validate_and_isolate_summarization_context`.
+- **Cơ chế:**
+  - Đảm bảo các tác vụ chuyên biệt không bị "nhiễm" ngữ cảnh trò chuyện:
+    - **Tóm tắt PDF Map-Reduce:** Chỉ nhận tài liệu và SystemMessage hướng dẫn tóm tắt trung thực, tuyệt đối không nhận chat history.
+    - **Thị giác máy tính (Vision AI):** Chỉ nhận ảnh và câu hỏi trực quan, loại bỏ các lịch sử chat trước đó.
+    - **Sinh câu hỏi gợi ý:** Chỉ nhận tóm tắt ngắn của lượt trao đổi gần nhất, đã lọc sạch code blocks và file dumps thô.
+
+### Bước 4: Kiểm soát token trước khi gọi LLM (Token Budget Enforcement)
+- **Hàm:** `estimate_tokens`, `estimate_message_tokens`, `estimate_tool_schemas_tokens`, `calculate_token_breakdown`, `enforce_token_budget`.
+- **Công thức tính toán tổng token:**
+  $$\text{Total Tokens} = T_{\text{system}} + T_{\text{tool\_schemas}} + T_{\text{history}} + T_{\text{tool\_results}} + \text{Reserved Output}$$
+- **Quy tắc ước tính token an toàn:**
+  Sử dụng chặn trên `ceil(len(text) / 3.0)` cho cả tiếng Việt và tiếng Anh mà không phụ thuộc vào tokenizer ngoài (tránh lỗi tải mạng khi chạy sandbox).
+- **Cơ chế can thiệp khi $\text{Total Tokens} > \text{MAX\_CONTEXT\_TOKENS}$ (6.000 tokens):**
+  1. **Rút gọn Tool Results:** Nếu kết quả công cụ đang chạy vượt quá `MAX_TOOL_RESULT_TOKENS = 1800`, tự động cắt ngắn và bổ sung thông báo rút gọn.
+  2. **Cắt tỉa tin nhắn cũ:** Lần lượt loại bỏ các tin nhắn cũ từ đầu danh sách cho đến khi vừa vặn ngân sách, đồng thời đảm bảo không làm đứt gãy cặp tin nhắn gọi tool của lượt hiện tại.
+
+---
+
+## 4. Chi tiết các Module & Thành phần trong Codebase
+
+### 4.1. Web Server & API Gateway (`app.py`)
+- Khởi tạo FastAPI application, cấu hình Jinja2 templates (`templates/index.html`).
+- Tạo các thư mục cần thiết: `uploads/`, `data/`.
+- Quản lý các endpoint RESTful: tải file (`/upload`), xem danh sách hội thoại (`/conversations`), xem lịch sử tin nhắn (`/history/{thread_id}`).
+- Stream Server-Sent Events qua endpoint `/chat/stream`:
+  - `should_stream_chunk`: Ngăn chặn rò rỉ metadata, tên node, ToolMessage hay tool_calls lên màn hình.
+  - `extract_text_from_chunk`: Trích xuất chuỗi văn bản từ cấu trúc chuỗi hoặc danh sách text chunk của LangChain.
+  - Tự động kích hoạt luồng sinh câu hỏi gợi ý sau khi stream câu trả lời xong.
+
+### 4.2. LangGraph Agent Orchestrator (`agent.py`)
+- Quản lý danh sách mô hình cho phép: `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `openai/gpt-oss-120b`.
+- Hàm `normalize_model_name`: Chuẩn hóa và fallback về model mặc định nếu người dùng truyền model không hợp lệ.
+- Cấu trúc trạng thái mở rộng:
+  ```python
+  class AgentState(TypedDict, total=False):
+      messages: Annotated[list[BaseMessage], add_messages]
+      conversation_summary: str
+  ```
+- Node `chatbot_node`: Gọi `prepare_context_for_llm` trước khi gọi mô hình ChatGroq đã được gắn 7 tools bằng `bind_tools`.
+- Cấu hình `MongoDBSaver`: Lưu checkpoint của graph vào database MongoDB Atlas (`tit_chatbot_checkpoints`), duy trì bộ nhớ đa phiên.
+- Hệ thống Caching `_AGENT_CACHE`: Đảm bảo mỗi model chỉ biên dịch StateGraph một lần duy nhất.
+
+### 4.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)
+- Cung cấp toàn bộ các hàm cốt lõi cho 4 bước tối ưu hóa ngữ cảnh và ngân sách token.
+- Đóng vai trò là "người gác cổng" kiểm tra và định dạng prompt trước khi bất kỳ lệnh gọi LLM nào được thực thi.
+
+### 4.4. Hệ thống 7 Công cụ Agent (`tools.py`)
+- Quản lý biến toàn cục `CURRENT_THREAD_ID` và hàm `set_current_thread_id`.
+- Danh sách 7 công cụ được trang bị docstring chi tiết hỗ trợ Function Calling:
+  1. `calculator(expression: str)`: Đánh giá biểu thức toán học qua hàm `eval` an toàn (chỉ cho phép thư viện `math` và các hàm số học cơ bản).
+  2. `search_uploaded_documents(query: str)`: Truy vấn RAG tài liệu theo thread.
+  3. `summarize_uploaded_document(filename: str)`: Tóm tắt trọn vẹn tài liệu đã tải lên bằng Map-Reduce.
+  4. `analyze_uploaded_image(question: str, filename: str)`: Phân tích ảnh tải lên bằng Vision model.
+  5. `remember_this(memory: str)`: Lưu thông tin cần ghi nhớ vào MongoDB.
+  6. `recall_memory(query: str)`: Tra cứu các mục ghi nhớ đã lưu.
+  7. `web_search`: Công cụ tìm kiếm web thời gian thực qua Tavily Search API.
+
+### 4.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)
+- Khởi tạo `HuggingFaceEmbeddings` chạy cục bộ trên CPU với `local_files_only=True`, loại bỏ hoàn toàn hiện tượng thử lại kết nối mạng gây treo hệ thống khi offline.
+- Quản lý ChromaDB vectorstore tại thư mục `chroma_db_hf`.
+- Đọc tài liệu:
+  - `_read_pdf`: Trích xuất text từng trang; tự động kích hoạt PyMuPDF + Tesseract OCR khi số ký tự $< 40$ (hỗ trợ song ngữ `vie+eng` ở độ phân giải 300 DPI).
+  - `_read_docx`: Dùng `docx2txt`.
+  - `_read_text`: Đọc file UTF-8 (`.txt`, `.md`, `.py`, `.csv`).
+- Chunking: `RecursiveCharacterTextSplitter` với `chunk_size=900`, `chunk_overlap=150`, bảo tồn metadata: `thread_id`, `source`, `page`, `chunk_index`, `start_index`.
+- Các hàm tra cứu: `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `add_image_to_rag`, `list_uploaded_images`.
+
+### 4.6. Tóm tắt đệ quy Map-Reduce (`summarization.py`)
+- Định nghĩa ngân sách tóm tắt: `DEFAULT_INPUT_TOKEN_BUDGET = 6000`, `SUMMARY_OUTPUT_TOKENS = 1200`.
+- Hàm `_groups_by_budget`: Đóng gói các đoạn văn bản vào từng nhóm dựa theo ngân sách token thực tế đã trừ hao overhead.
+- Hàm `summarize_documents`:
+  - Thực hiện xác thực và cô lập ngữ cảnh qua `validate_and_isolate_summarization_context`.
+  - Thực hiện pha Map song song trên từng nhóm.
+  - Thực hiện đệ quy pha Reduce nhiều tầng cho đến khi đạt được bản tóm tắt cuối cùng.
+  - Đảm bảo tính toàn vẹn: nếu bất kỳ pass nào lỗi thì raise error, không bao giờ trả về bản tóm tắt cụt lủn.
+
+### 4.7. Thị giác máy tính (`image_analysis.py`)
+- Giới hạn kích thước ảnh: $\le 14\text{ MB}$.
+- Hỗ trợ các định dạng: `.jpg`, `.jpeg`, `.png`, `.webp`.
+- Hàm `analyze_image`:
+  - Kiểm soát token câu hỏi trực quan: $\le 400$ token.
+  - Đóng gói ảnh thành chuỗi Base64 Data URL.
+  - Gọi ChatGroq Vision model với `max_tokens=1200`.
+
+### 4.8. Sinh gợi ý tiếp nối (`followups.py`)
+- Hàm `generate_followup_questions`:
+  - Lọc code blocks và dữ liệu thừa bằng `_clean_content_for_followup`.
+  - Giới hạn token đầu vào (user $\le 250$, assistant $\le 500$).
+  - Gọi ChatGroq sinh đúng 2 câu hỏi tiếp nối.
+  - Parse kết quả linh hoạt từ JSON, numbered list hoặc regex.
+- Hàm `fallback_followup_questions`: Thuật toán sinh câu hỏi gợi ý cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
+
+### 4.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)
+- Singleton Client trong `mongo_client.py` sử dụng chứng chỉ an toàn `certifi` và Google DNS (`8.8.8.8`) cho truy vấn SRV.
+- Tạo index tự động:
+  - `conversations`: index duy nhất trên `thread_id`, index giảm dần trên `updated_at`.
+  - `chat_messages`: index kép trên `thread_id` và `created_at`.
+  - `long_term_memory`: index trên `thread_id` và Text Index trên trường `memory`.
+- Các hàm nghiệp vụ: `create_or_update_conversation`, `list_conversations`, `save_chat_message`, `get_chat_history`, `save_memory`, `search_memory`.
+
+### 4.10. Giao diện người dùng Web (`templates/index.html`)
+- Giao diện hiện đại tông màu tối (Dark Theme), tương thích mọi kích thước màn hình.
+- Tích hợp Marked.js phân tích cú pháp Markdown và Highlight.js tô màu cú pháp code.
+- Tính năng:
+  - Nhập liệu bằng giọng nói (Speech-to-Text / Voice Dictation).
+  - Kéo-thả hoặc đính kèm tài liệu và ảnh.
+  - Hiển thị thanh tiến trình trực quan khi AI gọi công cụ (`addToolProgress`).
+  - Hiển thị danh sách 2 câu hỏi gợi ý dưới dạng clickable pills.
+  - Quản lý danh sách lịch sử các cuộc hội thoại ở sidebar bên trái.
+
+---
+
+## 5. Bảng công nghệ & Thư viện sử dụng
+
+| Tên thư viện | Phiên bản | Mục đích sử dụng |
 |---|---|---|
-| Ngôn ngữ | Python | Logic backend và agent |
-| Web backend | FastAPI | Xây dựng API và xử lý request |
-| ASGI server | Uvicorn | Chạy ứng dụng FastAPI |
-| Template | Jinja2 | Render trang HTML |
-| Agent orchestration | LangGraph | Điều phối các node và vòng lặp gọi tools |
-| LLM integration | LangChain chat model integration | Kết nối tới mô hình ngôn ngữ |
-| Tools | LangChain tools / ToolNode | Đóng gói và thực thi công cụ |
-| RAG orchestration | LangChain | Chia văn bản, tạo documents và truy xuất |
-| Vector store | ChromaDB | Lưu vector embedding và tìm kiếm tương đồng |
-| Embeddings | Hugging Face Sentence Transformers, nếu dùng cấu hình local hiện tại | Biến văn bản thành vector |
-| Database | SQLite + SQLAlchemy | Lưu hội thoại, messages và memory |
-| Web search | Tavily | Tìm kiếm web qua tool |
-| Streaming | Server-Sent Events (SSE) | Gửi dữ liệu từ backend tới frontend theo từng phần |
-| Cấu hình | python-dotenv | Đọc biến môi trường từ `.env` |
+| `fastapi` | 0.136.3 | Framework xây dựng RESTful API tốc độ cao |
+| `uvicorn` | 0.48.0 | ASGI web server chạy ứng dụng FastAPI |
+| `jinja2` | 3.1.6 | Template engine render trang HTML |
+| `python-multipart` | 0.0.29 | Xử lý dữ liệu form và file upload |
+| `python-dotenv` | 1.2.2 | Quản lý biến môi trường từ file `.env` |
+| `langchain` | 1.3.2 | Framework xây dựng ứng dụng LLM |
+| `langchain-core` | >= 1.7.0 | Định nghĩa Messages, Tools, Runnable |
+| `langgraph` | 1.2.2 | Điều phối workflow dạng đồ thị trạng thái Agentic |
+| `langchain-groq` | Mới nhất | Tích hợp các mô hình suy luận tốc độ cao của Groq |
+| `langgraph-checkpoint-mongodb` | >= 0.5.1 | Lưu trữ trạng thái phiên chat vào MongoDB |
+| `pymongo` | >= 4.18.2 | Trình điều khiển kết nối MongoDB chính thức |
+| `langchain-chroma` | 1.1.0 | Vectorstore lưu trữ và tìm kiếm vector tương đồng |
+| `chromadb` | 1.5.9 | Cơ sở dữ liệu vector mã nguồn mở |
+| `langchain-huggingface` | Mới nhất | Mô hình Sentence Transformers embeddings local |
+| `pypdf` | 6.12.2 | Trích xuất văn bản từ tài liệu PDF |
+| `pymupdf` | >= 1.24 | Mở PDF và xử lý OCR nâng cao |
+| `docx2txt` | 0.9 | Trích xuất văn bản từ tài liệu Microsoft Word (.docx) |
+| `langchain-tavily` | 0.2.18 | Công cụ tìm kiếm web thời gian thực qua Tavily API |
+| `certifi` | Mới nhất | Cung cấp chứng chỉ SSL/TLS CA chuẩn |
 
-> Provider LLM sinh câu trả lời và provider embedding là hai thành phần độc lập. Ví dụ, chatbot có thể dùng Groq cho chat LLM nhưng dùng một model Sentence Transformers chạy local để tạo embedding.
+---
 
-## 4. Kiến trúc dự án
-
-Cấu trúc logic của dự án:
+## 6. Cấu trúc thư mục dự án
 
 ```text
-Tit/
-├── app.py                 # FastAPI: routes, upload, chat streaming
-├── agent.py               # LLM + LangGraph workflow + checkpointing
-├── tools.py               # Calculator, RAG, memory và web-search tools
-├── rag.py                 # Đọc tài liệu, chia chunks, embeddings, ChromaDB
-├── database.py            # SQLite/SQLAlchemy: conversations, messages, memory
+Tit-Chatbot/
+├── app.py                         # FastAPI routes, file upload, SSE streaming
+├── agent.py                       # LangGraph agent, AgentState, MongoDBSaver
+├── context_manager.py             # Bộ tối ưu hóa ngữ cảnh và kiểm soát token
+├── summarization.py               # Thuật toán tóm tắt văn bản dài đệ quy Map-Reduce
+├── followups.py                   # Bộ sinh 2 câu hỏi gợi ý thông minh
+├── image_analysis.py              # Xử lý hình ảnh và thị giác máy tính với Groq Vision
+├── tools.py                       # Registry và hiện thực 7 công cụ của Agent
+├── rag.py                         # Đọc file, OCR scan, text chunking, ChromaDB
+├── database.py                    # Tầng DAL tương tác với MongoDB
+├── mongo_client.py                # MongoDB Client Singleton và cấu hình Index
 ├── templates/
-│   └── index.html         # Giao diện HTML/Jinja2 và JavaScript phía client
-├── uploads/               # Các file người dùng tải lên
-├── data/                  # SQLite database và LangGraph checkpoint database
-├── chroma_db_hf/          # Ví dụ thư mục lưu vectorstore với embedding local
-├── .env                   # API keys và model config; không commit lên Git
-└── README.md
+│   └── index.html                 # Giao diện web người dùng đầy đủ tính năng
+├── uploads/                       # Thư mục lưu trữ file và ảnh upload
+├── chroma_db_hf/                  # Thư mục lưu trữ vectorstore ChromaDB
+├── tests/                         # Bộ kiểm thử tự động toàn diện (27 unit tests)
+│   ├── test_context_manager.py
+│   ├── test_agent_workflow.py
+│   ├── test_summarization_integration.py
+│   └── test_followups_and_vision.py
+├── .env                           # Biến môi trường và khóa bí mật API
+├── requirements.txt               # Danh sách thư viện phụ thuộc
+└── README.md                      # Tài liệu kỹ thuật chi tiết của dự án
 ```
 
-Tên thư mục database/vectorstore có thể khác tùy phiên bản code đang chạy. Chỉ giữ trong README những đường dẫn đang thực sự được dùng trong code hiện tại.
-
-### Vai trò từng file
-
-#### `app.py` — Web backend
-
-- Tạo ứng dụng FastAPI.
-- Render trang chủ từ `templates/index.html`.
-- Cung cấp endpoint lấy danh sách hội thoại và lịch sử.
-- Nhận file tải lên và gọi hàm thêm tài liệu vào RAG.
-- Nhận tin nhắn, gọi agent và stream nội dung bằng SSE.
-- Lưu message người dùng và câu trả lời assistant vào database.
-
-#### `agent.py` — Bộ điều phối AI
-
-- Khởi tạo chat model.
-- Gắn các tools vào LLM bằng `bind_tools(...)`.
-- Tạo graph với `StateGraph` và trạng thái messages.
-- Dùng `ToolNode` để chạy tool calls.
-- Dùng điều kiện như `tools_condition` để quyết định AI trả lời tiếp hay cần gọi tool.
-- Compile graph và có thể cấu hình SQLite checkpointer để lưu trạng thái theo `thread_id`.
-
-#### `tools.py` — Các công cụ agent có thể gọi
-
-- Định nghĩa calculator.
-- Gọi hàm truy xuất tài liệu trong `rag.py`.
-- Gọi hàm lưu và tìm memory trong `database.py`.
-- Khởi tạo web-search tool thông qua Tavily.
-- Đăng ký các tools trong một danh sách để agent sử dụng.
-
-#### `rag.py` — Xử lý tài liệu và truy xuất
-
-- Đọc nội dung từ file PDF, DOCX, TXT, Markdown, Python và CSV.
-- Chia văn bản thành chunks bằng `RecursiveCharacterTextSplitter`.
-- Tạo `Document` objects có nội dung và metadata.
-- Thêm documents vào ChromaDB.
-- Tìm các chunk liên quan đến truy vấn và lọc theo `thread_id`.
-
-#### `database.py` — Dữ liệu ứng dụng
-
-Các bảng đã được mô tả trong code gồm:
-
-- `conversations`: thông tin hội thoại, `thread_id`, tiêu đề và thời gian.
-- `chat_messages`: nội dung từng tin nhắn, vai trò và thời gian.
-- `long_term_memory`: các ghi nhớ được lưu cho một thread.
-
-Các hàm hỗ trợ gồm khởi tạo bảng, tạo/cập nhật hội thoại, liệt kê hội thoại, lưu message, đọc lịch sử, lưu memory và tìm memory.
-
-#### `templates/index.html` — Frontend
-
-- Hiển thị giao diện chat.
-- Thu thập nội dung người dùng nhập.
-- Gửi request tới backend.
-- Nhận dữ liệu streaming và nối các đoạn text hiển thị lên màn hình.
-- Gửi file tải lên và hiển thị kết quả trả về từ API.
-
-## 5. Luồng xử lý tin nhắn
-
-Luồng cơ bản khi người dùng gửi một tin nhắn:
-
-```text
-Người dùng
-   |
-   v
-Frontend (index.html + JavaScript)
-   |  POST /chat/stream
-   |  message + thread_id + model
-   v
-FastAPI (app.py)
-   |  kiểm tra dữ liệu request
-   |  tạo/cập nhật conversation và lưu user message
-   |  lấy agent theo model
-   v
-LangGraph agent (agent.py)
-   |
-   +---- LLM trả lời trực tiếp ---------------------+
-   |                                                |
-   +---- LLM yêu cầu gọi tool                       |
-            |                                       |
-            v                                       |
-        ToolNode / tools.py                         |
-            |                                       |
-            +---- calculator                        |
-            +---- RAG / ChromaDB                    |
-            +---- memory / SQLite                   |
-            +---- web search / Tavily               |
-            |                                       |
-            +---- kết quả quay lại LLM -------------+
-                                                    |
-                                                    v
-                                        AI tạo câu trả lời
-                                                    |
-                                                    v
-                              app.py stream từng chunk qua SSE
-                                                    |
-                                                    v
-                                    Frontend hiển thị dần
-                                                    |
-                                                    v
-                                  Lưu câu trả lời assistant
-```
-
-### `thread_id` dùng để làm gì?
-
-`thread_id` là định danh của một hội thoại. Nó giúp ứng dụng biết message thuộc cuộc trò chuyện nào, và được dùng trong một số cơ chế lưu trạng thái/truy xuất dữ liệu.
-
-- Database dùng `thread_id` để gắn conversation, messages và memory với một hội thoại.
-- LangGraph checkpointer dùng `thread_id` để xác định trạng thái graph tương ứng.
-- RAG dùng `thread_id` trong metadata filter để giới hạn các tài liệu được truy xuất.
-
-Trong code upload, `uuid.uuid4()` được dùng để tạo `file_id` duy nhất cho tên file. Đây **không đồng nghĩa** với việc tạo `thread_id` của cuộc hội thoại. `thread_id` thường được frontend tạo hoặc lấy từ hội thoại hiện tại rồi gửi lên backend; hãy xác nhận logic cụ thể trong `index.html`.
-
-## 6. Agent, LangGraph và tools
-
-### 6.1. LLM không tự động chạy mọi tool
-
-LLM có thể phát ra một yêu cầu gọi tool. Phần điều phối của LangGraph nhận yêu cầu đó, chuyển tới node chạy tool, rồi đưa kết quả tool về lại LLM. LLM có thể tiếp tục xử lý kết quả và tạo câu trả lời cuối cùng.
-
-Ví dụ hỏi “2 + 2 bằng mấy?”:
-
-1. Người dùng gửi câu hỏi.
-2. LLM xác định calculator phù hợp và tạo tool call.
-3. `ToolNode` thực thi calculator.
-4. Calculator trả về `4`.
-5. Kết quả được đưa trở lại LLM.
-6. LLM tạo câu trả lời như “Kết quả là 4.”
-7. Backend stream câu trả lời phù hợp ra frontend.
-
-### 6.2. Các thành phần LangGraph thường gặp
-
-- **State:** dữ liệu hiện tại của workflow. Với `MessagesState`, trọng tâm là danh sách messages.
-- **Node:** một bước xử lý trong graph, ví dụ node chatbot hoặc node tools.
-- **Edge:** xác định bước nào được thực hiện tiếp theo.
-- **Conditional edge:** chọn đường đi dựa trên kết quả hiện tại, ví dụ có tool call hay không.
-- **ToolNode:** thực thi các tools được LLM yêu cầu.
-- **Checkpointer:** lưu checkpoint trạng thái graph để có thể tiếp tục theo cùng thread.
-- **`bind_tools(tools)`:** cung cấp mô tả và schema của tools cho model; thao tác này không có nghĩa model đã thực thi tool.
-
-Ví dụ mô hình workflow:
-
-```text
-START -> chatbot
-            |
-            +-- cần gọi tool --> tools --> chatbot
-            |
-            +-- không cần tool --> END
-```
-
-Tên node, edge và điều kiện thực tế phụ thuộc vào code `agent.py`.
-
-### 6.3. Phân biệt checkpoint, chat history, memory và RAG
-
-Đây là bốn khái niệm khác nhau:
-
-| Thành phần | Lưu gì? | Dùng để làm gì? |
-|---|---|---|
-| Chat history (`chat_messages`) | Các tin nhắn đã lưu | Hiển thị lại lịch sử hội thoại |
-| Long-term memory (`long_term_memory`) | Những thông tin được tool lưu có chủ đích | Ghi nhớ thông tin qua các lượt chat trong phạm vi được thiết kế |
-| LangGraph checkpoint | Trạng thái thực thi graph | Khôi phục/tiếp tục trạng thái theo thread |
-| ChromaDB / RAG | Embeddings và nội dung chunks từ tài liệu | Tìm các đoạn tài liệu liên quan tới câu hỏi |
-
-Checkpointer không tự động đồng nghĩa với việc hệ thống đã có chức năng tóm tắt lịch sử hội thoại. Muốn có summarization cần xây dựng thêm logic tương ứng.
-
-## 7. RAG: hỏi đáp trên tài liệu tải lên
-
-### 7.1. RAG hoạt động như thế nào?
-
-RAG (Retrieval-Augmented Generation) kết hợp tìm kiếm thông tin với sinh văn bản:
-
-1. **Upload:** người dùng tải tài liệu lên.
-2. **Read:** backend đọc nội dung từ file.
-3. **Chunking:** chia nội dung thành đoạn nhỏ hơn.
-4. **Embedding:** chuyển mỗi đoạn thành vector số biểu diễn ngữ nghĩa.
-5. **Indexing:** lưu vector, nội dung và metadata trong ChromaDB.
-6. **Query:** người dùng đặt câu hỏi.
-7. **Retrieval:** tạo embedding cho câu hỏi và tìm các chunk gần về ngữ nghĩa.
-8. **Context:** tool đưa nội dung tìm được cho LLM.
-9. **Generation:** LLM sử dụng nội dung đó để trả lời.
-
-### 7.2. Chunking
-
-Code đã trao đổi dùng `RecursiveCharacterTextSplitter` với các tham số ví dụ:
-
-```python
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=900,
-    chunk_overlap=150
-)
-```
-
-- `chunk_size=900`: mục tiêu kích thước mỗi chunk theo đơn vị mà splitter sử dụng (mặc định thường là ký tự).
-- `chunk_overlap=150`: hai chunk liên tiếp có thể lặp lại khoảng 150 ký tự để giảm nguy cơ mất ngữ cảnh ở ranh giới đoạn.
-
-Kích thước và overlap là cấu hình có thể điều chỉnh, không phải giá trị tối ưu cho mọi tài liệu.
-
-### 7.3. Embeddings và ChromaDB
-
-Cấu hình embedding local đã được đề cập:
-
-```python
-from langchain_huggingface import HuggingFaceEmbeddings
-
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    model_kwargs={"device": "cpu"}
-)
-```
-
-Model này chạy cục bộ trên CPU theo cấu hình trên. Lần đầu sử dụng, model có thể cần tải về cache của Hugging Face; những lần sau thư viện thường sử dụng bản cache thay vì tải lại, miễn là cache còn và môi trường cho phép truy cập.
-
-Một cấu hình Chroma tương ứng đã được trao đổi:
-
-```python
-vectorstore = Chroma(
-    collection_name="agentic_chatbot_docs_hf",
-    embedding_function=embeddings,
-    persist_directory="chroma_db_hf"
-)
-```
-
-Tên collection và đường dẫn trên chỉ đúng nếu code hiện tại đang sử dụng chính xác cấu hình đó.
-
-**Quan trọng:** chuyển sang embedding model khác thường cần tạo lại embeddings cho tài liệu trong collection mới. Vì vậy, nếu thay từ Gemini embeddings sang Hugging Face embeddings, cần index lại hoặc upload tài liệu lại vào collection mới. Không nên giả định vector được tạo bởi hai model embedding khác nhau có thể dùng thay thế trực tiếp cho nhau.
-
-### 7.4. Phân vùng tài liệu theo thread
-
-Mỗi chunk được lưu metadata, ví dụ:
-
-```python
-metadata = {
-    "thread_id": thread_id,
-    "source": Path(file_path).name
-}
-```
-
-Khi truy xuất:
-
-```python
-docs = vectorstore.similarity_search(
-    query,
-    k=4,
-    filter={"thread_id": thread_id}
-)
-```
-
-- `k=4`: yêu cầu tối đa bốn chunk phù hợp (nếu có).
-- `filter`: giới hạn kết quả theo `thread_id`.
-- `source`: giúp biết chunk lấy từ file nào.
-
-Collection Chroma có thể chứa documents của nhiều thread; metadata filter tạo ranh giới truy xuất logic. Tuy nhiên, metadata filter không thay thế việc kiểm soát quyền truy cập ở backend. Ứng dụng nhiều người dùng cần xác thực danh tính và kiểm tra quyền sở hữu thread/tài liệu ở phía server.
-
-## 8. Bộ nhớ và cơ sở dữ liệu
-
-### 8.1. SQLite và SQLAlchemy
-
-SQLite lưu dữ liệu trong file database; SQLAlchemy cung cấp lớp làm việc với các bảng và records bằng Python.
-
-Cấu trúc thường gồm:
-
-- `engine`: cấu hình kết nối đến database.
-- `SessionLocal`: bộ tạo database session.
-- `db`: một session cụ thể dùng cho thao tác đọc/ghi.
-- `commit()`: xác nhận thay đổi để lưu.
-- `close()`: đóng session và giải phóng tài nguyên liên quan.
-
-### 8.2. Ba bảng chính
-
-#### `conversations`
-
-Lưu thông tin hội thoại như `thread_id`, tiêu đề, thời điểm tạo và cập nhật.
-
-#### `chat_messages`
-
-Lưu tin nhắn theo `thread_id`, với các trường như `role`, `content`, `created_at`. Vai trò thường là `user` hoặc `assistant`.
-
-Ví dụ:
-
-| role | content |
-|---|---|
-| `user` | `2 + 2 bằng mấy?` |
-| `assistant` | `Kết quả là 4.` |
-
-`assistant` chỉ là nhãn xác định bên tạo nội dung, không phải một biến chứa mô hình AI.
-
-#### `long_term_memory`
-
-Lưu các ghi nhớ do tool `remember_this` ghi vào. Theo code đã trao đổi, memory được gắn với `thread_id`, nên phạm vi ghi nhớ là từng thread chứ không tự động chia sẻ giữa tất cả các cuộc trò chuyện.
-
-Một điểm cần lưu ý: hàm `search_memory(thread_id, query)` trong phiên bản code đã thảo luận lọc theo thread nhưng chưa sử dụng `query` để tìm kiếm ngữ nghĩa/nội dung thực sự. Nếu điều này chưa thay đổi, chức năng recall hiện tại không phải semantic memory search.
-
-## 9. Streaming: async, await, yield và chunk
-
-### 9.1. `async` và `await`
-
-Ví dụ trong FastAPI:
-
-```python
-async def chat_stream(request: Request):
-    data = await request.json()
-```
-
-- `async def`: khai báo một hàm bất đồng bộ (*coroutine function*).
-- `await`: chờ một thao tác bất đồng bộ có thể chờ được, ở đây là đọc và phân tích JSON request.
-- `async` không tự chờ tất cả thao tác; `await` xác định cụ thể chỗ cần chờ.
-- Trong lúc chờ I/O bất đồng bộ, event loop có thể cho tác vụ khác chạy.
-
-### 9.2. `yield`
-
-Trong generator:
-
-```python
-def event_generator():
-    yield "part 1"
-    yield "part 2"
-```
-
-`yield` đưa ra một giá trị và tạm dừng generator tại đó. Khi bên gọi yêu cầu phần tiếp theo, generator tiếp tục chạy. Điều này phù hợp với việc stream nhiều phần dữ liệu.
-
-`return` thì khác: trả kết quả và kết thúc hàm (trong generator, `return` kết thúc quá trình sinh các phần tử).
-
-### 9.3. `chunk` là gì?
-
-`chunk` là một phần dữ liệu được tạo ra trong quá trình streaming. Mỗi chunk có thể chứa một phần text, metadata, hoặc thông tin liên quan đến tool call; tùy đối tượng và provider.
-
-### 9.4. `should_stream_chunk()`
-
-Hàm này kiểm tra một chunk có vượt qua các điều kiện cho phép stream hay không. Trong đoạn code đã trao đổi, hàm:
-
-1. Đọc tên node từ `metadata`.
-2. Bỏ qua chunk nếu tên node có chứa `tool`.
-3. Bỏ qua `ToolMessage`.
-4. Chỉ chấp nhận `AIMessage` hoặc `AIMessageChunk`.
-5. Bỏ qua message chứa `tool_calls` hoặc `invalid_tool_calls`.
-6. Trả về `True` nếu chunk vượt qua các điều kiện trên.
-
-`True` chỉ có nghĩa là chunk vượt qua bộ lọc này; nó không đảm bảo mọi trường hợp đều là văn bản thuần. Cần kiểm tra hành vi thực tế với phiên bản LangChain/provider đang cài.
-
-### 9.5. `extract_text_from_chunk()`
-
-Hàm này lấy phần text từ `chunk.content`:
-
-- Nếu `content` rỗng: trả về chuỗi rỗng.
-- Nếu `content` là chuỗi (`str`): trả về trực tiếp.
-- Nếu `content` là danh sách (`list`): duyệt từng phần tử và gom các phần text nhận diện được.
-- Nếu không xử lý được kiểu nội dung: trả về chuỗi rỗng.
-
-### 9.6. `getattr()` và `.get()`
-
-`getattr()` là hàm built-in của Python, không cần import:
-
-```python
-content = getattr(chunk, "content", "")
-```
-
-Nó lấy thuộc tính `content` từ object `chunk`; nếu không có thuộc tính đó thì dùng giá trị mặc định `""`.
-
-Còn `.get()` thường dùng với dictionary:
-
-```python
-message = data.get("message", "")
-```
-
-Nó lấy value theo key `message`; nếu key không tồn tại thì trả về `""`.
-
-### 9.7. Luồng streaming trong `app.py`
-
-Logic khái quát:
-
-```python
-for chunk, metadata in agent.stream(
-    inputs,
-    config=config,
-    stream_mode="messages"
-):
-    if not should_stream_chunk(chunk, metadata):
-        continue
-
-    token = extract_text_from_chunk(chunk)
-
-    if token:
-        final_answer += token
-        yield sse_data({"token": token})
-```
-
-- `agent.stream(...)`: lấy các phần output từ graph.
-- `should_stream_chunk(...)`: quyết định bỏ qua hay xử lý tiếp chunk.
-- `extract_text_from_chunk(...)`: lấy chữ.
-- `final_answer += token`: nối các đoạn text thành câu trả lời đầy đủ.
-- `yield sse_data(...)`: gửi từng đoạn qua stream response.
-
-Trong code hiện tại đã thảo luận, `chat_stream()` là hàm async nhưng `event_generator()` là generator đồng bộ và gọi `agent.stream()` đồng bộ. Với ứng dụng có tải đồng thời lớn, cần đánh giá liệu việc stream đồng bộ có chặn event loop hay không; có thể cần thiết kế streaming bất đồng bộ hoặc đưa tác vụ đồng bộ ra thread phù hợp.
-
-## 10. Các API endpoint
-
-Các route dưới đây được mô tả theo `app.py` đã trao đổi. Kiểm tra code mới nhất nếu route hoặc request schema đã thay đổi.
-
-| Method | Endpoint | Chức năng |
-|---|---|---|
-| `GET` | `/` | Render trang giao diện chat `index.html` |
-| `GET` | `/conversations` | Trả danh sách hội thoại |
-| `GET` | `/history/{thread_id}` | Trả lịch sử message của một thread |
-| `POST` | `/upload` | Nhận file và thêm nội dung vào RAG |
-| `POST` | `/chat/stream` | Nhận tin nhắn và stream câu trả lời bằng SSE |
-
-### `POST /chat/stream`
-
-Request JSON dự kiến có cấu trúc:
-
-```json
-{
-  "message": "Nội dung câu hỏi",
-  "thread_id": "id-cua-hoi-thoai",
-  "model": "openai/gpt-oss-20b"
-}
-```
-
-Tên model trong ví dụ là giá trị từng được dùng trong cấu hình, **không bảo đảm model vẫn khả dụng hoặc được provider hiện tại hỗ trợ**.
-
-Backend kiểm tra message rỗng, lưu message người dùng, thiết lập thread, gọi agent và trả về `StreamingResponse` với media type `text/event-stream`.
-
-### `POST /upload`
-
-Endpoint nhận file và `thread_id` qua form data. Backend kiểm tra phần mở rộng, lưu file vào `uploads/`, gọi `add_document_to_rag(...)` rồi trả thông báo upload và số chunks đã tạo nếu thành công.
-
-## 11. Cài đặt và chạy ứng dụng
-
-Các lệnh dưới đây phù hợp với môi trường Python/Conda trên Windows đã được đề cập. Tên môi trường Conda và danh sách thư viện thực tế có thể khác.
-
-### 11.1. Chuẩn bị môi trường
-
+---
+
+## 7. Các API Endpoints
+
+### 7.1. Giao diện & Lịch sử
+- **`GET /`**: Trả về giao diện web chính (`index.html`).
+- **`GET /conversations`**: Lấy danh sách các cuộc trò chuyện gần nhất (gồm `thread_id`, `title`, `created_at`, `updated_at`).
+- **`GET /history/{thread_id}`**: Lấy toàn bộ lịch sử tin nhắn đã lưu của một cuộc trò chuyện cụ thể.
+
+### 7.2. Tải lên tài liệu
+- **`POST /upload`**:
+  - **Form Data:** `file` (File), `thread_id` (str).
+  - **Xử lý:** Kiểm tra định dạng (PDF, DOCX, TXT, MD, PY, CSV, JPG, PNG, WEBP). Lưu file vào `uploads/`. Nếu là ảnh thì đăng ký vào RAG ảnh; nếu là tài liệu thì đọc text, OCR (nếu cần), chia chunks và lưu vào ChromaDB.
+  - **Phản hồi JSON:** `{"success": true, "message": "Uploaded ... and created X chunks."}`.
+
+### 7.3. Trò chuyện thời gian thực
+- **`POST /chat/stream`**:
+  - **Body JSON:**
+    ```json
+    {
+      "message": "Nội dung câu hỏi của người dùng",
+      "thread_id": "session-id-123",
+      "model": "openai/gpt-oss-20b"
+    }
+    ```
+  - **Phản hồi:** Server-Sent Events (`text/event-stream`):
+    - `data: {"token": "Xin chào"}`
+    - `data: {"suggestions_pending": true}`
+    - `data: {"suggestions": ["Gợi ý 1?", "Gợi ý 2?"]}`
+    - `data: {"done": true}`
+
+---
+
+## 8. Hướng dẫn cài đặt và khởi chạy
+
+### 8.1. Cài đặt môi trường Python
+Khuyến nghị tạo môi trường ảo Python 3.12:
 ```bash
-conda create -n tit python=3.12 -y
-conda activate tit
+# Tạo virtual environment
+python -m venv venv
+
+# Kích hoạt trên Windows:
+venv\Scripts\activate
+
+# Hoặc kích hoạt trên Linux/macOS:
+source venv/bin/activate
 ```
 
-Nếu đã có môi trường `tit`, chỉ cần kích hoạt:
-
+### 8.2. Cài đặt các thư viện phụ thuộc
 ```bash
-conda activate tit
+pip install -r requirements.txt
 ```
 
-### 11.2. Cài thư viện
+### 8.3. Cài đặt Tesseract OCR (Tùy chọn, dùng cho PDF scan)
+- **Windows:** Tải bộ cài từ [UB Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki). Đảm bảo tích chọn gói ngôn ngữ **Vietnamese** và **English**. Thêm thư mục cài đặt vào `PATH`.
+- **Linux:**
+  ```bash
+  sudo apt-get update
+  sudo apt-get install tesseract-ocr tesseract-ocr-vie tesseract-ocr-eng
+  ```
 
-Nếu repository có `requirements.txt`:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-#### Cài OCR cho PDF scan trên Windows
-
-PyMuPDF được cài qua `requirements.txt`, nhưng Tesseract OCR là chương trình hệ thống nên phải cài riêng:
-
-1. Tải bộ cài Windows 64-bit từ [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki), nơi được [tài liệu Tesseract hướng dẫn cho Windows](https://tesseract-ocr.github.io/tessdoc/Installation.html).
-2. Đảm bảo cài dữ liệu ngôn ngữ English (`eng`) và Vietnamese (`vie`). Các file tương ứng là `eng.traineddata` và `vie.traineddata` trong thư mục `tessdata` của Tesseract.
-3. Mở PowerShell mới và xác minh cài đặt:
-
-   ```powershell
-   tesseract --version
-   tesseract --list-langs
-   ```
-
-   Kết quả `--list-langs` cần có cả `eng` và `vie`. Nếu lệnh `tesseract` không được nhận diện, thêm thư mục cài Tesseract vào Windows `PATH`, rồi mở lại terminal.
-4. Khởi động lại Tit-Chatbot để ứng dụng nhận các biến môi trường mới.
-
-Mặc định OCR chạy ở 300 DPI và được kích hoạt khi trang PDF có ít hơn 40 ký tự text trích xuất được. Có thể đổi các giá trị này trong `.env` bằng `PDF_OCR_DPI`, `PDF_OCR_TRIGGER_CHARS` và `PDF_OCR_LANGUAGES`. Nếu Tesseract không tự tìm thấy dữ liệu ngôn ngữ, đặt `TESSDATA_PREFIX` đến thư mục chứa các file `.traineddata`.
-
-Nếu chưa có file này, hãy tạo một file dependency dựa trên các import thực sự trong project. Các thư viện đã xuất hiện trong code được trao đổi gồm FastAPI, Uvicorn, Jinja2, LangGraph, LangChain Core, gói tích hợp provider LLM, Chroma, Hugging Face embeddings, Sentence Transformers, SQLAlchemy, python-dotenv, certifi, pypdf, docx2txt và Tavily integration.
-
-Không nên cài tất cả package theo tên đoán nếu project đã có dependency file; hãy ưu tiên file dependency hiện tại để tránh xung đột phiên bản.
-
-### 11.3. Khai báo biến môi trường
-
-Tạo file `.env` ở thư mục gốc, điền các API key theo provider bạn thực sự sử dụng. Xem [Cấu hình biến môi trường](#12-cấu-hình-biến-môi-trường).
-
-### 11.4. Chạy server
-
+### 8.4. Khởi chạy Server
 ```bash
 python app.py
 ```
-
-Theo code đã trao đổi, Uvicorn chạy ứng dụng ở cổng `8080`. Mở trình duyệt tại:
-
-```text
-http://127.0.0.1:8080
-```
-
-Địa chỉ `127.0.0.1` là loopback — truy cập server từ chính máy đang chạy ứng dụng. `0.0.0.0` trong cấu hình Uvicorn có nghĩa server lắng nghe trên các network interface của máy; không nên công khai ứng dụng ra Internet nếu chưa có xác thực, kiểm soát quyền truy cập và cấu hình bảo mật phù hợp.
-
-## 12. Cấu hình biến môi trường
-
-Ví dụ khung `.env` (điền giá trị thật trong máy của bạn; không commit secret lên Git):
-
-```dotenv
-# Chat LLM — chỉ dùng nếu agent.py đã được cấu hình để sử dụng Groq
-GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=openai/gpt-oss-20b
-
-# Web search — chỉ cần nếu bật Tavily tool
-TAVILY_API_KEY=your_tavily_api_key
-
-# OCR PDF scan (yêu cầu Tesseract và dữ liệu eng + vie được cài riêng)
-PDF_OCR_LANGUAGES=vie+eng
-PDF_OCR_DPI=300
-PDF_OCR_TRIGGER_CHARS=40
-# Bỏ comment và sửa đường dẫn nếu Tesseract không tự tìm thấy tessdata:
-# TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata
-```
-
-Các lưu ý:
-
-- Không ghi API key thật trực tiếp vào source code hoặc README.
-- Thêm `.env`, database có dữ liệu nhạy cảm và file upload riêng tư vào `.gitignore` khi phù hợp.
-- Model ID phải khớp với provider và phải còn được provider hỗ trợ.
-- Nếu dùng Groq, `agent.py` phải dùng integration của Groq, chẳng hạn `ChatGroq`, chứ không được khởi tạo Groq model ID bằng class dành cho Google Gemini.
-- Embeddings local bằng Hugging Face thường không cần API key của Google, nhưng có thể cần internet ở lần tải model đầu tiên.
-- Nếu code vẫn dùng `GoogleGenerativeAIEmbeddings`, cấu hình phải có credential phù hợp với Google và quyền sử dụng model embedding đó.
-
-## 13. Thư mục và dữ liệu được tạo
-
-| Đường dẫn | Vai trò |
-|---|---|
-| `uploads/` | File đã upload |
-| `data/chatbot_memory.db` | SQLite database của ứng dụng, theo cấu hình từng được trao đổi |
-| `data/langgraph_checkpoints.sqlite` | SQLite database cho LangGraph checkpoint, theo cấu hình từng được trao đổi |
-| `chroma_db/` | Vectorstore cũ hoặc collection dùng embedding ban đầu nếu vẫn còn được cấu hình |
-| `chroma_db_hf/` | Vectorstore ví dụ dùng embedding Hugging Face local |
-| Hugging Face cache | Cache model embedding đã tải về, thường ở thư mục cache của user hệ điều hành |
-
-Các thư mục cụ thể được tạo tùy theo đường dẫn khai báo trong `rag.py`, `database.py` và `agent.py`. Không xóa thư mục database hoặc vectorstore nếu cần giữ dữ liệu.
-
-## 14. Giới hạn hiện tại và việc cần kiểm tra
-
-
-
-## 15. Từ điển thuật ngữ
-
-| Thuật ngữ | Giải thích ngắn |
-|---|---|
-| API | Giao diện để frontend và backend trao đổi dữ liệu |
-| FastAPI | Framework Python xây dựng API/web backend |
-| Endpoint / route | Địa chỉ và phương thức API mà ứng dụng cung cấp |
-| LLM | Mô hình ngôn ngữ lớn tạo hoặc xử lý văn bản |
-| Agent | Thành phần kết hợp LLM, trạng thái và khả năng gọi tools để xử lý nhiệm vụ |
-| Tool | Hàm/công cụ mà agent có thể yêu cầu thực thi |
-| LangGraph | Framework điều phối workflow dạng graph có trạng thái |
-| State | Dữ liệu hiện hành của workflow |
-| Node | Một bước xử lý trong graph |
-| Tool call | Yêu cầu của model muốn gọi một công cụ cụ thể |
-| RAG | Truy xuất nội dung liên quan rồi đưa vào context để LLM trả lời |
-| Chunk | Một đoạn nhỏ được cắt ra từ văn bản hoặc output streaming |
-| Embedding | Vector số đại diện cho nội dung, dùng cho tìm kiếm tương đồng |
-| Vector store | Hệ thống lưu vector và metadata để truy xuất tương đồng |
-| ChromaDB | Vector database được sử dụng trong project |
-| Metadata | Thông tin phụ gắn với document/chunk, ví dụ nguồn file và thread ID |
-| SQLite | Database dạng file, phù hợp cho ứng dụng local và quy mô nhỏ |
-| SQLAlchemy | Thư viện Python làm việc với database qua ORM/Core |
-| Checkpoint | Trạng thái workflow được lưu để tiếp tục hoặc khôi phục |
-| `async` | Khai báo hàm coroutine bất đồng bộ trong Python |
-| `await` | Chờ kết quả của một thao tác awaitable trong hàm async |
-| `yield` | Sinh/trả ra từng giá trị từ generator mà chưa kết thúc ngay hàm |
-| SSE | Server-Sent Events; cơ chế server gửi sự kiện streaming tới client qua HTTP |
-| `getattr()` | Hàm built-in lấy thuộc tính từ object, có thể chỉ định giá trị mặc định |
-| `dict.get()` | Lấy giá trị của dictionary theo key, có thể chỉ định mặc định |
-| `thread_id` | Định danh của một hội thoại/luồng trạng thái trong ứng dụng |
+Ứng dụng sẽ hoạt động tại địa chỉ: `http://localhost:8080`.
 
 ---
 
-## Tổng kết
+## 9. Cấu hình biến môi trường (`.env`)
 
-Tit Chatbot kết hợp giao diện web, FastAPI backend, LangGraph agent, tools, RAG trên tài liệu, SQLite persistence và SSE streaming. Các thành phần đảm nhiệm vai trò riêng:
+Tạo file `.env` tại thư mục gốc với các thông số cấu hình:
 
-- **FastAPI** tiếp nhận request và kết nối frontend với agent.
-- **LangGraph** điều phối quá trình AI và tool calls.
-- **Tools** cung cấp khả năng tính toán, truy xuất tài liệu, lưu/đọc memory và tìm kiếm web.
-- **RAG + ChromaDB + embeddings** hỗ trợ hỏi đáp dựa trên các file đã tải lên.
-- **SQLite** lưu lịch sử, conversation và memory.
-- **SSE streaming** giúp câu trả lời hiển thị dần trên giao diện.
+```dotenv
+# ===========================================================================
+# LLM Providers & Models (Groq API)
+# ===========================================================================
+GROQ_API_KEY=gsk_your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_VISION_MODEL=qwen/qwen3.8-27b
 
-Trước khi đưa vào vận hành thực tế, cần xác nhận cấu hình provider/model, quyền truy cập theo thread, xử lý lỗi và các vấn đề bảo mật/concurrency được liệt kê ở trên.
+# ===========================================================================
+# Web Search Tool (Tavily Search API)
+# ===========================================================================
+TAVILY_API_KEY=tvly-your_tavily_api_key_here
+
+# ===========================================================================
+# MongoDB Database (Atlas hoặc Local)
+# ===========================================================================
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB_NAME=tit_chatbot
+MONGODB_CHECKPOINT_DB=tit_chatbot_checkpoints
+
+# ===========================================================================
+# Context Optimization & Token Budgeting (context_manager.py)
+# ===========================================================================
+# Số lượt chat gần nhất giữ trong active context trước khi tóm tắt (mặc định: 4 turns)
+MAX_HISTORY_TURNS=4
+
+# Ngân sách token tối đa cho mỗi lượt gọi LLM (mặc định: 6000 tokens)
+MAX_CONTEXT_TOKENS=6000
+
+# Token dự kiến dành riêng cho LLM sinh câu trả lời (mặc định: 1200 tokens)
+EXPECTED_OUTPUT_TOKENS=1200
+
+# Ngưỡng token tối đa cho kết quả công cụ active (mặc định: 1800 tokens)
+MAX_TOOL_RESULT_TOKENS=1800
+
+# ===========================================================================
+# Tóm tắt tài liệu Map-Reduce (summarization.py)
+# ===========================================================================
+SUMMARIZATION_MAX_INPUT_TOKENS=6000
+
+# ===========================================================================
+# Cấu hình OCR PDF Scan (rag.py)
+# ===========================================================================
+PDF_OCR_LANGUAGES=vie+eng
+PDF_OCR_DPI=300
+PDF_OCR_TRIGGER_CHARS=40
+# TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata
+```
+
+---
+
+## 10. Kiểm thử tự động (Test Suite)
+
+Dự án sở hữu bộ kiểm thử tự động toàn diện với **27 unit tests** bao quát 100% các thành phần và 4 bước tối ưu hóa ngữ cảnh:
+
+```bash
+python -m unittest discover -s tests
+```
+
+### Kết quả chạy kiểm thử:
+```text
+Ran 27 tests in 3.544s
+
+OK
+```
+
+### Các tệp kiểm thử trong thư mục `tests/`:
+1. **`test_context_manager.py` (12 tests):**
+   - Kiểm thử hàm ước tính token đa ngôn ngữ (`estimate_tokens`).
+   - Kiểm thử ước tính token của tin nhắn (`estimate_message_tokens`) và schema công cụ (`estimate_tool_schemas_tokens`).
+   - Kiểm thử gom nhóm lượt hội thoại (`group_messages_into_turns`).
+   - Kiểm thử cắt tỉa và tóm tắt hội thoại cũ (`trim_conversation_history`).
+   - Kiểm thử loại bỏ kết quả công cụ cũ nhưng bảo vệ công cụ đang chạy (`prune_old_tool_results`).
+   - Kiểm thử cô lập ngữ cảnh tóm tắt (`validate_and_isolate_summarization_context`).
+   - Kiểm thử giới hạn token và cắt gọn dữ liệu khi vượt ngưỡng (`enforce_token_budget`).
+   - Kiểm thử luồng tích hợp hoàn chỉnh (`prepare_context_for_llm`).
+2. **`test_agent_workflow.py` (5 tests):**
+   - Kiểm thử chuẩn hóa tên model (`normalize_model_name`).
+   - Kiểm thử tích hợp Chatbot Node trong LangGraph.
+   - Kiểm thử loại bỏ tool cũ qua các turn liên tiếp.
+   - Kiểm thử bảo toàn kết quả công cụ active của lượt hiện tại.
+   - Kiểm thử phân rã các thành phần token (`calculate_token_breakdown`).
+3. **`test_summarization_integration.py` (4 tests):**
+   - Kiểm thử quy trình Map-Reduce tài liệu lớn qua nhiều tầng.
+   - Kiểm thử tóm tắt tài liệu nhỏ chỉ qua 1 pass.
+   - Kiểm thử lan truyền lỗi khi LLM thất bại thay vì trả về tóm tắt chắp vá.
+   - Kiểm thử cô lập ngữ cảnh: đảm bảo không có lịch sử chat nào lọt vào Map-Reduce pass.
+4. **`test_followups_and_vision.py` (6 tests):**
+   - Kiểm thử lọc khối code dài khỏi dữ liệu sinh gợi ý (`_clean_content_for_followup`).
+   - Kiểm thử loại bỏ tag đính kèm file/ảnh thô.
+   - Kiểm thử áp dụng giới hạn token cho ngữ cảnh gợi ý.
+   - Kiểm thử thuật toán gợi ý cục bộ cho tiếng Việt và tiếng Anh.
+   - Kiểm thử cắt gọn câu hỏi thị giác máy tính quá dài trong `analyze_image`.
+
+---
+
+## 11. Từ điển thuật ngữ
+
+| Thuật ngữ | Định nghĩa trong dự án |
+|---|---|
+| **Turn (Lượt hội thoại)** | Một lượt trao đổi hoàn chỉnh gồm 1 câu hỏi từ người dùng (`HumanMessage`) và chuỗi phản hồi tương ứng của trợ lý (có thể gồm các bước gọi công cụ và câu trả lời kết luận). |
+| **Active Turn** | Lượt hội thoại đang diễn ra: công cụ vừa thực thi xong và Agent đang chuẩn bị tổng hợp câu trả lời cho người dùng. Kết quả công cụ của lượt này luôn được giữ nguyên. |
+| **Completed Turn** | Lượt hội thoại trong quá khứ đã có câu trả lời hoàn tất. Các kết quả công cụ thô (như JSON search hay RAG chunk) sẽ bị loại bỏ khỏi context của các lượt tiếp theo. |
+| **Token Budget** | Ngân sách token tối đa cho phép cho một request, giúp đảm bảo không bao giờ vượt quá context window hay rate limits (TPM) của nhà cung cấp LLM. |
+| **Map-Reduce** | Chiến lược chia để trị xử lý tài liệu dài: chia nhỏ thành các nhóm để tóm tắt song song (Map), sau đó gộp dần các bản tóm tắt trung gian lại (Reduce) cho đến khi ra kết quả tổng thể. |
+| **RAG** | Retrieval-Augmented Generation: kỹ thuật truy xuất các đoạn văn bản có độ tương đồng ngữ nghĩa cao nhất từ kho vector để hỗ trợ mô hình trả lời chính xác, tránh hiện tượng ảo giác (hallucination). |
+| **SSE** | Server-Sent Events: giao thức truyền thông một chiều từ server về client qua HTTP, giúp đẩy từng token câu trả lời về giao diện người dùng theo thời gian thực. |
+| **Checkpointer** | Cơ chế lưu trữ trạng thái của LangGraph vào cơ sở dữ liệu (MongoDB), cho phép tạm dừng, khôi phục và tiếp tục phiên làm việc của Agent một cách bền vững. |

@@ -9,6 +9,8 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
 
+from context_manager import estimate_tokens
+
 
 SUPPORTED_IMAGE_TYPES = {
     ".jpg": "image/jpeg",
@@ -17,10 +19,17 @@ SUPPORTED_IMAGE_TYPES = {
     ".webp": "image/webp",
 }
 MAX_IMAGE_BYTES = 14 * 1024 * 1024
+MAX_IMAGE_QUESTION_TOKENS = 400
+VISION_OUTPUT_TOKENS = 1200
 
 
 def analyze_image(image_path: str, question: str, llm=None) -> str:
-    """Answer a question about an uploaded image with a Groq vision model."""
+    """Answer a question about an uploaded image with a Groq vision model.
+
+    Tách context theo tác vụ:
+    - Chỉ tiếp nhận câu hỏi trực quan và dữ liệu hình ảnh, hoàn toàn cô lập khỏi lịch sử chat.
+    - Giới hạn token trước khi gọi: kiểm soát độ dài câu hỏi để không vượt ngân sách vision model.
+    """
     path = Path(image_path).resolve()
     upload_root = Path("uploads").resolve()
     if not path.is_relative_to(upload_root):
@@ -35,11 +44,20 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
     if len(image_bytes) > MAX_IMAGE_BYTES:
         raise ValueError("Image is too large for vision analysis (maximum 14 MB).")
 
+    # Bước 3 & 4: Cô lập context và kiểm soát token cho câu hỏi thị giác
+    clean_question = (question or "").strip()
+    if estimate_tokens(clean_question) > MAX_IMAGE_QUESTION_TOKENS:
+        max_chars = MAX_IMAGE_QUESTION_TOKENS * 3
+        clean_question = (
+            clean_question[:max_chars]
+            + " [câu hỏi được rút gọn để đảm bảo ngân sách token]"
+        )
+
     if llm is None:
         llm = ChatGroq(
             model=os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b"),
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=VISION_OUTPUT_TOKENS,
         )
 
     data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
@@ -47,7 +65,7 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         "Answer the user's question using the image. Describe visible evidence and "
         "readable text when relevant. If details are unclear or unreadable, say so; "
         "do not guess. Respond in the same language as the question.\n\n"
-        f"Question: {question.strip() or 'Describe this image.'}"
+        f"Question: {clean_question or 'Describe this image.'}"
     )
     try:
         response = llm.invoke([HumanMessage(content=[

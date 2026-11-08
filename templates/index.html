@@ -2,171 +2,443 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Tit</title>
+    <title>Tit Chatbot</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
     <!-- Marked.js: Markdown → HTML -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
-    <!-- highlight.js: syntax highlighting cho code blocks -->
+    <!-- highlight.js: syntax highlighting for code blocks -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css">
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/highlight.min.js"></script>
 
     <style>
+        :root {
+            --bg-body: #0b0d13;
+            --bg-sidebar: #10131a;
+            --bg-main: #0d0f16;
+            --bg-card: #151824;
+            --bg-card-hover: #1c2030;
+            --bg-user-bubble: #1e2235;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(99, 102, 241, 0.35);
+            --text-main: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #6366f1;
+            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --avatar-ai-gradient: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            --avatar-user-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --shadow-float: 0 16px 40px -10px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.06);
+            --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', "Fira Code", Consolas, monospace;
+        }
+
         * {
             box-sizing: border-box;
         }
 
         body {
             margin: 0;
-            font-family: Inter, Arial, Helvetica, sans-serif;
-            background: #212121;
-            color: #ececec;
+            font-family: var(--font-sans);
+            background: var(--bg-body);
+            color: var(--text-main);
             height: 100vh;
             display: flex;
             overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.22);
+        }
+
+        /* Sidebar */
         .sidebar {
             width: 270px;
-            background: #171717;
-            border-right: 1px solid #2f2f2f;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
-            padding: 12px;
+            padding: 16px 14px;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 40;
         }
 
         .brand {
-            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 8px 16px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: var(--accent-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+        }
+
+        .brand-name {
+            font-size: 17px;
             font-weight: 700;
-            padding: 12px;
-            margin-bottom: 10px;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 9999px;
+            background: rgba(99, 102, 241, 0.15);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            margin-left: auto;
         }
 
         .new-chat {
-            border: 1px solid #3f3f3f;
-            background: transparent;
-            color: #ececec;
-            padding: 12px;
-            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-main);
+            padding: 11px 14px;
+            border-radius: 12px;
             text-align: left;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13.5px;
+            font-weight: 500;
+            font-family: inherit;
             margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .new-chat:hover {
-            background: #2a2a2a;
+            background: rgba(99, 102, 241, 0.12);
+            border-color: rgba(99, 102, 241, 0.35);
+            color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.15);
+        }
+
+        .new-chat:active {
+            transform: translateY(0) scale(0.98);
         }
 
         .history-title {
-            color: #999;
-            font-size: 13px;
-            margin: 10px 0;
-            padding-left: 4px;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 8px 0 10px;
+            padding-left: 6px;
         }
 
         #conversationList {
             overflow-y: auto;
             flex: 1;
-            padding-right: 4px;
+            padding-right: 2px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
         }
 
         .history-item {
-            padding: 10px;
-            border-radius: 8px;
-            color: #cfcfcf;
-            font-size: 14px;
+            padding: 9px 12px;
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 13.5px;
             cursor: pointer;
-            margin-bottom: 4px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            transition: all 0.18s ease;
+            border: 1px solid transparent;
         }
 
         .history-item:hover {
-            background: #2a2a2a;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ffffff;
+            transform: translateX(2px);
         }
 
         .history-item.active {
-            background: #303030;
+            background: rgba(99, 102, 241, 0.14);
+            border-color: rgba(99, 102, 241, 0.25);
             color: #ffffff;
+            font-weight: 500;
         }
 
+        .history-item-icon {
+            flex-shrink: 0;
+            opacity: 0.6;
+        }
+
+        .history-item-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Main Workspace */
         .main {
             flex: 1;
             display: flex;
             flex-direction: column;
             height: 100vh;
-            background: #212121;
+            background: var(--bg-main);
+            position: relative;
         }
 
         .topbar {
-            height: 56px;
-            border-bottom: 1px solid #2f2f2f;
+            height: 58px;
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: space-between;
             padding: 0 24px;
-            font-size: 16px;
+            background: rgba(13, 15, 22, 0.7);
+            backdrop-filter: blur(12px);
+            z-index: 10;
+        }
+
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .mobile-sidebar-toggle {
+            display: none;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .mobile-sidebar-toggle:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+        }
+
+        .topbar-title {
+            font-size: 15px;
             font-weight: 600;
+            color: #ffffff;
+            letter-spacing: -0.01em;
         }
 
         .status {
-            font-size: 13px;
-            color: #aaa;
-            font-weight: 400;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 9999px;
+            backdrop-filter: blur(10px);
+            transition: all 0.25s ease;
         }
 
+        .status::before {
+            content: "";
+            display: inline-block;
+            width: 7.5px;
+            height: 7.5px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+        }
+
+        .status.busy::before {
+            background: #a855f7;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.9);
+            animation: statusPulse 1.2s infinite ease-in-out;
+        }
+
+        .status.listening::before {
+            background: #ef4444;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.9);
+            animation: statusPulse 0.85s infinite ease-in-out;
+        }
+
+        @keyframes statusPulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.4);
+                opacity: 0.45;
+            }
+        }
+
+        /* Chat Container */
         .chat-container {
             flex: 1;
             overflow-y: auto;
-            padding: 30px 20px 150px;
+            padding: 32px 24px 170px;
+            scroll-behavior: smooth;
         }
 
+        /* Welcome Section */
         .welcome {
             max-width: 760px;
-            margin: 110px auto 0;
+            margin: 90px auto 0;
             text-align: center;
+            animation: fadeInSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .welcome-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 9999px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            color: #a5b4fc;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 18px;
         }
 
         .welcome h1 {
             font-size: 34px;
-            margin-bottom: 10px;
-            font-weight: 650;
+            margin: 0 0 12px;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .welcome p {
-            color: #aaa;
-            font-size: 16px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6;
+            max-width: 580px;
+            margin: 0 auto;
         }
 
+        /* Feature Cards */
         .cards {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            max-width: 760px;
-            margin: 30px auto;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            max-width: 820px;
+            margin: 36px auto 0;
+            animation: fadeInSlideUp 0.45s 0.08s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         .card {
-            border: 1px solid #3a3a3a;
+            border: 1px solid var(--border-color);
             border-radius: 14px;
-            padding: 16px;
-            color: #ccc;
+            padding: 18px;
+            background: var(--bg-card);
+            color: var(--text-secondary);
             cursor: pointer;
             text-align: left;
+            transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
         }
 
         .card:hover {
-            background: #2a2a2a;
+            background: var(--bg-card-hover);
+            border-color: var(--border-hover);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 26px -6px rgba(0, 0, 0, 0.4), 0 0 20px rgba(99, 102, 241, 0.08);
+            color: #ffffff;
         }
 
+        .card:active {
+            transform: translateY(-1px) scale(0.99);
+        }
+
+        .card-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(99, 102, 241, 0.12);
+            color: #818cf8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .card:hover .card-icon {
+            background: var(--accent-gradient);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .card-desc {
+            font-size: 12.5px;
+            line-height: 1.5;
+            color: var(--text-muted);
+        }
+
+        .card:hover .card-desc {
+            color: var(--text-secondary);
+        }
+
+        /* Message Bubbles */
         .message {
             max-width: 820px;
             margin: 0 auto 28px;
             display: flex;
-            gap: 12px;
+            gap: 14px;
             line-height: 1.65;
+            animation: fadeInSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         .message.user {
@@ -183,129 +455,162 @@
 
         .message.user .message-content {
             order: 1;
-            background: #303030;
-            border: 1px solid #3f3f3f;
+            background: var(--bg-user-bubble);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 18px 18px 4px 18px;
-            padding: 12px 16px;
-            max-width: 70%;
+            padding: 12px 18px;
+            max-width: 72%;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+            color: #ffffff;
         }
 
         .message.assistant .message-content {
             background: transparent;
             padding: 0;
-            max-width: 75%;
+            max-width: 78%;
+            color: #e2e8f0;
         }
 
         .avatar {
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            border-radius: 11px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: #ffffff;
+            font-weight: 600;
             font-size: 13px;
-            font-weight: bold;
         }
 
         .user-avatar {
-            background: #5a4fcf;
+            background: var(--avatar-user-gradient);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
         }
 
         .bot-avatar {
-            background: #10a37f;
+            background: var(--avatar-ai-gradient);
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
         }
 
         .message-content {
-            color: #ececec;
-            font-size: 16px;
+            font-size: 15.5px;
             overflow-wrap: anywhere;
             word-break: break-word;
         }
 
+        /* Follow-up suggestions */
         .followup-suggestions {
             max-width: 820px;
             margin: -16px auto 28px;
-            padding-left: 46px;
+            padding-left: 50px;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            animation: fadeInSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         .followup-suggestions-label {
             flex: 0 0 100%;
-            color: #aaa;
+            color: var(--text-muted);
             font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 2px;
         }
 
         .followup-suggestion {
-            border: 1px solid #484848;
-            border-radius: 14px;
-            background: #292929;
-            color: #ddd;
-            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-secondary);
+            padding: 8px 15px;
             cursor: pointer;
             text-align: left;
-            font: inherit;
+            font-family: inherit;
             font-size: 13px;
-            max-width: min(100%, 360px);
+            max-width: min(100%, 420px);
+            transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .followup-suggestion:hover {
-            background: #383838;
-            border-color: #666;
+            background: rgba(99, 102, 241, 0.12);
+            border-color: rgba(99, 102, 241, 0.4);
+            color: #ffffff;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.15);
         }
 
-        /* ---- Markdown rendered styles ---- */
+        .followup-suggestion:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        /* Markdown Rendered Styles */
         .message-content p {
-            margin: 0 0 10px;
+            margin: 0 0 12px;
             line-height: 1.7;
         }
         .message-content p:last-child { margin-bottom: 0; }
 
-        .message-content h1,.message-content h2,.message-content h3,
-        .message-content h4,.message-content h5,.message-content h6 {
-            margin: 14px 0 6px;
+        .message-content h1, .message-content h2, .message-content h3,
+        .message-content h4, .message-content h5, .message-content h6 {
+            margin: 18px 0 8px;
             font-weight: 700;
-            line-height: 1.3;
+            line-height: 1.35;
+            color: #ffffff;
         }
-        .message-content h1 { font-size: 1.5em; }
-        .message-content h2 { font-size: 1.3em; }
+        .message-content h1 { font-size: 1.45em; }
+        .message-content h2 { font-size: 1.25em; }
         .message-content h3 { font-size: 1.1em; }
 
-        .message-content ul,.message-content ol {
-            margin: 6px 0 10px;
+        .message-content ul, .message-content ol {
+            margin: 8px 0 12px;
             padding-left: 22px;
         }
-        .message-content li { margin-bottom: 4px; line-height: 1.6; }
+        .message-content li {
+            margin-bottom: 5px;
+            line-height: 1.65;
+        }
 
         .message-content blockquote {
-            border-left: 3px solid #555;
-            margin: 8px 0;
-            padding: 4px 12px;
-            color: #aaa;
+            border-left: 3px solid var(--accent-primary);
+            background: rgba(99, 102, 241, 0.06);
+            margin: 12px 0;
+            padding: 8px 16px;
+            border-radius: 0 10px 10px 0;
+            color: #cbd5e1;
         }
 
         .message-content code {
-            background: #2d2d2d;
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
             padding: 2px 6px;
             font-size: 0.88em;
-            font-family: "Fira Code", Consolas, monospace;
-            color: #e6db74;
+            font-family: var(--font-mono);
+            color: #f6e05e;
         }
 
         .message-content pre {
-            background: #1e1e1e;
-            border: 1px solid #333;
-            border-radius: 10px;
-            padding: 14px 16px;
+            background: #11131a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px 18px;
             overflow-x: auto;
-            margin: 10px 0;
+            margin: 14px 0;
             position: relative;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
         }
+
         .message-content pre code {
             background: transparent;
+            border: none;
             padding: 0;
             color: inherit;
             font-size: 0.88em;
@@ -314,111 +619,172 @@
         .message-content table {
             border-collapse: collapse;
             width: 100%;
-            margin: 10px 0;
-            font-size: 0.93em;
+            margin: 14px 0;
+            font-size: 0.92em;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
         }
-        .message-content th,.message-content td {
-            border: 1px solid #3f3f3f;
-            padding: 7px 12px;
+
+        .message-content th, .message-content td {
+            border: 1px solid var(--border-color);
+            padding: 9px 14px;
             text-align: left;
         }
-        .message-content th { background: #2a2a2a; font-weight: 600; }
-        .message-content tr:nth-child(even) { background: #272727; }
+
+        .message-content th {
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .message-content tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
 
         .message-content a {
             color: #60a5fa;
             text-decoration: underline;
-            text-underline-offset: 2px;
+            text-underline-offset: 3px;
+            transition: color 0.15s;
         }
-        .message-content a:hover { color: #93c5fd; }
+
+        .message-content a:hover {
+            color: #93c5fd;
+        }
 
         .message-content hr {
             border: none;
-            border-top: 1px solid #3f3f3f;
-            margin: 14px 0;
+            border-top: 1px solid var(--border-color);
+            margin: 18px 0;
         }
 
-        /* Copy button on code blocks */
+        /* Copy Button */
         .copy-btn {
             position: absolute;
-            top: 8px;
-            right: 10px;
-            background: #3a3a3a;
-            border: 1px solid #555;
-            color: #ccc;
-            padding: 2px 10px;
-            border-radius: 6px;
+            top: 10px;
+            right: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #cbd5e1;
+            padding: 4px 10px;
+            border-radius: 7px;
             font-size: 11px;
+            font-family: inherit;
+            font-weight: 500;
             cursor: pointer;
             opacity: 0;
-            transition: opacity 0.2s;
+            transform: translateY(-2px);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(8px);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
-        .message-content pre:hover .copy-btn { opacity: 1; }
-        .copy-btn:hover { background: #4a4a4a; color: #fff; }
 
+        .message-content pre:hover .copy-btn {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .copy-btn:hover {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: rgba(99, 102, 241, 0.45);
+            color: #ffffff;
+        }
+
+        /* Tool Progress Indicator */
         .tool-progress {
             max-width: 820px;
-            margin: 0 auto 14px;
+            margin: 0 auto 16px;
             display: flex;
             justify-content: flex-start;
+            animation: fadeInSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         .tool-progress-box {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            background: #2a2a2a;
-            border: 1px solid #3f3f3f;
-            color: #cfcfcf;
-            padding: 8px 12px;
+            gap: 10px;
+            background: #141724;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+            padding: 8px 14px;
             border-radius: 12px;
             font-size: 13px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+        }
+
+        .tool-progress-box::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981);
+            background-size: 200% 100%;
+            animation: shimmerLine 1.6s infinite linear;
+        }
+
+        @keyframes shimmerLine {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
 
         .tool-spinner {
-            width: 13px;
-            height: 13px;
-            border: 2px solid #555;
-            border-top: 2px solid #10a37f;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-top: 2px solid var(--accent-primary);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
 
         .tool-check {
-            color: #10a37f;
+            color: #10b981;
             font-weight: bold;
+            font-size: 14px;
         }
 
         @keyframes spin {
-            from {
-                transform: rotate(0deg);
-            }
-
-            to {
-                transform: rotate(360deg);
-            }
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
+        /* Input Area Dock */
         .input-area {
             position: fixed;
             bottom: 0;
             left: 270px;
             right: 0;
-            background: linear-gradient(to top, #212121 82%, transparent);
-            padding: 24px 20px;
+            background: linear-gradient(to top, var(--bg-body) 78%, rgba(11, 13, 19, 0.88) 92%, transparent);
+            padding: 22px 24px 26px;
+            z-index: 20;
+            backdrop-filter: blur(8px);
+            transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .input-wrapper {
             max-width: 820px;
             margin: 0 auto;
-            background: #303030;
-            border: 1px solid #444;
-            border-radius: 18px;
+            background: rgba(20, 24, 34, 0.95);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
             display: flex;
             flex-wrap: wrap;
             align-items: flex-end;
-            padding: 12px;
-            box-shadow: 0 0 18px rgba(0, 0, 0, 0.25);
+            padding: 10px 14px;
+            box-shadow: var(--shadow-float);
+            backdrop-filter: blur(20px);
+            transition: border-color 0.25s, box-shadow 0.25s;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: rgba(99, 102, 241, 0.45);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18), var(--shadow-float);
         }
 
         .attachment-preview {
@@ -427,9 +793,15 @@
             align-items: center;
             gap: 8px;
             margin: 0 0 8px 46px;
-            color: #ddd;
-            font-size: 13px;
+            padding: 5px 12px;
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 8px;
+            color: #c7d2fe;
+            font-size: 12.5px;
             min-width: 0;
+            width: fit-content;
+            animation: fadeInSlideUp 0.2s ease-out;
         }
 
         .attachment-preview[hidden] {
@@ -440,38 +812,48 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            max-width: min(520px, 70vw);
+            max-width: min(520px, 60vw);
         }
 
         .remove-attachment {
             border: 0;
             border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            background: #444;
+            width: 20px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.15);
             color: #fff;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            transition: background 0.18s;
+        }
+
+        .remove-attachment:hover {
+            background: #ef4444;
         }
 
         .attach-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
+            width: 38px;
+            height: 38px;
+            border-radius: 11px;
             border: none;
             background: transparent;
-            color: #cfcfcf;
+            color: var(--text-secondary);
             cursor: pointer;
-            font-size: 20px;
-            margin-right: 6px;
+            margin-right: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            transition: all 0.2s;
         }
 
         .attach-btn:hover {
-            background: #3a3a3a;
+            background: rgba(255, 255, 255, 0.08);
             color: #ffffff;
+            transform: translateY(-1px);
         }
 
         textarea {
@@ -480,143 +862,185 @@
             border: none;
             outline: none;
             resize: none;
-            color: #ececec;
-            font-size: 16px;
-            min-height: 30px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 15px;
+            min-height: 28px;
             max-height: 170px;
             line-height: 1.5;
-            padding: 7px;
+            padding: 8px 6px;
         }
 
         textarea::placeholder {
-            color: #aaa;
+            color: var(--text-muted);
         }
 
         .model-select {
-            height: 40px;
-            max-width: 135px;
-            background: #262626;
-            color: #ececec;
-            border: 1px solid #444;
-            border-radius: 12px;
-            padding: 0 8px;
+            height: 38px;
+            max-width: 150px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 11px;
+            padding: 0 10px;
             margin-left: 8px;
             outline: none;
-            font-size: 13px;
+            font-size: 12.5px;
+            font-family: inherit;
             cursor: pointer;
             flex-shrink: 0;
+            transition: all 0.2s;
         }
 
         .model-select:hover {
-            background: #333333;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.18);
+            color: #ffffff;
         }
 
         .model-select option {
-            background: #262626;
-            color: #ececec;
+            background: #141724;
+            color: var(--text-main);
         }
 
         .mic-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
+            width: 38px;
+            height: 38px;
+            border-radius: 11px;
             border: none;
-            background: transparent;
-            color: #cfcfcf;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
             cursor: pointer;
-            font-size: 18px;
             margin-left: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            transition: all 0.2s;
         }
 
         .mic-btn:hover {
-            background: #3a3a3a;
+            background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
+            transform: translateY(-1px);
         }
 
         .mic-btn.recording {
-            background: #ef4444;
-            color: #ffffff;
-            animation: pulseMic 1.2s infinite;
+            background: #ef4444 !important;
+            color: #ffffff !important;
+            animation: pulseMic 1.4s infinite;
         }
 
         @keyframes pulseMic {
             0% {
-                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
             }
-
             70% {
-                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
             }
-
             100% {
                 box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
             }
         }
 
         .send-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
+            width: 38px;
+            height: 38px;
+            border-radius: 11px;
             border: none;
-            background: #ececec;
-            color: #111;
+            background: var(--accent-gradient);
+            color: #ffffff;
             cursor: pointer;
-            font-size: 18px;
             margin-left: 8px;
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
         }
 
-        .send-btn:hover {
-            background: #ffffff;
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-1px) scale(1.03);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+            filter: brightness(1.08);
+        }
+
+        .send-btn:active:not(:disabled) {
+            transform: scale(0.96);
         }
 
         .send-btn:disabled {
-            background: #555;
-            color: #999;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.25);
+            box-shadow: none;
             cursor: not-allowed;
         }
 
         .notice {
-            color: #aaa;
+            color: var(--text-muted);
             font-size: 12px;
             max-width: 820px;
-            margin: 8px auto 0;
+            margin: 10px auto 0;
             text-align: center;
+            transition: color 0.2s;
+        }
+
+        /* Animations */
+        @keyframes fadeInSlideUp {
+            0% {
+                opacity: 0;
+                transform: translateY(14px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Breakpoints */
+        @media (max-width: 840px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 768px) {
             .sidebar {
-                display: none;
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                transform: translateX(-100%);
+                box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .mobile-sidebar-toggle {
+                display: flex;
             }
 
             .input-area {
                 left: 0;
-            }
-
-            .cards {
-                grid-template-columns: 1fr;
+                padding: 16px 14px 20px;
             }
 
             .message.user .message-content,
             .message.assistant .message-content {
-                max-width: 82%;
+                max-width: 85%;
             }
 
             .model-select {
-                max-width: 95px;
+                max-width: 105px;
                 font-size: 11px;
                 padding: 0 6px;
             }
 
-            .mic-btn {
-                width: 36px;
-                height: 36px;
-                font-size: 16px;
-                margin-left: 6px;
+            .welcome h1 {
+                font-size: 26px;
             }
         }
     </style>
@@ -625,9 +1049,25 @@
 <body>
 
 <aside class="sidebar">
-    <div class="brand">Tit</div>
+    <div class="brand">
+        <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                <path d="M2 17l10 5 10-5"></path>
+                <path d="M2 12l10 5 10-5"></path>
+            </svg>
+        </div>
+        <span class="brand-name">Tit</span>
+        <span class="brand-badge">2.0</span>
+    </div>
 
-    <button class="new-chat" onclick="newChat()">+ New chat</button>
+    <button class="new-chat" onclick="newChat()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>New chat</span>
+    </button>
 
     <div class="history-title">Recent Chats</div>
     <div id="conversationList"></div>
@@ -635,34 +1075,76 @@
 
 <main class="main">
     <div class="topbar">
-        <div>Tit Chatbot</div>
+        <div class="topbar-left">
+            <button class="mobile-sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Toggle Sidebar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+            <div class="topbar-title">Tit Chatbot</div>
+        </div>
         <div class="status" id="status">Ready</div>
     </div>
 
     <div class="chat-container" id="chatContainer">
         <div class="welcome" id="welcome">
+            <div class="welcome-badge">⚡ Advanced AI Assistant</div>
             <h1>How can I help you today?</h1>
             <p>Ask questions about text, documents, and images, use tools, search the web, and chat with memory.</p>
         </div>
 
         <div class="cards" id="cards">
             <div class="card" onclick="usePrompt('Search the web for latest AI agent news.')">
-                Search latest web info
+                <div class="card-icon">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                </div>
+                <div class="card-title">Search web info</div>
+                <div class="card-desc">Find latest news, articles, and real-time facts online</div>
             </div>
 
             <div class="card" onclick="usePrompt('Summarize the document I uploaded.')">
-                Summarize uploaded document
+                <div class="card-icon">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                </div>
+                <div class="card-title">Summarize document</div>
+                <div class="card-desc">Extract key points and insights from attached files</div>
             </div>
 
             <div class="card" onclick="usePrompt('Calculate 125 * 48 / 6')">
-                Use calculator tool
+                <div class="card-icon">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                        <line x1="8" y1="6" x2="16" y2="6"></line>
+                        <line x1="16" y1="14" x2="16" y2="18"></line>
+                        <path d="M16 10h.01"></path>
+                        <path d="M12 10h.01"></path>
+                        <path d="M8 10h.01"></path>
+                        <path d="M12 14h.01"></path>
+                        <path d="M8 14h.01"></path>
+                        <path d="M12 18h.01"></path>
+                        <path d="M8 18h.01"></path>
+                    </svg>
+                </div>
+                <div class="card-title">Use calculator tool</div>
+                <div class="card-desc">Evaluate math expressions and computations quickly</div>
             </div>
         </div>
     </div>
 
     <div class="input-area">
         <div class="input-wrapper">
-
             <input
                 type="file"
                 id="fileInput"
@@ -674,7 +1156,9 @@
             <div class="attachment-preview" id="attachmentPreview" hidden></div>
 
             <button class="attach-btn" onclick="openFilePicker()" title="Upload document or image">
-                📎
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                </svg>
             </button>
 
             <textarea
@@ -689,14 +1173,23 @@
                 <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
                 <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
                 <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
-
             </select>
 
-            <button class="mic-btn" id="micBtn" onclick="toggleDictation()" title="Dictate">
-                🎙️
+            <button class="mic-btn" id="micBtn" onclick="toggleDictation()" title="Dictate voice">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
             </button>
 
-            <button class="send-btn" id="sendBtn" onclick="sendMessage()">➜</button>
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                </svg>
+            </button>
         </div>
 
         <div class="notice" id="noticeText">
@@ -706,39 +1199,89 @@
 </main>
 
 <script>
+    function escapeHtml(str) {
+        if (!str) return "";
+        return String(str).replace(/[&<>"']/g, m => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[m]));
+    }
+
+    function toggleSidebar() {
+        const sidebar = document.querySelector(".sidebar");
+        if (sidebar) {
+            sidebar.classList.toggle("open");
+        }
+    }
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener("click", (e) => {
+        const sidebar = document.querySelector(".sidebar");
+        const toggle = document.getElementById("sidebarToggle");
+        if (sidebar && sidebar.classList.contains("open") && !sidebar.contains(e.target) && (!toggle || !toggle.contains(e.target))) {
+            sidebar.classList.remove("open");
+        }
+    });
+
     // ---- Configure marked.js ----
     marked.setOptions({
         breaks: true,       // \n → <br> inside paragraphs
         gfm: true,          // GitHub Flavored Markdown
         highlight: function(code, lang) {
-            if (lang && hljs.getLanguage(lang)) {
-                try { return hljs.highlight(code, { language: lang }).value; } catch (e) {}
+            try {
+                if (typeof hljs !== "undefined" && lang && hljs.getLanguage && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                if (typeof hljs !== "undefined" && hljs.highlightAuto) {
+                    return hljs.highlightAuto(code).value;
+                }
+            } catch (e) {
+                console.warn("highlight.js error:", e);
             }
-            return hljs.highlightAuto(code).value;
+            return code;
         }
     });
 
     /** Render Markdown string to sanitized HTML and apply to an element. */
     function renderMarkdown(el, text) {
         // Parse markdown → HTML
-        el.innerHTML = marked.parse(text || "");
+        try {
+            el.innerHTML = marked.parse(text || "");
+        } catch (e) {
+            el.textContent = text || "";
+            return;
+        }
 
-        // Syntax highlight all code blocks
-        el.querySelectorAll("pre code").forEach(block => {
-            hljs.highlightElement(block);
-        });
+        // Syntax highlight all code blocks if hljs is available
+        if (typeof hljs !== "undefined" && hljs.highlightElement) {
+            el.querySelectorAll("pre code").forEach(block => {
+                try {
+                    hljs.highlightElement(block);
+                } catch (e) {}
+            });
+        }
 
         // Add copy button to every <pre>
         el.querySelectorAll("pre").forEach(pre => {
             if (pre.querySelector(".copy-btn")) return; // already added
             const btn = document.createElement("button");
             btn.className = "copy-btn";
-            btn.textContent = "Copy";
+            btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> <span>Copy</span>`;
             btn.onclick = () => {
                 const code = pre.querySelector("code");
                 navigator.clipboard.writeText(code ? code.innerText : pre.innerText)
-                    .then(() => { btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy", 2000); })
-                    .catch(() => { btn.textContent = "Error"; });
+                    .then(() => {
+                        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> <span style="color:#10b981">Copied!</span>`;
+                        setTimeout(() => {
+                            btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> <span>Copy</span>`;
+                        }, 2000);
+                    })
+                    .catch(() => {
+                        btn.textContent = "Error";
+                    });
             };
             pre.appendChild(btn);
         });
@@ -758,6 +1301,23 @@
     const modelSelect = document.getElementById("modelSelect");
     const noticeText = document.getElementById("noticeText");
     const micBtn = document.getElementById("micBtn");
+
+    // Dynamic dot pulsing when status changes
+    const statusObserver = new MutationObserver(() => {
+        const text = (statusText.textContent || "").trim().toLowerCase();
+        if (text === "ready") {
+            statusText.classList.remove("busy", "listening");
+        } else if (text.includes("listening")) {
+            statusText.classList.remove("busy");
+            statusText.classList.add("listening");
+        } else {
+            statusText.classList.remove("listening");
+            statusText.classList.add("busy");
+        }
+    });
+    if (statusText) {
+        statusObserver.observe(statusText, { childList: true, characterData: true, subtree: true });
+    }
 
     let pendingFile = null;
     let threadId = localStorage.getItem("thread_id");
@@ -805,7 +1365,7 @@
 
             if (micBtn) {
                 micBtn.classList.add("recording");
-                micBtn.textContent = "⏹️";
+                micBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>`;
             }
 
             statusText.textContent = "Listening...";
@@ -901,7 +1461,7 @@
 
         if (micBtn) {
             micBtn.classList.remove("recording");
-            micBtn.textContent = "🎙️";
+            micBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
         }
 
         statusText.textContent = "Ready";
@@ -987,7 +1547,9 @@
             ? "avatar user-avatar"
             : "avatar bot-avatar";
 
-        avatar.textContent = role === "user" ? "U" : "AI";
+        avatar.innerHTML = role === "user"
+            ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`
+            : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`;
 
         const messageContent = document.createElement("div");
         messageContent.className = "message-content";
@@ -1026,14 +1588,14 @@
 
         const label = document.createElement("span");
         label.className = "followup-suggestions-label";
-        label.textContent = "Suggested follow-up questions";
+        label.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg> Suggested follow-up questions`;
         container.appendChild(label);
 
         for (const question of cleanQuestions) {
             const button = document.createElement("button");
             button.className = "followup-suggestion";
             button.type = "button";
-            button.textContent = question;
+            button.innerHTML = `<span>${escapeHtml(question)}</span> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>`;
             button.title = "Put this question in the message box";
             button.onclick = () => {
                 messageInput.value = question;
@@ -1053,8 +1615,8 @@
         const isVietnamese = /[À-ỹ]|\b(tôi|toi|bạn|ban|thời tiết|thoi tiet|như nào|nhu nao)\b/i.test(text);
         return isVietnamese
             ? [
-                "Bạn có thể giải thích kỹ hơn về câu hỏi vừa rồi không?",
-                "Bạn có thể đưa ra một ví dụ cụ thể liên quan đến chủ đề này không?"
+                "Bạn có thể giải thích kỹ hơn về nội dung vừa rồi không?",
+                "Bạn có ví dụ cụ thể hoặc hướng dẫn mở rộng nào không?"
             ]
             : [
                 "Could you explain the previous answer in more detail?",
@@ -1145,7 +1707,7 @@
 
             if (!data.conversations || data.conversations.length === 0) {
                 conversationList.innerHTML = `
-                    <div class="history-item">No chats yet</div>
+                    <div class="history-item" style="color: var(--text-muted); cursor: default;">No chats yet</div>
                 `;
                 return;
             }
@@ -1158,7 +1720,12 @@
                     item.classList.add("active");
                 }
 
-                item.textContent = conv.title || "New Chat";
+                item.innerHTML = `
+                    <svg class="history-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span class="history-item-title">${escapeHtml(conv.title || "New Chat")}</span>
+                `;
                 item.onclick = () => loadConversation(conv.thread_id);
 
                 conversationList.appendChild(item);
@@ -1203,21 +1770,55 @@
     function renderWelcome() {
         chatContainer.innerHTML = `
             <div class="welcome" id="welcome">
+                <div class="welcome-badge">⚡ Advanced AI Assistant</div>
                 <h1>How can I help you today?</h1>
                 <p>Ask questions about text, documents, and images, use tools, search the web, and chat with memory.</p>
             </div>
 
             <div class="cards" id="cards">
                 <div class="card" onclick="usePrompt('Search the web for latest AI agent news.')">
-                    Search latest web info
+                    <div class="card-icon">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                    </div>
+                    <div class="card-title">Search web info</div>
+                    <div class="card-desc">Find latest news, articles, and real-time facts online</div>
                 </div>
 
                 <div class="card" onclick="usePrompt('Summarize the document I uploaded.')">
-                    Summarize uploaded document
+                    <div class="card-icon">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </div>
+                    <div class="card-title">Summarize document</div>
+                    <div class="card-desc">Extract key points and insights from attached files</div>
                 </div>
 
                 <div class="card" onclick="usePrompt('Calculate 125 * 48 / 6')">
-                    Use calculator tool
+                    <div class="card-icon">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                            <line x1="8" y1="6" x2="16" y2="6"></line>
+                            <line x1="16" y1="14" x2="16" y2="18"></line>
+                            <path d="M16 10h.01"></path>
+                            <path d="M12 10h.01"></path>
+                            <path d="M8 10h.01"></path>
+                            <path d="M12 14h.01"></path>
+                            <path d="M8 14h.01"></path>
+                            <path d="M12 18h.01"></path>
+                            <path d="M8 18h.01"></path>
+                        </svg>
+                    </div>
+                    <div class="card-title">Use calculator tool</div>
+                    <div class="card-desc">Evaluate math expressions and computations quickly</div>
                 </div>
             </div>
         `;

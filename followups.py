@@ -9,8 +9,30 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
+from context_manager import estimate_tokens
+
 
 logger = logging.getLogger(__name__)
+
+MAX_FOLLOWUP_USER_TOKENS = 250
+MAX_FOLLOWUP_ANSWER_TOKENS = 500
+FOLLOWUP_OUTPUT_TOKENS = 512
+
+
+def _clean_content_for_followup(text: str, max_tokens_limit: int) -> str:
+    """Loại bỏ code blocks dài, tool dumps thô và giới hạn token cho followup."""
+    if not text:
+        return ""
+    # Thay thế các khối code dài bằng placeholder ngắn gọn
+    cleaned = re.sub(r"```[\w]*\n[\s\S]{100,}?```", "[Code snippet omitted]", text)
+    # Loại bỏ các tag đính kèm file hoặc ảnh
+    cleaned = re.sub(r"\[\s*Attached\s+(?:file|image):[^\]]+\]", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    if estimate_tokens(cleaned) > max_tokens_limit:
+        max_chars = max_tokens_limit * 3
+        cleaned = cleaned[:max_chars] + "..."
+    return cleaned
 
 
 def _response_text(response) -> str:
@@ -129,21 +151,28 @@ def generate_followup_questions(
     assistant_answer: str,
     model_name: str,
 ) -> list[str]:
-    """Generate exactly two relevant follow-up questions, with a local fallback."""
+    """Generate exactly two relevant follow-up questions, with a local fallback.
+
+    Tách context & Kiểm soát token:
+    - Loại bỏ code blocks lớn, tool outputs thô, attachments không cần thiết.
+    - Giới hạn nghiêm ngặt token context (user ~250 tokens, assistant ~500 tokens).
+    - Tránh lãng phí token và ngăn ngừa lỗi rate-limit TPM trên Groq.
+    """
     if not assistant_answer.strip():
         return fallback_followup_questions(user_message)
 
-    # Giới hạn độ dài context để lượt sinh câu hỏi không gửi lại toàn bộ lịch sử
-    # dài. Giữ phần cuối vì thường chứa nội dung câu trả lời mới nhất.
+    # 2 & 4. Lọc bỏ dữ liệu thừa và giới hạn ngân sách token trước khi gọi LLM
+    clean_user = _clean_content_for_followup(user_message, MAX_FOLLOWUP_USER_TOKENS)
+    clean_assistant = _clean_content_for_followup(assistant_answer, MAX_FOLLOWUP_ANSWER_TOKENS)
+
     context = {
-        "user_message": user_message[-4000:],
-        "assistant_answer": assistant_answer[-6000:],
+        "user_message": clean_user,
+        "assistant_answer": clean_assistant,
     }
     try:
         # Dùng cùng model chat mà người dùng đang chọn; max_tokens thấp vì chỉ
-        # cần hai câu ngắn. Đây là một lượt gọi bổ sung sau câu trả lời chính.
-        # Tăng giới hạn để model có đủ chỗ cho reasoning ngắn và hai câu hỏi.
-        llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=512)
+        # cần hai câu ngắn.
+        llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=FOLLOWUP_OUTPUT_TOKENS)
         response = llm.invoke([
             SystemMessage(content=(
                 "You are an expert follow-up question generator for a helpful, "

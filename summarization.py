@@ -10,6 +10,8 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
+from context_manager import validate_and_isolate_summarization_context
+
 
 DEFAULT_INPUT_TOKEN_BUDGET = 6000
 SUMMARY_OUTPUT_TOKENS = 1200
@@ -112,11 +114,13 @@ def summarize_documents(
 ) -> str:
     """Summarize all supplied chunks with recursive map-reduce passes.
 
-    Any failed map or reduce call raises an error; partial summaries are never
-    presented as if they covered the complete document.
+    Tách context theo tác vụ:
+    - Xác thực và cô lập hoàn toàn tài liệu: chỉ đưa các chunk và summary cần thiết
+      vào pipeline Map-Reduce, tuyệt đối không gửi lịch sử chat.
+    - Bất kỳ lỗi map/reduce nào đều raise error; không bao giờ trả về bản tóm tắt thiếu sót.
     """
-    if not documents or not any(doc.page_content.strip() for doc in documents):
-        raise ValueError("The selected document has no readable content to summarize.")
+    clean_documents = validate_and_isolate_summarization_context(documents)
+
     if llm is None:
         llm = ChatGroq(
             model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
@@ -125,8 +129,12 @@ def summarize_documents(
         )
 
     budget = input_token_budget or _input_budget()
-    units = [_format_document(doc) for doc in documents if doc.page_content.strip()]
-    map_groups = _groups_by_budget(units, budget)
+    # 4. Giới hạn token: Đảm bảo tổng chunk + prompt overhead + output không vượt quá budget
+    prompt_overhead = 150 + SUMMARY_OUTPUT_TOKENS
+    effective_chunk_budget = max(256, budget - prompt_overhead) if budget > prompt_overhead else budget
+
+    units = [_format_document(doc) for doc in clean_documents if doc.page_content.strip()]
+    map_groups = _groups_by_budget(units, effective_chunk_budget)
     summaries = []
     for number, group in enumerate(map_groups, start=1):
         summaries.append(_invoke(
@@ -139,11 +147,11 @@ def summarize_documents(
     level = 1
     while len(summaries) > 1:
         reduced = []
-        groups = _groups_by_budget(summaries, budget)
+        groups = _groups_by_budget(summaries, effective_chunk_budget)
         # If summaries are so large that grouping did not reduce their count,
         # lower the next pass budget to ensure the reduction makes progress.
         if len(groups) >= len(summaries):
-            smaller_budget = max(256, budget // 2)
+            smaller_budget = max(256, effective_chunk_budget // 2)
             groups = _groups_by_budget(summaries, smaller_budget)
             if len(groups) >= len(summaries) and smaller_budget == 256:
                 raise RuntimeError("Document summaries are too large to reduce safely.")

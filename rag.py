@@ -22,11 +22,17 @@ Path("uploads").mkdir(exist_ok=True)
 Path("chroma_db_hf").mkdir(exist_ok=True)
 
 
-# Embeddings model chạy local trên CPU
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    model_kwargs={"device": "cpu"}
-)
+# Embeddings model chạy local trên CPU (ưu tiên tải từ local cache để khởi động nhanh và tránh timeout khi offline)
+try:
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        model_kwargs={"device": "cpu", "local_files_only": True}
+    )
+except Exception:
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        model_kwargs={"device": "cpu"}
+    )
 
 # Vector database
 vectorstore = Chroma(
