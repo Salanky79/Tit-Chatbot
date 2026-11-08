@@ -320,13 +320,14 @@ flowchart LR
   - Đóng gói ảnh thành chuỗi Base64 Data URL.
   - Gọi ChatGroq Vision model với `max_tokens=1200`.
 
-### 4.8. Sinh gợi ý tiếp nối (`followups.py`)
+### 4.8. Sinh gợi ý prompt tiếp nối (`followups.py`)
 - Hàm `generate_followup_questions`:
   - Lọc code blocks và dữ liệu thừa bằng `_clean_content_for_followup`.
   - Giới hạn token đầu vào (user $\le 250$, assistant $\le 500$).
-  - Gọi ChatGroq sinh đúng 2 câu hỏi tiếp nối.
-  - Parse kết quả linh hoạt từ JSON, numbered list hoặc regex.
-- Hàm `fallback_followup_questions`: Thuật toán sinh câu hỏi gợi ý cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
+  - System prompt định hướng tạo **User Prompt** (câu lệnh / yêu cầu từ góc nhìn người dùng gửi tới AI), tuyệt đối loại bỏ các đại từ và câu hỏi từ phía trợ lý như "Bạn có muốn...", "Bạn có quan tâm...", "Would you like...".
+  - Hàm `_clean_prompt_suggestion`: Bộ lọc hậu xử lý Regex tự động chuyển đổi mọi câu hỏi kiểu trợ lý còn sót thành câu lệnh hành động trực tiếp của người dùng.
+  - Parse kết quả linh hoạt từ JSON hoặc danh sách phân dòng.
+- Hàm `fallback_followup_questions`: Thuật toán sinh gợi ý prompt người dùng cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
 
 ### 4.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)
 - Singleton Client trong `mongo_client.py` sử dụng chứng chỉ an toàn `certifi` và Google DNS (`8.8.8.8`) cho truy vấn SRV.

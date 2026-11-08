@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage
 
 from followups import (
     _clean_content_for_followup,
+    _clean_prompt_suggestion,
     fallback_followup_questions,
     generate_followup_questions,
     MAX_FOLLOWUP_USER_TOKENS,
@@ -39,6 +40,23 @@ class TestFollowupsAndVision(unittest.TestCase):
         # Estimated tokens should be around the limit
         self.assertLessEqual(estimate_tokens(cleaned), limit + 5)
         self.assertTrue(cleaned.endswith("..."))
+
+    def test_clean_prompt_suggestion_strips_assistant_inquiries(self):
+        s1 = "Bạn muốn mở rộng chương trình để nhận tên người dùng từ bàn phím và in lời chào cá nhân hoá không?"
+        cleaned1 = _clean_prompt_suggestion(s1)
+        self.assertEqual(cleaned1, "Mở rộng chương trình để nhận tên người dùng từ bàn phím và in lời chào cá nhân hoá")
+
+        s2 = "Bạn có quan tâm tới cách tạo một file thực thi độc lập (executable) cho script Python này không?"
+        cleaned2 = _clean_prompt_suggestion(s2)
+        self.assertEqual(cleaned2, "Cách tạo một file thực thi độc lập (executable) cho script Python này")
+
+        s3 = "Would you like to learn how to write unit tests for this script?"
+        cleaned3 = _clean_prompt_suggestion(s3)
+        self.assertEqual(cleaned3, "How to write unit tests for this script?")
+
+        s4 = "Bạn có cần hướng dẫn cài đặt thư viện không?"
+        cleaned4 = _clean_prompt_suggestion(s4)
+        self.assertEqual(cleaned4, "Hướng dẫn cài đặt thư viện")
 
     def test_fallback_followup_questions_vietnamese(self):
         questions = fallback_followup_questions("Bạn có thể giải thích về Python không?")

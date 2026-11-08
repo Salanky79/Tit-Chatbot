@@ -1,4 +1,4 @@
-"""Generate two follow-up suggestions for each chat turn."""
+"""Generate two user-prompt follow-up suggestions for each chat turn."""
 
 from __future__ import annotations
 
@@ -36,9 +36,6 @@ def _clean_content_for_followup(text: str, max_tokens_limit: int) -> str:
 
 
 def _response_text(response) -> str:
-    # LangChain thường trả AIMessage có thuộc tính content, nhưng nội dung
-    # đôi khi là chuỗi, đôi khi là danh sách các phần text. Chuẩn hóa cả hai
-    # dạng về một chuỗi để bước parse JSON phía sau xử lý thống nhất.
     content = getattr(response, "content", response)
     if isinstance(content, str):
         return content.strip()
@@ -51,63 +48,100 @@ def _response_text(response) -> str:
     return ""
 
 
-def _clean_question(question: str) -> str:
-    question = re.sub(r"^\s*(?:[-*•]+\s*|\d+[.)、]\s*)", "", question)
-    question = question.strip().strip("`\"' “”‘’")
-    if question and not question.endswith(("?", "？")):
-        question += "?"
-    return question
+def _clean_prompt_suggestion(text: str) -> str:
+    """Chuẩn hóa một gợi ý prompt từ góc nhìn người dùng, loại bỏ các từ mở đầu kiểu trợ lý hỏi người dùng."""
+    if not text:
+        return ""
+
+    # Loại bỏ bullet points, số thứ tự ở đầu
+    s = re.sub(r"^\s*(?:[-*•]+\s*|\d+[.)、\s-]\s*)", "", text).strip()
+    s = s.strip("`\"' “”‘’")
+
+    # Loại bỏ các mẫu câu hỏi/gợi ý từ góc nhìn trợ lý (Vietnamese)
+    # Ví dụ: "Bạn có muốn mở rộng chương trình... không?" -> "Mở rộng chương trình..."
+    s = re.sub(
+        r"^(?:bạn có muốn|bạn có cần|bạn muốn|bạn có quan tâm (?:đến|tới)?|bạn có thích|bạn có tò mò|có muốn)\s+",
+        "",
+        s,
+        flags=re.I,
+    ).strip()
+    # Loại bỏ đuôi nghi vấn kiểu trợ lý hỏi ý người dùng ở cuối câu
+    s = re.sub(r"\s+(?:không|ko|chăng)\s*[?？]?$", "", s, flags=re.I).strip()
+
+    # Loại bỏ các mẫu trợ lý hỏi người dùng (English)
+    # Ví dụ: "Would you like to know how to..." -> "How to..."
+    s = re.sub(
+        r"^(?:would you like (?:to (?:know|learn|see|explore|find out))?|do you want (?:to (?:know|learn|see|explore|find out))?|are you interested in|would you prefer (?:to)?)\s+",
+        "",
+        s,
+        flags=re.I,
+    ).strip()
+
+    # Viết hoa chữ cái đầu nếu bị viết thường sau khi cắt bỏ tiền tố
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
+
+    return s.strip()
+
+
+# Alias for backward compatibility
+_clean_question = _clean_prompt_suggestion
 
 
 def _parse_questions(raw: str) -> list[str]:
-    """Parse JSON, numbered lines, or two plain questions from model output."""
+    """Parse JSON or newline-separated suggested prompts from model output."""
     text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.I)
     candidates: list[str] = []
 
     try:
         payload = json.loads(text)
         if isinstance(payload, dict):
-            payload = payload.get("questions", payload.get("followups", []))
+            payload = (
+                payload.get("prompts")
+                or payload.get("suggestions")
+                or payload.get("questions")
+                or payload.get("followups", [])
+            )
         if isinstance(payload, list):
             candidates.extend(item for item in payload if isinstance(item, str))
     except (json.JSONDecodeError, TypeError):
         pass
 
     if not candidates:
-        # This also handles two questions that the model puts on one line.
-        candidates = re.findall(r"[^?？\n]*[?？]", text)
+        # Split by non-empty lines
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) >= 2:
+            candidates = lines[:2]
+        elif len(lines) == 1:
+            split_candidates = re.split(r"(?<=[?？.!\n])\s+", lines[0])
+            if len(split_candidates) >= 2:
+                candidates = split_candidates[:2]
+            else:
+                candidates = lines
 
-    if len(candidates) < 2:
-        question_lines = [
-            line for line in text.splitlines()
-            if line.strip().endswith(("?", "？"))
-        ]
-        if len(question_lines) >= 2:
-            candidates = question_lines
-
-    if len(candidates) < 2:
-        # Accept exactly two non-empty lines even if punctuation was omitted.
-        plain_lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if len(plain_lines) == 2:
-            candidates = plain_lines
-
-    questions = []
+    suggestions = []
     for candidate in candidates:
-        question = _clean_question(candidate)
-        if question and question.casefold() not in {q.casefold() for q in questions}:
-            questions.append(question)
-        if len(questions) == 2:
+        cleaned = _clean_prompt_suggestion(candidate)
+        if cleaned and cleaned.casefold() not in {s.casefold() for s in suggestions}:
+            suggestions.append(cleaned)
+        if len(suggestions) == 2:
             break
-    return questions if len(questions) == 2 else []
+    return suggestions if len(suggestions) == 2 else []
+
+
+VIETNAMESE_ACCENTS = (
+    "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+    "ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ"
+)
 
 
 def fallback_followup_questions(user_message: str) -> list[str]:
-    """Return two local suggestions when the follow-up model is unavailable."""
+    """Return two local user prompt suggestions when the follow-up model is unavailable."""
     text = re.sub(r"\[\s*Attached\s+(?:file|image):[^\]]+\]", " ", user_message or "", flags=re.I)
     text = re.sub(r"\s+", " ", text).strip().rstrip("?？.!。 ")
 
-    vietnamese = bool(re.search(
-        r"[À-ỹ]|\b(tôi|toi|bạn|ban|minh|cho tôi|cho toi|thời tiết|thoi tiet|như nào|nhu nao|làm sao|lam sao|giúp|giup|không|khong)\b",
+    vietnamese = any(c in VIETNAMESE_ACCENTS for c in text) or bool(re.search(
+        r"\b(tôi|toi|bạn|ban|minh|cho tôi|cho toi|thời tiết|thoi tiet|như nào|nhu nao|làm sao|lam sao|giúp|giup|không|khong)\b",
         text,
         re.I,
     ))
@@ -121,12 +155,12 @@ def fallback_followup_questions(user_message: str) -> list[str]:
         topic = topic[:70].rstrip(" ,;:")
         if topic:
             return [
-                f"Bạn có thể giải thích cụ thể hơn về {topic} bằng một ví dụ không?",
-                f"Có lưu ý hoặc trường hợp đặc biệt nào liên quan đến {topic}?",
+                f"Giải thích chi tiết hơn về {topic} kèm ví dụ minh họa cụ thể",
+                f"Các lưu ý quan trọng và cách xử lý lỗi thường gặp khi làm việc với {topic}",
             ]
         return [
-            "Bạn có thể giải thích kỹ hơn câu trả lời vừa rồi không?",
-            "Bạn có thể đưa ra một ví dụ cụ thể liên quan đến câu hỏi này không?",
+            "Giải thích chi tiết hơn về câu trả lời vừa rồi kèm ví dụ cụ thể",
+            "Hướng dẫn các bước triển khai chi tiết và những lưu ý quan trọng",
         ]
 
     topic = re.sub(
@@ -137,12 +171,12 @@ def fallback_followup_questions(user_message: str) -> list[str]:
     ).strip()[:70].rstrip(" ,;:")
     if topic:
         return [
-            f"Could you explain {topic} with a concrete example?",
-            f"What important details or exceptions should I know about {topic}?",
+            f"How can I apply {topic} in a real-world scenario with an example?",
+            f"What are the best practices and common pitfalls for {topic}?",
         ]
     return [
-        "Could you explain the answer in more detail?",
-        "Could you give a concrete example related to this question?",
+        "How can I apply this in a real-world scenario with an example?",
+        "What are the best practices and key considerations for this topic?",
     ]
 
 
@@ -151,17 +185,16 @@ def generate_followup_questions(
     assistant_answer: str,
     model_name: str,
 ) -> list[str]:
-    """Generate exactly two relevant follow-up questions, with a local fallback.
+    """Generate exactly two actionable suggested user prompts, with a local fallback.
 
     Tách context & Kiểm soát token:
     - Loại bỏ code blocks lớn, tool outputs thô, attachments không cần thiết.
     - Giới hạn nghiêm ngặt token context (user ~250 tokens, assistant ~500 tokens).
-    - Tránh lãng phí token và ngăn ngừa lỗi rate-limit TPM trên Groq.
+    - Viết theo góc nhìn của người dùng (User Prompt), tuyệt đối không dùng câu hỏi từ phía trợ lý.
     """
     if not assistant_answer.strip():
         return fallback_followup_questions(user_message)
 
-    # 2 & 4. Lọc bỏ dữ liệu thừa và giới hạn ngân sách token trước khi gọi LLM
     clean_user = _clean_content_for_followup(user_message, MAX_FOLLOWUP_USER_TOKENS)
     clean_assistant = _clean_content_for_followup(assistant_answer, MAX_FOLLOWUP_ANSWER_TOKENS)
 
@@ -170,44 +203,35 @@ def generate_followup_questions(
         "assistant_answer": clean_assistant,
     }
     try:
-        # Dùng cùng model chat mà người dùng đang chọn; max_tokens thấp vì chỉ
-        # cần hai câu ngắn.
         llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=FOLLOWUP_OUTPUT_TOKENS)
         response = llm.invoke([
             SystemMessage(content=(
-                "You are an expert follow-up question generator for a helpful, "
-                "professional AI assistant.\n\n"
-
-                "Your task is to generate exactly two high-quality follow-up "
-                "questions based on the user's latest message and the assistant's "
-                "response.\n\n"
-
+                "You are an expert prompt engineer for an AI chat assistant interface.\n\n"
+                "Your task is to generate exactly two high-quality, actionable SUGGESTED USER PROMPTS "
+                "based on the latest conversation turn. These suggestions appear as clickable quick prompt "
+                "chips that the USER will send to the assistant as their next message.\n\n"
+                "CRITICAL PERSPECTIVE RULES:\n"
+                "- Write strictly from the USER'S POINT OF VIEW (prompts that the USER says TO the assistant).\n"
+                "- NEVER write from the assistant's perspective asking the user questions.\n"
+                "- ABSOLUTELY FORBIDDEN: Do not start with conversational fillers or chatbot inquiries directed at the user, such as:\n"
+                "  * 'Bạn có muốn...', 'Bạn có cần...', 'Bạn muốn...', 'Bạn có quan tâm đến/tới...'\n"
+                "  * 'Would you like...', 'Do you want...', 'Are you interested in...', 'Would you prefer...'\n"
+                "- Suggested prompts MUST be direct requests, commands, or user inquiries, for example:\n"
+                "  * 'Hướng dẫn cách mở rộng chương trình để nhận input từ người dùng'\n"
+                "  * 'Cách tạo file thực thi (.exe) độc lập từ script Python này'\n"
+                "  * 'Giải thích chi tiết hơn về các tham số và cú pháp ở trên'\n"
+                "  * 'So sánh ưu và nhược điểm của giải pháp này với các cách tiếp cận khác'\n\n"
                 "Guidelines:\n"
-                "- Make each question relevant to the conversation and useful "
-                "for exploring the topic further.\n"
-                "- Prefer specific, insightful questions over generic suggestions.\n"
-                "- Keep each question concise, natural, and easy to understand.\n"
-                "- Use the same language as the conversation.\n"
-                "- Make the two questions distinct and complementary.\n"
-                "- Consider the user's likely next step, such as understanding a "
-                "concept more deeply, seeing a practical example, comparing "
-                "alternatives, or solving a related problem.\n"
-                "- Do not ask for information the user has already provided.\n"
-                "- Do not repeat questions that have already been answered.\n"
-                "- Do not begin with conversational filler such as "
-                "'Bạn có muốn...', 'Bạn có cần...', 'Bạn muốn biết thêm...', "
-                "'Would you like...', or 'Do you want...'.\n"
-                "- Phrase questions directly and naturally, as suggested prompts "
-                "in a modern AI chatbot interface.\n\n"
-
-                "Output requirements:\n"
-                "- Return exactly two questions.\n"
-                "- Put each question on a separate line.\n"
-                "- Do not include numbering, bullets, introductions, explanations, "
-                "or quotation marks.\n"
-                "- Return only the two questions."
+                "- Use the same language as the conversation (e.g. Vietnamese for Vietnamese conversations).\n"
+                "- Make each prompt concise (under 16 words), natural, and immediately actionable as a prompt chip.\n"
+                "- Make the two prompts distinct and complementary.\n"
+                "- Do not repeat what has already been answered.\n\n"
+                "Output format:\n"
+                "- Return exactly two suggested prompts.\n"
+                "- Put each suggested prompt on a separate line.\n"
+                "- Do not include numbering, bullets, quotation marks, or explanations.\n"
+                "- Return only the two suggested prompts."
             )),
-            # Đóng gói câu hỏi và câu trả lời vừa tạo thành context JSON.
             HumanMessage(content=json.dumps(context, ensure_ascii=False)),
         ])
         raw = _response_text(response)
