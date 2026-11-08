@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import MagicMock, patch
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
@@ -17,6 +18,9 @@ from context_manager import (
     trim_conversation_history,
     prune_old_tool_results,
     validate_and_isolate_summarization_context,
+    is_isolated_document_task,
+    get_model_token_budget,
+    _deduplicate_summary_lines,
     enforce_token_budget,
     prepare_context_for_llm,
 )
@@ -105,7 +109,12 @@ class TestContextManager(unittest.TestCase):
         self.assertEqual(len(recent), 4)
         self.assertEqual(summary, "")
 
-    def test_trim_conversation_history_exceeding_limit(self):
+    @patch("context_manager.ChatGroq")
+    def test_trim_conversation_history_exceeding_limit(self, mock_chat_groq):
+        mock_instance = MagicMock()
+        mock_chat_groq.return_value = mock_instance
+        mock_instance.invoke.return_value = AIMessage(content="- User is Alice who likes Python.")
+
         messages = [
             HumanMessage(content="Turn 1: My name is Alice"),
             AIMessage(content="Answer 1: Nice to meet you Alice"),
@@ -120,6 +129,66 @@ class TestContextManager(unittest.TestCase):
         self.assertEqual(recent[0].content, "Turn 3: What is fastAPI?")
         self.assertEqual(recent[1].content, "Answer 3: FastAPI is a modern web framework")
         self.assertTrue("Alice" in summary or "Python" in summary)
+
+    def test_deduplicate_summary_lines(self):
+        text = (
+            "- Người dùng là Sơn.\n"
+            "- Người dùng là Sơn.\n"
+            "- Người dùng là Sơn\n"
+            "- Thích câu trả lời ngắn gọn."
+        )
+        deduped = _deduplicate_summary_lines(text)
+        self.assertEqual(deduped.count("Người dùng là Sơn"), 1)
+        self.assertIn("Thích câu trả lời ngắn gọn.", deduped)
+
+    def test_get_model_token_budget(self):
+        budget_120b = get_model_token_budget("openai/gpt-oss-120b")
+        self.assertEqual(budget_120b["max_context_tokens"], 2800)
+        self.assertEqual(budget_120b["max_tool_result_tokens"], 1000)
+        self.assertEqual(budget_120b["expected_output_tokens"], 800)
+
+        budget_20b = get_model_token_budget("openai/gpt-oss-20b")
+        self.assertEqual(budget_20b["max_context_tokens"], 6000)
+
+        budget_default = get_model_token_budget(None)
+        self.assertEqual(budget_default["max_context_tokens"], 6000)
+
+    def test_is_isolated_document_task(self):
+        msg_file = [HumanMessage(content="tóm tắt file này đi 📎 Tiểu luận CNXHKH.pdf")]
+        self.assertTrue(is_isolated_document_task(msg_file))
+
+        msg_attached = [HumanMessage(content="Giải thích nội dung trong [Attached file: report.docx]")]
+        self.assertTrue(is_isolated_document_task(msg_attached))
+
+        msg_chat = [HumanMessage(content="Xin chào, bạn có thể giúp tôi viết code Python không?")]
+        self.assertFalse(is_isolated_document_task(msg_chat))
+
+    def test_prepare_context_for_llm_isolates_document_task(self):
+        messages = [
+            HumanMessage(content="Turn 1: Phân tích ảnh hoa trắng"),
+            AIMessage(content="Ảnh này có bông hoa trắng trên nền đen."),
+            HumanMessage(content="Turn 2: tóm tắt file này đi 📎 Tiểu luận CNXHKH.pdf"),
+        ]
+        existing_summary = "- Người dùng là Sơn thích ngắm hoa trắng."
+
+        final_messages, updated_summary = prepare_context_for_llm(
+            messages=messages,
+            system_prompt="You are a helpful assistant.",
+            existing_summary=existing_summary,
+            model_name="openai/gpt-oss-120b",
+        )
+
+        sys_msg = final_messages[0]
+        # Bắt buộc: KHÔNG ĐƯỢC chứa background context hoa trắng hay tên Sơn vào prompt tài liệu
+        self.assertNotIn("Người dùng là Sơn thích ngắm hoa trắng", sys_msg.content)
+        self.assertNotIn("[CONTEXT FROM EARLIER CONVERSATION", sys_msg.content)
+        self.assertIn("CRITICAL TASK ISOLATION INSTRUCTIONS", sys_msg.content)
+
+        # Bắt buộc: Danh sách tin nhắn chỉ giữ lượt active về file
+        human_msgs = [m for m in final_messages if isinstance(m, HumanMessage)]
+        self.assertEqual(len(human_msgs), 1)
+        self.assertIn("tóm tắt file", human_msgs[0].content)
+        self.assertFalse(any("Phân tích ảnh hoa trắng" in getattr(m, "content", "") for m in final_messages))
 
     def test_prune_old_tool_results(self):
         messages = [
@@ -207,7 +276,12 @@ class TestContextManager(unittest.TestCase):
         self.assertTrue(any("Recent query" in getattr(m, "content", "") for m in budgeted))
         self.assertLess(len(budgeted), len(messages))
 
-    def test_prepare_context_for_llm_pipeline(self):
+    @patch("context_manager.ChatGroq")
+    def test_prepare_context_for_llm_pipeline(self, mock_chat_groq):
+        mock_instance = MagicMock()
+        mock_chat_groq.return_value = mock_instance
+        mock_instance.invoke.return_value = AIMessage(content="- User name is Bob.")
+
         messages = [
             HumanMessage(content="Turn 1: My name is Bob"),
             AIMessage(content="", tool_calls=[{"id": "c1", "name": "remember", "args": {}}]),

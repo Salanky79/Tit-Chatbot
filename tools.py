@@ -82,17 +82,14 @@ def calculator(expression: str) -> str:
 # ---------------------------------------------------------------------------
 @tool
 def search_uploaded_documents(query: str) -> str:
-    """Search the content of documents uploaded by the user in this session.
+    """Search specific passages or answers in uploaded documents.
 
-    Use this tool when the user:
-    - Asks about an uploaded PDF, DOCX, TXT, Markdown, CSV, or Python file.
-    - Says "according to the document / file / report / paper ...".
-    - Asks to explain or find specific information from an upload.
-    - References "the file I uploaded" or "the document you have".
+    CRITICAL: DO NOT use this tool if the user asks for a summary of a file
+    (e.g., 'tóm tắt file', 'tóm tắt tài liệu', 'summarize', 'tóm tắt nội dung').
+    Use summarize_uploaded_document instead.
 
-    For a summary of an entire file, use summarize_uploaded_document instead.
-    Do NOT use this for general knowledge questions that do not relate to an
-    uploaded file. Returns the most relevant passages found in the documents.
+    Use this tool ONLY to answer specific factual questions or retrieve
+    relevant excerpts from an uploaded PDF, DOCX, TXT, Markdown, CSV, or Python file.
     """
     return retrieve_from_rag(query=query, thread_id=CURRENT_THREAD_ID)
 
@@ -101,8 +98,12 @@ def search_uploaded_documents(query: str) -> str:
 def summarize_uploaded_document(filename: str = "") -> str:
     """Summarize the complete contents of one uploaded file in this conversation.
 
-    Use this when the user asks for a summary of an entire uploaded document or
-    file. Pass its exact filename when it is named or clearly identified in the
+    CRITICAL: ALWAYS use this tool (and NEVER search_uploaded_documents) whenever
+    the user asks to summarize, outline, or give an overview of an uploaded file
+    or document (e.g. 'tóm tắt file', 'tóm tắt tài liệu', 'tóm tắt văn bản',
+    'summarize', 'overview', 'synopsis').
+
+    Pass its exact filename when it is named or clearly identified in the
     conversation. If only one file is uploaded, an empty filename selects that
     file. If several files exist and the user has not identified one, call with
     an empty filename to return a clarification request. Never combine files.

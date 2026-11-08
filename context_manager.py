@@ -36,6 +36,47 @@ DEFAULT_MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
 DEFAULT_EXPECTED_OUTPUT_TOKENS = int(os.getenv("EXPECTED_OUTPUT_TOKENS", "1200"))
 DEFAULT_MAX_TOOL_RESULT_TOKENS = int(os.getenv("MAX_TOOL_RESULT_TOKENS", "1800"))
 
+# Model helper dùng cho tóm tắt background để bảo vệ quota TPM của model chính
+SUMMARY_BACKGROUND_MODEL = "openai/gpt-oss-20b"
+
+# Ngân sách token động theo model nhằm ngăn chặn triệt để lỗi Groq Rate Limit 429 TPM
+MODEL_TOKEN_BUDGETS = {
+    # Groq free tier limit cho gpt-oss-120b chỉ có 8,000 TPM
+    # Cần giới hạn tổng context <= 2,800 token để 2 lần gọi trong 1 lượt (tool call + answer) <= 7,000 TPM
+    "openai/gpt-oss-120b": {
+        "max_context_tokens": 2800,
+        "max_tool_result_tokens": 1000,
+        "expected_output_tokens": 800,
+    },
+    # gpt-oss-20b có giới hạn TPM cao (> 150,000 TPM)
+    "openai/gpt-oss-20b": {
+        "max_context_tokens": 6000,
+        "max_tool_result_tokens": 1800,
+        "expected_output_tokens": 1200,
+    },
+    "qwen/qwen3.8-27b": {
+        "max_context_tokens": 5000,
+        "max_tool_result_tokens": 1500,
+        "expected_output_tokens": 1000,
+    },
+}
+
+
+def get_model_token_budget(model_name: str | None) -> dict:
+    """Lấy cấu hình ngân sách token phù hợp với từng mô hình nhằm ngăn chặn lỗi 429 Rate Limit."""
+    if not model_name:
+        return {
+            "max_context_tokens": DEFAULT_MAX_CONTEXT_TOKENS,
+            "max_tool_result_tokens": DEFAULT_MAX_TOOL_RESULT_TOKENS,
+            "expected_output_tokens": DEFAULT_EXPECTED_OUTPUT_TOKENS,
+        }
+    normalized = model_name.strip()
+    return MODEL_TOKEN_BUDGETS.get(normalized, {
+        "max_context_tokens": DEFAULT_MAX_CONTEXT_TOKENS,
+        "max_tool_result_tokens": DEFAULT_MAX_TOOL_RESULT_TOKENS,
+        "expected_output_tokens": DEFAULT_EXPECTED_OUTPUT_TOKENS,
+    })
+
 
 # ===========================================================================
 # 1. TOKEN COUNTING & ESTIMATION (Ước tính token nhất quán, an toàn)
@@ -185,6 +226,22 @@ def _extract_dialogue_text(turns: list[list[BaseMessage]]) -> str:
     return "\n".join(lines)
 
 
+def _deduplicate_summary_lines(summary_text: str) -> str:
+    """Loại bỏ các dòng/gạch đầu dòng bị lặp lại hoặc gần trùng lặp trong bản tóm tắt."""
+    if not summary_text or not summary_text.strip():
+        return ""
+    lines = [line.strip() for line in summary_text.strip().split("\n") if line.strip()]
+    unique_lines: list[str] = []
+    seen_canonical = set()
+    for line in lines:
+        canonical = re.sub(r"^[-*•\d.)\s]+", "", line).strip().lower()
+        canonical = re.sub(r"[.,:;!?'\"]+$", "", canonical)
+        if canonical and canonical not in seen_canonical:
+            seen_canonical.add(canonical)
+            unique_lines.append(line)
+    return "\n".join(unique_lines)
+
+
 def summarize_old_messages(
     old_turns: list[list[BaseMessage]],
     existing_summary: str = "",
@@ -192,60 +249,71 @@ def summarize_old_messages(
 ) -> str:
     """Tóm tắt các lượt trò chuyện cũ để bảo toàn ngữ cảnh cốt lõi.
 
-    Nếu có LLM khả dụng, gọi model tạo tóm tắt súc tích (2-3 gạch đầu dòng).
-    Nếu gặp lỗi mạng hoặc API không sẵn sàng, fallback sang trích xuất cục bộ.
+    - Luôn dùng mô hình gọn nhẹ (gpt-oss-20b) để không tiêu tốn token TPM của mô hình chính (như 120b).
+    - Chỉ lưu thông tin người dùng, sở thích lâu dài và chủ đề chính.
+    - Tuyệt đối không lưu mô tả ảnh tạm thời hoặc trích xuất OCR chi tiết.
+    - Tự động khử trùng lặp (deduplicate) để không bị tích lũy nhân bản qua nhiều lượt.
     """
     dialogue = _extract_dialogue_text(old_turns)
     if not dialogue.strip():
-        return existing_summary
+        return _deduplicate_summary_lines(existing_summary)
 
-    # Prompt tóm tắt
+    # Prompt tóm tắt chặt chẽ, chống ô nhiễm ngữ cảnh
     prompt_content = (
-        "Summarize the key facts, user preferences, names, and topics discussed "
-        "in the conversation below into 2-3 concise bullet points. "
-        "Preserve important context without unnecessary pleasantries.\n\n"
+        "You are updating a compact conversation memory.\n"
+        "Instructions:\n"
+        "- Extract ONLY user identity, permanent preferences, and high-level conversational topics.\n"
+        "- DO NOT summarize descriptions of images, photos, OCR dumps, or temporary uploaded files.\n"
+        "- Output 2-3 concise, non-redundant bullet points.\n"
+        "- Do NOT repeat any points already present in the existing summary.\n\n"
     )
     if existing_summary:
-        prompt_content += f"Previous conversation summary:\n{existing_summary}\n\n"
-    prompt_content += f"New conversation turns:\n{dialogue}"
+        prompt_content += f"Existing conversation summary:\n{existing_summary.strip()}\n\n"
+    prompt_content += f"New dialogue turns to incorporate:\n{dialogue.strip()}"
 
     try:
-        summary_model = model_name or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+        # Luôn ưu tiên dùng model 20b với timeout ngắn để không làm nghẽn TPM hoặc treo ứng dụng
+        summary_model = SUMMARY_BACKGROUND_MODEL
         llm = ChatGroq(
             model=summary_model,
-            temperature=0.2,
-            max_tokens=500,
+            temperature=0.1,
+            max_tokens=400,
+            request_timeout=4.0,
         )
         response = llm.invoke([
             SystemMessage(content=(
-                "You are a concise conversation summarizer. Output only the key bullet points. "
-                "Ensure every sentence and bullet point is completely finished."
+                "You are a concise conversation summarizer. Output only 2-3 key bullet points. "
+                "Never describe temporary images or repeat existing bullet points."
             )),
             HumanMessage(content=prompt_content),
         ])
         content = getattr(response, "content", "")
         if isinstance(content, str) and content.strip():
             text = content.strip()
-            # Loại bỏ liên từ/dấu phẩy lơ lửng nếu bị cắt cụt giữa chừng
             text = re.sub(r"[,;:\s]+(?:and|in|or|và|là|của|trong)[\s,.:;]*$", ".", text, flags=re.I)
-            return text
+            combined = f"{existing_summary.strip()}\n{text}" if existing_summary.strip() else text
+            return _deduplicate_summary_lines(combined)
     except Exception as exc:
         logger.warning("LLM conversation summarization failed: %s; using local extractive fallback.", exc)
 
-    # Fallback trích xuất cục bộ nếu LLM không khả dụng
+    # Fallback trích xuất cục bộ an toàn, loại bỏ nội dung media/file tạm
     extracted_lines = []
     if existing_summary:
-        extracted_lines.append(existing_summary)
+        for line in existing_summary.split("\n"):
+            if line.strip():
+                extracted_lines.append(line.strip())
     for turn in old_turns:
         for msg in turn:
             if isinstance(msg, HumanMessage):
                 text = str(getattr(msg, "content", ""))[:120]
+                if "[Attached " in text:
+                    continue
                 extracted_lines.append(f"- User asked: {text}")
             elif isinstance(msg, AIMessage):
                 text = str(getattr(msg, "content", ""))[:140]
-                if text.strip():
+                if text.strip() and not text.startswith("Image analysis of") and not text.startswith("Summary of"):
                     extracted_lines.append(f"- Assistant answered: {text}")
-    return "\n".join(extracted_lines[-6:])
+    return _deduplicate_summary_lines("\n".join(extracted_lines[-6:]))
 
 
 def trim_conversation_history(
@@ -391,6 +459,70 @@ def validate_and_isolate_summarization_context(
     return isolated_chunks
 
 
+def is_isolated_document_task(messages: Sequence[BaseMessage]) -> bool:
+    """3. Tách context theo tác vụ (Task Context Isolation):
+
+    Kiểm tra xem yêu cầu hiện tại của người dùng có phải là một tác vụ tài liệu/tệp tin
+    độc lập (như tóm tắt PDF, phân tích ảnh mới, tra cứu tài liệu vừa tải lên) hay không.
+
+    Nếu là tác vụ tài liệu độc lập:
+    - KHÔNG được đưa các tóm tắt trò chuyện cũ hay lịch sử lan man không liên quan vào.
+    - Context chỉ tập trung 100% vào tài liệu / tệp tin và yêu cầu của người dùng.
+    """
+    if not messages:
+        return False
+
+    last_human_msg = None
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            last_human_msg = msg
+            break
+
+    if not last_human_msg:
+        return False
+
+    content = getattr(last_human_msg, "content", "")
+    if not isinstance(content, str):
+        content = str(content)
+
+    lower_content = content.lower()
+
+    # Dấu hiệu 1: Có gắn tệp đính kèm hoặc đường dẫn tệp
+    attachment_markers = [
+        "[attached file:",
+        "[attached image:",
+        "uploads/",
+        ".pdf",
+        ".docx",
+        ".txt",
+        ".csv",
+        ".md",
+    ]
+    if any(marker in lower_content for marker in attachment_markers):
+        return True
+
+    # Dấu hiệu 2: Từ khóa tóm tắt tài liệu hoặc yêu cầu đọc tài liệu cụ thể
+    doc_keywords = [
+        "tóm tắt file",
+        "tóm tắt tài liệu",
+        "tóm tắt văn bản",
+        "tóm tắt bài",
+        "tóm tắt sách",
+        "tóm tắt pdf",
+        "tóm tắt nội dung file",
+        "summarize this file",
+        "summarize the document",
+        "summarize this document",
+        "file này",
+        "tài liệu này",
+        "bài tiểu luận",
+    ]
+    if any(kw in lower_content for kw in doc_keywords):
+        return True
+
+    return False
+
+
 # ===========================================================================
 # 5. STEP 4: GIỚI HẠN TOKEN TRƯỚC MỖI LẦN GỌI LLM (Token Budget Enforcement)
 # ===========================================================================
@@ -492,19 +624,62 @@ def prepare_context_for_llm(
     existing_summary: str = "",
     model_name: Optional[str] = None,
     max_history_turns: int = DEFAULT_MAX_HISTORY_TURNS,
-    max_context_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
-    expected_output_tokens: int = DEFAULT_EXPECTED_OUTPUT_TOKENS,
+    max_context_tokens: Optional[int] = None,
+    expected_output_tokens: Optional[int] = None,
 ) -> Tuple[list[BaseMessage], str]:
     """Quy trình hoàn chỉnh theo đúng thứ tự 4 bước:
 
-    (1) Trimming conversation history: giới hạn số lượt chat, tóm tắt lượt cũ.
+    (1) Trimming conversation history: giới hạn số lượt chat, tóm tắt lượt cũ (loại bỏ lặp lại).
     (2) Loại bỏ tool results cũ: loại bỏ web search / RAG cũ khỏi các lượt đã hoàn thành.
-    (3) Tách context theo tác vụ: đảm bảo context chat chỉ chứa thông tin hội thoại.
-    (4) Giới hạn token trước mỗi lần gọi LLM: tính toán tổng token và trim/chia nhỏ nếu quá giới hạn.
+    (3) Tách context theo tác vụ: khi người dùng tóm tắt PDF/file/image mới,
+        cô lập hoàn toàn ngữ cảnh, KHÔNG inject tóm tắt trò chuyện hay ảnh cũ vào prompt.
+    (4) Giới hạn token trước mỗi lần gọi LLM: tính toán tổng token và tự động điều chỉnh theo budget của model
+        (đặc biệt gpt-oss-120b với giới hạn 8,000 TPM của Groq).
 
     Returns:
         (final_messages_for_llm, updated_conversation_summary)
     """
+    # Lấy ngân sách token tương ứng với model
+    model_budget = get_model_token_budget(model_name)
+    budget_context = max_context_tokens if max_context_tokens is not None else model_budget["max_context_tokens"]
+    budget_output = expected_output_tokens if expected_output_tokens is not None else model_budget["expected_output_tokens"]
+    budget_tool = model_budget["max_tool_result_tokens"]
+
+    # Bước 3 (Kiểm tra tác vụ tài liệu độc lập):
+    # Nếu là tác vụ tài liệu (PDF, file, ảnh vừa tải lên, tóm tắt file):
+    # CÔ LẬP HOÀN TOÀN context để tránh Prompt Pollution và lặp lại nội dung cũ
+    if is_isolated_document_task(messages):
+        # 1. Tìm HumanMessage cuối cùng đại diện cho yêu cầu tài liệu hiện tại
+        last_human_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[i], HumanMessage):
+                last_human_idx = i
+                break
+        active_messages = list(messages[last_human_idx:]) if last_human_idx >= 0 else list(messages)
+
+        # 2. Xây dựng SystemMessage chuyên biệt cho tác vụ độc lập, KHÔNG kèm conversation summary
+        full_system = system_prompt.strip() + (
+            "\n\nCRITICAL TASK ISOLATION INSTRUCTIONS:\n"
+            "- You are executing an isolated document or file processing task requested in the user's latest message.\n"
+            "- Focus exclusively on the document, file, or image provided and the user's specific request.\n"
+            "- DO NOT mention, assume, or refer to any previous conversations, past topics, or previously discussed images.\n"
+            "- If summarizing, synthesize only the facts and structure of the requested document."
+        )
+
+        # 3. Giới hạn token cho active turn
+        budgeted_messages = enforce_token_budget(
+            messages=active_messages,
+            system_prompt=full_system,
+            tools=tools,
+            max_context_tokens=budget_context,
+            expected_output_tokens=budget_output,
+            max_tool_result_tokens=budget_tool,
+        )
+
+        final_messages = [SystemMessage(content=full_system)] + budgeted_messages
+        return final_messages, existing_summary
+
+    # --- Trường hợp hội thoại bình thường ---
     # Bước 1: Trimming conversation history
     trimmed_messages, updated_summary = trim_conversation_history(
         messages=messages,
@@ -532,14 +707,15 @@ def prepare_context_for_llm(
 
     system_messages: list[BaseMessage] = [SystemMessage(content=full_system)]
 
-    # Bước 4: Giới hạn token trước khi gọi LLM
+    # Bước 4: Giới hạn token trước khi gọi LLM theo budget
     combined_system_text = "\n\n".join(str(m.content) for m in system_messages)
     budgeted_messages = enforce_token_budget(
         messages=pruned_messages,
         system_prompt=combined_system_text,
         tools=tools,
-        max_context_tokens=max_context_tokens,
-        expected_output_tokens=expected_output_tokens,
+        max_context_tokens=budget_context,
+        expected_output_tokens=budget_output,
+        max_tool_result_tokens=budget_tool,
     )
 
     final_messages = system_messages + budgeted_messages

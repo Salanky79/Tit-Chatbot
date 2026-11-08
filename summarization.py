@@ -122,8 +122,9 @@ def summarize_documents(
     clean_documents = validate_and_isolate_summarization_context(documents)
 
     if llm is None:
+        summarization_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
         llm = ChatGroq(
-            model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+            model=summarization_model,
             temperature=0.1,
             max_tokens=SUMMARY_OUTPUT_TOKENS,
         )

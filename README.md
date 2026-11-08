@@ -219,13 +219,15 @@ flowchart LR
 ```
 
 ### Bước 1: Trimming conversation history (Cắt tỉa & Tóm tắt lượt cũ)
-- **Hàm:** `group_messages_into_turns`, `summarize_old_messages`, `trim_conversation_history`.
+- **Hàm:** `group_messages_into_turns`, `summarize_old_messages`, `trim_conversation_history`, `_deduplicate_summary_lines`.
 - **Cơ chế:**
   - Nhóm tin nhắn thành các lượt hội thoại (`turns`).
   - Giữ lại tối đa `DEFAULT_MAX_HISTORY_TURNS = 4` lượt gần nhất trong bộ nhớ tích cực.
-  - Các lượt cũ hơn được chuyển cho hàm `summarize_old_messages` để tóm tắt thành các gạch đầu dòng ngắn gọn (bảo toàn sở thích, thông tin cá nhân, tên riêng, nội dung cốt lõi).
-  - Bản tóm tắt được lưu vào `AgentState.conversation_summary`, tự động đồng bộ vào MongoDB Checkpoint và đưa vào đầu prompt qua `SystemMessage`.
-  - Có cơ chế **Local Extractive Fallback** đảm bảo hệ thống không gián đoạn khi LLM tóm tắt gặp sự cố mạng.
+  - Các lượt cũ hơn được chuyển cho hàm `summarize_old_messages` để tóm tắt thành các gạch đầu dòng ngắn gọn (bảo toàn sở thích, thông tin cá nhân, tên riêng, chủ đề cốt lõi).
+  - **Chống phình to & trùng lặp (Deduplication):** Sử dụng thuật toán `_deduplicate_summary_lines` chuẩn hóa gạch đầu dòng và loại bỏ trùng lặp ngữ nghĩa, ngăn chặn hiện tượng tóm tắt bị nhân bản lặp đi lặp lại qua nhiều lượt chat.
+  - **Lọc sạch dữ liệu tạm (Ephemeral Media Filter):** Tuyệt đối không đưa mô tả hình ảnh tạm thời, OCR dumps hoặc văn bản tài liệu đã upload vào tóm tắt hội thoại dài hạn.
+  - **Bảo vệ TPM:** Tiến trình tóm tắt nền luôn sử dụng mô hình nhẹ `openai/gpt-oss-20b` với timeout ngắn (4.0s), tuyệt đối không tiêu tốn hạn ngạch TPM quý giá của mô hình chính (như 120b).
+  - Có cơ chế **Local Extractive Fallback** an toàn khi LLM tóm tắt gặp sự cố mạng hoặc timeout.
 
 ### Bước 2: Loại bỏ tool results cũ (Pruning Old Tool Results)
 - **Hàm:** `prune_old_tool_results`.
@@ -235,22 +237,31 @@ flowchart LR
   - Giảm thiểu ngay lập tức từ **2.000 đến 6.000+ token thừa** trong mỗi request tiếp theo!
 
 ### Bước 3: Tách context theo tác vụ (Task Context Isolation)
-- **Hàm:** `validate_and_isolate_summarization_context`.
+- **Hàm:** `is_isolated_document_task`, `validate_and_isolate_summarization_context`.
 - **Cơ chế:**
-  - Đảm bảo các tác vụ chuyên biệt không bị "nhiễm" ngữ cảnh trò chuyện:
-    - **Tóm tắt PDF Map-Reduce:** Chỉ nhận tài liệu và SystemMessage hướng dẫn tóm tắt trung thực, tuyệt đối không nhận chat history.
-    - **Thị giác máy tính (Vision AI):** Chỉ nhận ảnh và câu hỏi trực quan, loại bỏ các lịch sử chat trước đó.
-    - **Sinh câu hỏi gợi ý:** Chỉ nhận tóm tắt ngắn của lượt trao đổi gần nhất, đã lọc sạch code blocks và file dumps thô.
+  - **Tự động nhận diện tác vụ tài liệu độc lập (`is_isolated_document_task`):**
+    Khi tin nhắn người dùng chứa tệp đính kèm (`[Attached file:`, `[Attached image:`, `.pdf`, `.docx`) hoặc các yêu cầu phân tích tài liệu rõ ràng (*"tóm tắt file này đi"*, *"tóm tắt tài liệu"*, *"trong bài tiểu luận"*):
+    - **Không tiêm tóm tắt hội thoại cũ (`[CONTEXT FROM EARLIER CONVERSATION]`):** Loại bỏ hoàn toàn bản tóm tắt các cuộc trò chuyện trước đó (ví dụ: mô tả ảnh hoa trắng, chủ đề không liên quan) để tránh hiện tượng *Context Bleed / Prompt Pollution* khiến mô hình lặp lại nội dung cũ.
+    - **Cô lập ngữ cảnh tin nhắn:** Chỉ đưa đúng lượt yêu cầu hiện tại (active turn) cùng chỉ thị nghiêm ngặt: *`CRITICAL TASK ISOLATION INSTRUCTIONS: Focus exclusively on the document requested`*.
+  - **Cách ly tài liệu trong Pipeline Map-Reduce (`validate_and_isolate_summarization_context`):**
+    Khi chạy tóm tắt tài liệu dài, chỉ đưa các chunk văn bản sạch và metadata trang vào các vòng Map-Reduce; tuyệt đối không đưa lịch sử chat.
+  - **Phân định ranh giới Tool chặt chẽ (`tools.py`):**
+    Chỉ dẫn rõ ràng giữa `summarize_uploaded_document` (ưu tiên tuyệt đối khi người dùng yêu cầu tóm tắt toàn bộ file) và `search_uploaded_documents` (chỉ dùng cho tra cứu đoạn trích cụ thể), tránh việc agent gọi nhầm tìm kiếm RAG rời rạc khi cần tóm tắt file.
 
 ### Bước 4: Kiểm soát token trước khi gọi LLM (Token Budget Enforcement)
-- **Hàm:** `estimate_tokens`, `estimate_message_tokens`, `estimate_tool_schemas_tokens`, `calculate_token_breakdown`, `enforce_token_budget`.
+- **Hàm:** `get_model_token_budget`, `estimate_tokens`, `estimate_message_tokens`, `estimate_tool_schemas_tokens`, `calculate_token_breakdown`, `enforce_token_budget`.
+- **Ngân sách động theo từng mô hình (Dynamic Model Token Budgets):**
+  - **`openai/gpt-oss-120b`:** Groq Free Tier giới hạn nghiêm ngặt **8.000 TPM** (Tokens Per Minute). Hệ thống tự động thiết lập ngân sách an toàn:
+    - `max_context_tokens = 2800`
+    - `max_tool_result_tokens = 1000`
+    - `expected_output_tokens = 800`
+    $\rightarrow$ Đảm bảo 2 lần gọi trong 1 lượt (lập luận gọi tool + tổng hợp kết quả) không bao giờ vượt quá 7.000 token, giải quyết triệt để lỗi **Groq 429 Rate Limit**.
+  - **`openai/gpt-oss-20b`:** Ngân sách rộng rãi 6.000 context tokens (hạn ngạch Groq > 150.000 TPM).
+  - **`qwen/qwen3.8-27b`:** Ngân sách 5.000 context tokens.
+- **Cơ chế Fallback thông minh khi gặp Rate Limit (`app.py`):**
+  Nếu mô hình 120B gặp lỗi Rate Limit 429 từ Groq, hệ thống không làm gián đoạn người dùng hoặc văng lỗi JSON thô, mà gửi thông báo chuyển tiếp mượt mà và tự động fallback sang `openai/gpt-oss-20b` để hoàn thành câu trả lời.
 - **Công thức tính toán tổng token:**
   $$\text{Total Tokens} = T_{\text{system}} + T_{\text{tool\_schemas}} + T_{\text{history}} + T_{\text{tool\_results}} + \text{Reserved Output}$$
-- **Quy tắc ước tính token an toàn:**
-  Sử dụng chặn trên `ceil(len(text) / 3.0)` cho cả tiếng Việt và tiếng Anh mà không phụ thuộc vào tokenizer ngoài (tránh lỗi tải mạng khi chạy sandbox).
-- **Cơ chế can thiệp khi $\text{Total Tokens} > \text{MAX\_CONTEXT\_TOKENS}$ (6.000 tokens):**
-  1. **Rút gọn Tool Results:** Nếu kết quả công cụ đang chạy vượt quá `MAX_TOOL_RESULT_TOKENS = 1800`, tự động cắt ngắn và bổ sung thông báo rút gọn.
-  2. **Cắt tỉa tin nhắn cũ:** Lần lượt loại bỏ các tin nhắn cũ từ đầu danh sách cho đến khi vừa vặn ngân sách, đồng thời đảm bảo không làm đứt gãy cặp tin nhắn gọi tool của lượt hiện tại.
 
 ---
 
