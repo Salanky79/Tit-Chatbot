@@ -227,7 +227,7 @@ def create_session(user_id: str, duration_days: int = 7) -> str:
     """Tạo phiên đăng nhập an toàn mới lưu vào MongoDB."""
     session_id = secrets.token_urlsafe(32)
     now = _now()
-    expires_at = now + timedelta(days=duration_days)
+    expires_at = now + timedelta(days=duration_days) # thời hạn mặc định 7 ngày
 
     sessions = get_collection("sessions")
     sessions.insert_one({

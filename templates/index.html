@@ -1396,6 +1396,432 @@
             z-index: 4;
         }
         .tit-bubble.show { opacity: 1; transform: none; }
+        /* ---------- User Auth & Profile ---------- */
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-user-section {
+            margin-top: auto;
+            padding-top: 14px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .auth-open-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            padding: 10px 14px;
+            border-radius: 11px;
+            background: rgba(124, 131, 255, 0.08);
+            border: 1px solid rgba(124, 131, 255, 0.28);
+            color: #fff;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s var(--ease-out);
+            font-family: inherit;
+        }
+
+        .auth-open-btn:hover {
+            background: rgba(124, 131, 255, 0.18);
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        .user-profile-card {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .user-profile-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .sidebar-user-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: var(--accent-gradient);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(107, 115, 255, 0.35);
+        }
+
+        .user-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            line-height: 1.25;
+        }
+
+        .user-name {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-handle {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 82, 82, 0.12);
+            color: #ff8a8a;
+            border-color: rgba(255, 82, 82, 0.25);
+        }
+
+        /* Topbar User Pill */
+        .topbar-user-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 10px 4px 5px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 9999px;
+            font-size: 12.5px;
+            color: var(--text-main);
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .topbar-user-pill:hover { background: rgba(255, 255, 255, 0.08); }
+
+        .topbar-user-pill .pill-avatar {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--accent-gradient);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .topbar-login-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 9999px;
+            background: rgba(124, 131, 255, 0.12);
+            border: 1px solid rgba(124, 131, 255, 0.28);
+            color: var(--accent-soft);
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .topbar-login-btn:hover {
+            background: rgba(124, 131, 255, 0.22);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        /* Modal Styles */
+        .auth-modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(5, 7, 13, 0.78);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .auth-modal-container {
+            position: relative;
+            width: 100%;
+            max-width: 410px;
+            background: #0d101d;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            padding: 28px 24px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(124, 131, 255, 0.1);
+            animation: modalPopIn 0.35s var(--ease-spring);
+        }
+
+        @keyframes modalPopIn {
+            from { opacity: 0; transform: scale(0.92) translateY(12px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .auth-modal-close {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .auth-modal-close:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .auth-modal-header {
+            text-align: center;
+            margin-bottom: 6px;
+        }
+
+        .auth-modal-title {
+            font-family: var(--font-display);
+            font-size: 21px;
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 6px;
+            letter-spacing: -0.02em;
+        }
+
+        .auth-modal-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 0;
+            line-height: 1.45;
+        }
+
+        .auth-tabs {
+            display: flex;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px;
+            border-radius: 12px;
+            margin: 18px 0 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .auth-tab-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 13.5px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .auth-tab-btn.active {
+            background: var(--bg-card);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .auth-error-banner {
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: rgba(255, 82, 82, 0.12);
+            border: 1px solid rgba(255, 82, 82, 0.28);
+            color: #ff8a8a;
+            font-size: 12.8px;
+            margin-bottom: 14px;
+            line-height: 1.4;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .auth-field {
+            margin-bottom: 13px;
+        }
+
+        .auth-field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            letter-spacing: 0.01em;
+        }
+
+        .auth-field input {
+            width: 100%;
+            padding: 10px 13px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 13.5px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+            outline: none;
+        }
+
+        .auth-field input:focus {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(124, 131, 255, 0.22);
+        }
+
+        .auth-field input::placeholder {
+            color: rgba(255, 255, 255, 0.25);
+        }
+
+        .auth-submit-btn {
+            width: 100%;
+            padding: 11px;
+            border-radius: 11px;
+            background: var(--accent-gradient);
+            border: none;
+            color: #fff;
+            font-weight: 600;
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+            margin-top: 6px;
+            box-shadow: 0 6px 20px rgba(107, 115, 255, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .auth-submit-btn:hover {
+            opacity: 0.94;
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px rgba(107, 115, 255, 0.45);
+        }
+
+        .auth-submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .auth-submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ---------- Cursor-driven motion ---------- */
+        .cursor-glow {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 620px;
+            height: 620px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0;
+            background: radial-gradient(circle, rgba(124, 131, 255, 0.17) 0%, rgba(124, 131, 255, 0.07) 34%, transparent 68%);
+            mix-blend-mode: screen;
+            will-change: transform, opacity;
+        }
+        @media (hover: none) { .cursor-glow { display: none; } }
+
+        /* 3D tilt on suggestion cards (values driven by JS, eased every frame) */
+        .card,
+        .card:hover,
+        .card:active {
+            transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(var(--lift, 0px)) scale(var(--sc, 1));
+            transition: border-color 0.3s, box-shadow 0.45s var(--ease-out);
+        }
+
+        /* Soft spotlight that follows the pointer inside small surfaces */
+        .history-item, .user-profile-card, .followup-suggestion, .welcome-pill, .topbar-user-pill {
+            --mx: 50%;
+            --my: 50%;
+            position: relative;
+        }
+        .followup-suggestion, .welcome-pill, .user-profile-card { overflow: hidden; }
+        .history-item::after,
+        .user-profile-card::after,
+        .followup-suggestion::after,
+        .welcome-pill::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            opacity: 0;
+            background: radial-gradient(120px circle at var(--mx) var(--my), rgba(165, 170, 255, 0.22), transparent 70%);
+            transition: opacity 0.3s;
+        }
+        .history-item:hover::after,
+        .user-profile-card:hover::after,
+        .followup-suggestion:hover::after,
+        .welcome-pill:hover::after { opacity: 1; }
+
+        .input-wrapper { --mx: 50%; --my: 0%; }
+        .input-wrapper::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            opacity: 0;
+            background: radial-gradient(380px circle at var(--mx) var(--my), rgba(124, 131, 255, 0.13), transparent 65%);
+            transition: opacity 0.4s;
+        }
+        .input-wrapper:hover::after { opacity: 1; }
+
+        .auth-modal-container { translate: var(--mtx, 0px) var(--mty, 0px); }
     </style>
 </head>
 
@@ -1418,6 +1844,7 @@
 
     <div class="history-title">Recent Chats</div>
     <div id="conversationList"></div>
+    <div class="sidebar-user-section" id="sidebarUserSection"></div>
 </aside>
 
 <div class="sidebar-scrim" aria-hidden="true"></div>
@@ -1436,7 +1863,10 @@
             </button>
             <div class="topbar-title">Tit Chatbot</div>
         </div>
-        <div class="status" id="status">Ready</div>
+        <div class="topbar-right">
+            <div class="status" id="status">Ready</div>
+            <div id="topbarUserArea"></div>
+        </div>
     </div>
 
     <div class="chat-container" id="chatContainer"></div>
@@ -2073,6 +2503,13 @@
 
         try {
             const response = await fetch(`/history/${threadId}`);
+            if (!response.ok) {
+                threadId = crypto.randomUUID();
+                localStorage.setItem("thread_id", threadId);
+                renderWelcome();
+                await loadConversations();
+                return;
+            }
             const data = await response.json();
 
             if (!data.messages || data.messages.length === 0) {
@@ -2658,6 +3095,425 @@
         if (w && w.style.display !== "none") titSay("Tít tít! Bấm vào mình thử nhé", 3400);
     }, 2300);
 
+    // ==========================================
+    // User Authentication & Session Management
+    // ==========================================
+    let currentUser = null;
+
+    async function checkAuthStatus() {
+        try {
+            const res = await fetch("/auth/me");
+            if (res.ok) {
+                currentUser = await res.json();
+            } else {
+                currentUser = null;
+            }
+        } catch (err) {
+            console.error("Failed to check auth status:", err);
+            currentUser = null;
+        }
+        renderUserUI();
+    }
+
+    function renderUserUI() {
+        const sidebarSec = document.getElementById("sidebarUserSection");
+        const topbarArea = document.getElementById("topbarUserArea");
+        if (!sidebarSec || !topbarArea) return;
+
+        if (currentUser) {
+            const displayName = currentUser.full_name || currentUser.username;
+            const initial = (currentUser.username || "U").charAt(0).toUpperCase();
+
+            sidebarSec.innerHTML = `
+                <div class="user-profile-card">
+                    <div class="sidebar-user-avatar">${escapeHtml(initial)}</div>
+                    <div class="user-info">
+                        <div class="user-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
+                        <div class="user-handle" title="@${escapeHtml(currentUser.username)}">@${escapeHtml(currentUser.username)}</div>
+                    </div>
+                    <button class="logout-btn" onclick="handleSignOut()" title="Đăng xuất" aria-label="Đăng xuất">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
+            topbarArea.innerHTML = `
+                <div class="topbar-user-pill" title="Đang đăng nhập: ${escapeHtml(currentUser.username)}">
+                    <div class="pill-avatar">${escapeHtml(initial)}</div>
+                    <span>${escapeHtml(currentUser.username)}</span>
+                </div>
+            `;
+        } else {
+            sidebarSec.innerHTML = `
+                <button class="auth-open-btn" onclick="openAuthModal('signin')">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                        <polyline points="10 17 15 12 10 7"></polyline>
+                        <line x1="15" y1="12" x2="3" y2="12"></line>
+                    </svg>
+                    <span>Đăng nhập / Đăng ký</span>
+                </button>
+            `;
+
+            topbarArea.innerHTML = `
+                <button class="topbar-login-btn" onclick="openAuthModal('signin')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                        <polyline points="10 17 15 12 10 7"></polyline>
+                        <line x1="15" y1="12" x2="3" y2="12"></line>
+                    </svg>
+                    <span>Đăng nhập</span>
+                </button>
+            `;
+        }
+    }
+
+    function openAuthModal(tab = "signin") {
+        const modal = document.getElementById("authModal");
+        if (!modal) return;
+        modal.style.display = "flex";
+        hideAuthError();
+        switchAuthTab(tab);
+    }
+
+    function closeAuthModal() {
+        const modal = document.getElementById("authModal");
+        if (!modal) return;
+        modal.style.display = "none";
+        hideAuthError();
+        const inForm = document.getElementById("signInForm");
+        if (inForm) inForm.reset();
+        const upForm = document.getElementById("signUpForm");
+        if (upForm) upForm.reset();
+    }
+
+    function showAuthError(msg) {
+        const banner = document.getElementById("authErrorBanner");
+        if (!banner) return;
+        banner.textContent = msg;
+        banner.style.display = "flex";
+    }
+
+    function hideAuthError() {
+        const banner = document.getElementById("authErrorBanner");
+        if (!banner) return;
+        banner.textContent = "";
+        banner.style.display = "none";
+    }
+
+    function switchAuthTab(tab) {
+        hideAuthError();
+        const signinBtn = document.getElementById("tabSignInBtn");
+        const signupBtn = document.getElementById("tabSignUpBtn");
+        const inForm = document.getElementById("signInForm");
+        const upForm = document.getElementById("signUpForm");
+        const modalTitle = document.getElementById("authModalTitle");
+        const modalDesc = document.getElementById("authModalDesc");
+
+        if (tab === "signin") {
+            signinBtn.classList.add("active");
+            signupBtn.classList.remove("active");
+            inForm.style.display = "block";
+            upForm.style.display = "none";
+            if (modalTitle) modalTitle.textContent = "Đăng nhập";
+            if (modalDesc) modalDesc.textContent = "Đăng nhập để đồng bộ và lưu trữ lịch sử trò chuyện";
+            setTimeout(() => {
+                const el = document.getElementById("signInUsername");
+                if (el) el.focus();
+            }, 50);
+        } else {
+            signupBtn.classList.add("active");
+            signinBtn.classList.remove("active");
+            inForm.style.display = "none";
+            upForm.style.display = "block";
+            if (modalTitle) modalTitle.textContent = "Đăng ký tài khoản";
+            if (modalDesc) modalDesc.textContent = "Tạo tài khoản mới để sở hữu không gian chat và tài liệu riêng";
+            setTimeout(() => {
+                const el = document.getElementById("signUpUsername");
+                if (el) el.focus();
+            }, 50);
+        }
+    }
+
+    async function handleSignInSubmit(event) {
+        event.preventDefault();
+        hideAuthError();
+        const identifier = (document.getElementById("signInUsername").value || "").trim();
+        const password = document.getElementById("signInPassword").value;
+        const btn = document.getElementById("signInSubmitBtn");
+
+        if (!identifier || !password) {
+            showAuthError("Vui lòng điền đầy đủ tên đăng nhập và mật khẩu.");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = `<span>Đang đăng nhập...</span>`;
+
+        try {
+            const res = await fetch("/auth/signin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ identifier, password })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                showAuthError(data.detail || "Đăng nhập thất bại.");
+                btn.disabled = false;
+                btn.innerHTML = `<span>Đăng nhập</span>`;
+                return;
+            }
+
+            currentUser = data;
+            renderUserUI();
+            closeAuthModal();
+
+            localStorage.removeItem("thread_id");
+            await newChat();
+        } catch (err) {
+            console.error("Sign in error:", err);
+            showAuthError("Có lỗi xảy ra khi kết nối tới máy chủ.");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<span>Đăng nhập</span>`;
+        }
+    }
+
+    async function handleSignUpSubmit(event) {
+        event.preventDefault();
+        hideAuthError();
+        const username = (document.getElementById("signUpUsername").value || "").trim();
+        const email = (document.getElementById("signUpEmail").value || "").trim();
+        const fullName = (document.getElementById("signUpFullName").value || "").trim();
+        const password = document.getElementById("signUpPassword").value;
+        const btn = document.getElementById("signUpSubmitBtn");
+
+        if (!username || !email || !password) {
+            showAuthError("Vui lòng điền các trường bắt buộc.");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = `<span>Đang tạo tài khoản...</span>`;
+
+        try {
+            const res = await fetch("/auth/signup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username,
+                    email,
+                    password,
+                    full_name: fullName || null
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                showAuthError(data.detail || "Đăng ký thất bại.");
+                btn.disabled = false;
+                btn.innerHTML = `<span>Tạo tài khoản</span>`;
+                return;
+            }
+
+            currentUser = data;
+            renderUserUI();
+            closeAuthModal();
+
+            localStorage.removeItem("thread_id");
+            await newChat();
+        } catch (err) {
+            console.error("Sign up error:", err);
+            showAuthError("Có lỗi xảy ra khi kết nối tới máy chủ.");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<span>Tạo tài khoản</span>`;
+        }
+    }
+
+    async function handleSignOut() {
+        if (!confirm("Bạn có chắc chắn muốn đăng xuất không?")) return;
+        try {
+            await fetch("/auth/signout", { method: "POST" });
+        } catch (err) {
+            console.error("Sign out error:", err);
+        }
+        currentUser = null;
+        renderUserUI();
+        localStorage.removeItem("thread_id");
+        await newChat();
+    }
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            const modal = document.getElementById("authModal");
+            if (modal && modal.style.display !== "none") {
+                closeAuthModal();
+            }
+        }
+    });
+
+
+    // ==========================================
+    // Cursor-driven motion (glow, parallax, magnets, card tilt)
+    // ==========================================
+    (function initCursorFX() {
+        // Small surfaces: pointer-following spotlight (cheap, CSS-only rendering)
+        document.addEventListener("pointermove", (e) => {
+            const t = e.target.closest && e.target.closest(".history-item, .user-profile-card, .followup-suggestion, .welcome-pill, .input-wrapper");
+            if (!t) return;
+            const r = t.getBoundingClientRect();
+            t.style.setProperty("--mx", (e.clientX - r.left) + "px");
+            t.style.setProperty("--my", (e.clientY - r.top) + "px");
+        }, { passive: true });
+
+        // Keep Tab focus inside the auth modal while it is open
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Tab") return;
+            const modal = document.getElementById("authModal");
+            if (!modal || modal.style.display === "none") return;
+            const items = [...modal.querySelectorAll("button, input, a[href]")]
+                .filter(el => !el.disabled && el.offsetParent !== null);
+            if (!items.length) return;
+            const first = items[0], last = items[items.length - 1];
+            if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+            else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        });
+
+        const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+        const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!fine || calm) return;
+
+        const main = document.querySelector(".main");
+        if (!main) return;
+        const glow = document.createElement("div");
+        glow.className = "cursor-glow";
+        glow.setAttribute("aria-hidden", "true");
+        const ambient = main.querySelector(".ambient");
+        main.insertBefore(glow, ambient ? ambient.nextSibling : main.firstChild);
+
+        const MAGNETS = ".send-btn, .attach-btn, .mic-btn, .new-chat, .topbar-login-btn, .auth-open-btn, .welcome-pill, .auth-submit-btn";
+        const S = { px: 0, py: 0, gx: 0, gy: 0, ga: 0, nx: 0, ny: 0, sx: 0, sy: 0, inside: false, down: false, raf: 0, first: true };
+        const magnetState = new WeakMap();
+        const cardState = new WeakMap();
+
+        const ease = (obj, key, target, k, eps) => {
+            obj[key] += (target - obj[key]) * k;
+            if (Math.abs(target - obj[key]) < eps) { obj[key] = target; return false; }
+            return true;
+        };
+        const shift = (el, fx, fy) => {
+            if (el) el.style.translate = `${(S.sx * fx).toFixed(2)}px ${(S.sy * fy).toFixed(2)}px`;
+        };
+
+        function tick() {
+            S.raf = 0;
+            let busy = false;
+
+            // 1) soft light trailing the pointer
+            busy = ease(S, "gx", S.px, 0.13, 0.4) || busy;
+            busy = ease(S, "gy", S.py, 0.13, 0.4) || busy;
+            busy = ease(S, "ga", S.inside ? 1 : 0, 0.09, 0.01) || busy;
+            const mr = main.getBoundingClientRect();
+            glow.style.transform = `translate3d(${(S.gx - mr.left - 310).toFixed(1)}px, ${(S.gy - mr.top - 310).toFixed(1)}px, 0)`;
+            glow.style.opacity = S.ga.toFixed(3);
+
+            // 2) depth parallax (-0.5 … 0.5 across the window)
+            busy = ease(S, "sx", S.inside ? S.nx : 0, 0.07, 0.0006) || busy;
+            busy = ease(S, "sy", S.inside ? S.ny : 0, 0.07, 0.0006) || busy;
+
+            main.querySelectorAll(".ambient i").forEach((el, i) => shift(el, [-70, 60, -90][i] || -50, [-55, -45, 60][i] || -40));
+
+            const welcome = document.getElementById("welcome");
+            if (welcome && welcome.style.display !== "none") {
+                shift(welcome.querySelector(".orbit-core"), 30, 26);
+                shift(welcome.querySelector(".orbit-ring.r1"), -14, -12);
+                shift(welcome.querySelector(".orbit-ring.r2"), 18, 15);
+                shift(welcome.querySelector(".orbit-ring.r3"), 9, 8);
+                shift(welcome.querySelector(".welcome-badge"), 8, 6);
+                shift(welcome.querySelector(".welcome-title"), -6, -4);
+            }
+            const modal = document.getElementById("authModal");
+            if (modal && modal.style.display !== "none") {
+                const box = modal.querySelector(".auth-modal-container");
+                if (box) {
+                    box.style.setProperty("--mtx", (S.sx * 14).toFixed(2) + "px");
+                    box.style.setProperty("--mty", (S.sy * 12).toFixed(2) + "px");
+                }
+            }
+
+            // 3) magnetic buttons
+            document.querySelectorAll(MAGNETS).forEach((el) => {
+                let st = magnetState.get(el);
+                if (!st) { st = { x: 0, y: 0 }; magnetState.set(el, st); }
+                let tx = 0, ty = 0;
+                if (S.inside && !el.disabled) {
+                    const r = el.getBoundingClientRect();
+                    const cx = r.left + r.width / 2 - st.x;
+                    const cy = r.top + r.height / 2 - st.y;
+                    const dx = S.px - cx, dy = S.py - cy;
+                    const big = r.width > 140;
+                    const reach = Math.max(r.width, r.height) / 2 + 34;
+                    if (Math.hypot(dx, dy) < reach) {
+                        const k = big ? 0.05 : 0.3, cap = big ? 4 : 11;
+                        tx = Math.max(-cap, Math.min(cap, dx * k));
+                        ty = Math.max(-cap, Math.min(cap, dy * k));
+                    }
+                }
+                const moved = ease(st, "x", tx, 0.2, 0.05) | ease(st, "y", ty, 0.2, 0.05);
+                if (moved) busy = true;
+                el.style.translate = (st.x || st.y) ? `${st.x.toFixed(2)}px ${st.y.toFixed(2)}px` : "";
+            });
+
+            // 4) 3D tilt on suggestion cards
+            document.querySelectorAll(".card").forEach((el) => {
+                let st = cardState.get(el);
+                if (!st) { st = { rx: 0, ry: 0, lift: 0, sc: 1 }; cardState.set(el, st); }
+                let rx = 0, ry = 0, lift = 0, sc = 1;
+                if (S.inside) {
+                    const r = el.getBoundingClientRect();
+                    if (S.px >= r.left && S.px <= r.right && S.py >= r.top && S.py <= r.bottom) {
+                        const lx = (S.px - r.left) / r.width - 0.5;
+                        const ly = (S.py - r.top) / r.height - 0.5;
+                        rx = -ly * 9; ry = lx * 11; lift = -6;
+                        if (S.down) sc = 0.985;
+                    }
+                }
+                const moved = ease(st, "rx", rx, 0.16, 0.02) | ease(st, "ry", ry, 0.16, 0.02) |
+                              ease(st, "lift", lift, 0.16, 0.05) | ease(st, "sc", sc, 0.2, 0.0005);
+                if (moved) busy = true;
+                el.style.setProperty("--rx", st.rx.toFixed(2) + "deg");
+                el.style.setProperty("--ry", st.ry.toFixed(2) + "deg");
+                el.style.setProperty("--lift", st.lift.toFixed(2) + "px");
+                el.style.setProperty("--sc", st.sc.toFixed(4));
+            });
+
+            if (busy) S.raf = requestAnimationFrame(tick);
+        }
+        const kick = () => { if (!S.raf) S.raf = requestAnimationFrame(tick); };
+
+        document.addEventListener("pointermove", (e) => {
+            S.px = e.clientX; S.py = e.clientY;
+            S.nx = e.clientX / window.innerWidth - 0.5;
+            S.ny = e.clientY / window.innerHeight - 0.5;
+            if (S.first) { S.gx = S.px; S.gy = S.py; S.first = false; }
+            S.inside = true;
+            kick();
+        }, { passive: true });
+        document.documentElement.addEventListener("pointerleave", () => { S.inside = false; S.down = false; kick(); });
+        document.addEventListener("pointerdown", () => { S.down = true; kick(); });
+        document.addEventListener("pointerup", () => { S.down = false; kick(); });
+        document.addEventListener("pointercancel", () => { S.down = false; kick(); });
+        window.addEventListener("blur", () => { S.inside = false; S.down = false; kick(); });
+    })();
+
+    checkAuthStatus();
     renderWelcome();
     loadConversations();
 
@@ -2665,6 +3521,63 @@
         loadConversation(threadId);
     }
 </script>
+
+<!-- Auth Modal -->
+<div class="auth-modal-overlay" id="authModal" style="display: none;">
+    <div class="auth-modal-backdrop" onclick="closeAuthModal()"></div>
+    <div class="auth-modal-container" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+        <button class="auth-modal-close" onclick="closeAuthModal()" aria-label="Đóng">&times;</button>
+        <div class="auth-modal-header">
+            <h2 class="auth-modal-title" id="authModalTitle">Đăng nhập</h2>
+            <p class="auth-modal-desc" id="authModalDesc">Đăng nhập để đồng bộ và lưu trữ lịch sử trò chuyện</p>
+        </div>
+
+        <div class="auth-tabs">
+            <button type="button" class="auth-tab-btn active" id="tabSignInBtn" onclick="switchAuthTab('signin')">Đăng nhập</button>
+            <button type="button" class="auth-tab-btn" id="tabSignUpBtn" onclick="switchAuthTab('signup')">Đăng ký</button>
+        </div>
+
+        <div class="auth-error-banner" id="authErrorBanner" style="display: none;"></div>
+
+        <!-- Sign In Form -->
+        <form id="signInForm" onsubmit="handleSignInSubmit(event)">
+            <div class="auth-field">
+                <label for="signInUsername">Tên đăng nhập hoặc Email</label>
+                <input type="text" id="signInUsername" placeholder="Nhập username hoặc email" required autocomplete="username">
+            </div>
+            <div class="auth-field">
+                <label for="signInPassword">Mật khẩu</label>
+                <input type="password" id="signInPassword" placeholder="Nhập mật khẩu" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="auth-submit-btn" id="signInSubmitBtn">
+                <span>Đăng nhập</span>
+            </button>
+        </form>
+
+        <!-- Sign Up Form -->
+        <form id="signUpForm" onsubmit="handleSignUpSubmit(event)" style="display: none;">
+            <div class="auth-field">
+                <label for="signUpUsername">Tên đăng nhập</label>
+                <input type="text" id="signUpUsername" placeholder="3-30 ký tự (chữ cái, số, gạch dưới)" required autocomplete="username">
+            </div>
+            <div class="auth-field">
+                <label for="signUpEmail">Email</label>
+                <input type="email" id="signUpEmail" placeholder="name@example.com" required autocomplete="email">
+            </div>
+            <div class="auth-field">
+                <label for="signUpFullName">Họ và tên (tuỳ chọn)</label>
+                <input type="text" id="signUpFullName" placeholder="Nguyễn Văn A" autocomplete="name">
+            </div>
+            <div class="auth-field">
+                <label for="signUpPassword">Mật khẩu</label>
+                <input type="password" id="signUpPassword" placeholder="Tối thiểu 6 ký tự" required autocomplete="new-password">
+            </div>
+            <button type="submit" class="auth-submit-btn" id="signUpSubmitBtn">
+                <span>Tạo tài khoản</span>
+            </button>
+        </form>
+    </div>
+</div>
 
 </body>
 </html>

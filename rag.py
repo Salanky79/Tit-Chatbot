@@ -9,8 +9,6 @@ load_dotenv()
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -22,31 +20,55 @@ Path("uploads").mkdir(exist_ok=True)
 Path("chroma_db_hf").mkdir(exist_ok=True)
 
 
-# Embeddings model chạy local trên CPU (ưu tiên tải từ local cache để khởi động nhanh và tránh timeout khi offline)
-try:
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        model_kwargs={"device": "cpu", "local_files_only": True}
-    )
-except Exception:
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        model_kwargs={"device": "cpu"}
-    )
+_embeddings = None
+_vectorstore = None
 
-# Vector database
-vectorstore = Chroma(
-    collection_name="agentic_chatbot_docs_hf",
-    embedding_function=embeddings,
-    persist_directory="chroma_db_hf"
-)
+
+def get_embeddings():
+    """Lazy loader for HuggingFace embeddings model on CPU."""
+    global _embeddings
+    if _embeddings is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        try:
+            _embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                model_kwargs={"device": "cpu", "local_files_only": True}
+            )
+        except Exception:
+            _embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                model_kwargs={"device": "cpu"}
+            )
+    return _embeddings
+
+
+def get_vectorstore():
+    """Lazy loader for Chroma vector database."""
+    global _vectorstore
+    if _vectorstore is None:
+        from langchain_chroma import Chroma
+        _vectorstore = Chroma(
+            collection_name="agentic_chatbot_docs_hf",
+            embedding_function=get_embeddings(),
+            persist_directory="chroma_db_hf"
+        )
+    return _vectorstore
+
+
+def __getattr__(name: str):
+    """Module-level attribute fallback for backward compatibility (PEP 562)."""
+    if name == "vectorstore":
+        return get_vectorstore()
+    if name == "embeddings":
+        return get_embeddings()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
 # ---------------------------------------------------------------------------
 # File readers – trả về List[Document] với metadata đầy đủ (source, page)
 # ---------------------------------------------------------------------------
 
-def _read_pdf(file_path: str, filename: str, thread_id: str) -> List[Document]:
+def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
     """Extract each PDF page, falling back to OCR for scanned/sparse pages."""
     reader = PdfReader(file_path)
     docs = []
@@ -116,6 +138,7 @@ def _read_pdf(file_path: str, filename: str, thread_id: str) -> List[Document]:
                 page_content=text,
                 metadata={
                     "thread_id": thread_id,
+                    "user_id": str(user_id) if user_id else "",
                     "source": filename,
                     "page": page_num,
                     "total_pages": len(reader.pages),
@@ -130,7 +153,7 @@ def _read_pdf(file_path: str, filename: str, thread_id: str) -> List[Document]:
     return docs
 
 
-def _read_docx(file_path: str, filename: str, thread_id: str) -> List[Document]:
+def _read_docx(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
     """Đọc DOCX – docx2txt không có thông tin trang nên dùng page=1."""
     text = docx2txt.process(file_path) or ""
     if not text.strip():
@@ -139,6 +162,7 @@ def _read_docx(file_path: str, filename: str, thread_id: str) -> List[Document]:
         page_content=text,
         metadata={
             "thread_id": thread_id,
+            "user_id": str(user_id) if user_id else "",
             "source": filename,
             "page": 1,
             "file_type": "docx",
@@ -146,7 +170,7 @@ def _read_docx(file_path: str, filename: str, thread_id: str) -> List[Document]:
     )]
 
 
-def _read_text(file_path: str, filename: str, thread_id: str) -> List[Document]:
+def _read_text(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
     """Đọc TXT / MD / PY / CSV – page=1 (file text thuần)."""
     text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
     if not text.strip():
@@ -155,6 +179,7 @@ def _read_text(file_path: str, filename: str, thread_id: str) -> List[Document]:
         page_content=text,
         metadata={
             "thread_id": thread_id,
+            "user_id": str(user_id) if user_id else "",
             "source": filename,
             "page": 1,
             "file_type": Path(file_path).suffix.lstrip("."),
@@ -162,18 +187,18 @@ def _read_text(file_path: str, filename: str, thread_id: str) -> List[Document]:
     )]
 
 
-def _load_documents(file_path: str, thread_id: str) -> List[Document]:
+def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) -> List[Document]:
     """Dispatcher – chọn reader đúng theo đuôi file."""
     path = Path(file_path)
     suffix = path.suffix.lower()
     filename = path.name
 
     if suffix == ".pdf":
-        return _read_pdf(file_path, filename, thread_id)
+        return _read_pdf(file_path, filename, thread_id, user_id=user_id)
     if suffix == ".docx":
-        return _read_docx(file_path, filename, thread_id)
+        return _read_docx(file_path, filename, thread_id, user_id=user_id)
     if suffix in {".txt", ".md", ".py", ".csv"}:
-        return _read_text(file_path, filename, thread_id)
+        return _read_text(file_path, filename, thread_id, user_id=user_id)
 
     raise ValueError("Unsupported file type. Upload PDF, DOCX, TXT, MD, PY, or CSV.")
 
@@ -208,17 +233,18 @@ def _split_documents(docs: List[Document]) -> List[Document]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def add_document_to_rag(file_path: str, thread_id: str) -> dict:
-    """Đọc file, tách thành chunks (kèm metadata trang), lưu vào ChromaDB.
+def add_document_to_rag(file_path: str, thread_id: str, user_id: str | None = None) -> dict:
+    """Đọc file, tách thành chunks (kèm metadata trang & user_id), lưu vào ChromaDB.
 
     Args:
         file_path: Đường dẫn file đã upload.
         thread_id: ID luồng chat để lọc kết quả theo session.
+        user_id: ID người dùng sở hữu tài liệu (nếu có) để cách ly dữ liệu.
 
     Returns:
         dict với ``filename``, ``chunks``, ``pages`` (số trang đã đọc được).
     """
-    raw_docs = _load_documents(file_path, thread_id)
+    raw_docs = _load_documents(file_path, thread_id, user_id=user_id)
 
     if not raw_docs:
         raise ValueError("No text could be extracted from this file.")
@@ -228,7 +254,7 @@ def add_document_to_rag(file_path: str, thread_id: str) -> dict:
     if not chunks:
         raise ValueError("File has content but could not be split into chunks.")
 
-    vectorstore.add_documents(chunks)
+    get_vectorstore().add_documents(chunks)
 
     pages_found = sorted({doc.metadata.get("page", 1) for doc in raw_docs})
 
@@ -239,7 +265,7 @@ def add_document_to_rag(file_path: str, thread_id: str) -> dict:
     }
 
 
-def retrieve_from_rag(query: str, thread_id: str, k: int = 4) -> str:
+def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k: int = 4) -> str:
     """Tìm kiếm các đoạn văn liên quan trong ChromaDB và trả về kết quả.
 
     Kết quả bao gồm tên file và số trang để người dùng dễ tham chiếu.
@@ -247,15 +273,20 @@ def retrieve_from_rag(query: str, thread_id: str, k: int = 4) -> str:
     Args:
         query: Câu hỏi hoặc từ khóa tìm kiếm.
         thread_id: ID luồng chat để lọc đúng tài liệu.
+        user_id: ID người dùng để cách ly tài liệu giữa các người dùng.
         k: Số đoạn văn tối đa trả về (mặc định 4).
 
     Returns:
         Chuỗi kết quả, mỗi đoạn có nhãn [Source N: file.pdf – Page X].
     """
-    docs = vectorstore.similarity_search(
+    filter_dict = {"thread_id": thread_id}
+    if user_id:
+        filter_dict = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
+
+    docs = get_vectorstore().similarity_search(
         query,
         k=k,
-        filter={"thread_id": thread_id}
+        filter=filter_dict
     )
 
     if not docs:
@@ -281,7 +312,7 @@ def retrieve_from_rag(query: str, thread_id: str, k: int = 4) -> str:
     return "\n\n".join(results)
 
 
-def get_document_chunks(source: str, thread_id: str) -> List[Document]:
+def get_document_chunks(source: str, thread_id: str, user_id: str | None = None) -> List[Document]:
     """Return every stored chunk for one uploaded file in one conversation.
 
     This deliberately reads the Chroma collection directly instead of using
@@ -294,8 +325,14 @@ def get_document_chunks(source: str, thread_id: str) -> List[Document]:
     if not thread_id:
         raise ValueError("A conversation ID is required to find the document.")
 
-    result = vectorstore._collection.get(
-        where={"$and": [{"thread_id": thread_id}, {"source": source}]},
+    conditions = [{"thread_id": thread_id}, {"source": source}]
+    if user_id:
+        conditions.append({"user_id": str(user_id)})
+
+    where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
+
+    result = get_vectorstore()._collection.get(
+        where=where_filter,
         include=["documents", "metadatas"],
     )
     contents = result.get("documents") or []
@@ -329,10 +366,14 @@ def _sort_number(value):
         return 0
 
 
-def list_document_sources(thread_id: str) -> List[str]:
+def list_document_sources(thread_id: str, user_id: str | None = None) -> List[str]:
     """List distinct filenames uploaded in a conversation."""
-    result = vectorstore._collection.get(
-        where={"thread_id": thread_id}, include=["metadatas"]
+    where_filter = {"thread_id": thread_id}
+    if user_id:
+        where_filter = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
+
+    result = get_vectorstore()._collection.get(
+        where=where_filter, include=["metadatas"]
     )
     return sorted({
         metadata.get("source")
@@ -341,7 +382,7 @@ def list_document_sources(thread_id: str) -> List[str]:
     }, key=str.casefold)
 
 
-def add_image_to_rag(file_path: str, thread_id: str, filename: str) -> dict:
+def add_image_to_rag(file_path: str, thread_id: str, filename: str, user_id: str | None = None) -> dict:
     """Register an uploaded image so image tools can find it in this thread."""
     path = Path(file_path).resolve()
     if not path.is_file():
@@ -350,19 +391,26 @@ def add_image_to_rag(file_path: str, thread_id: str, filename: str) -> dict:
         page_content=f"Uploaded image: {filename}",
         metadata={
             "thread_id": thread_id,
+            "user_id": str(user_id) if user_id else "",
             "source": filename,
             "file_type": "image",
             "image_path": str(path),
         },
     )
-    vectorstore.add_documents([image_doc])
+    get_vectorstore().add_documents([image_doc])
     return {"filename": filename, "images": 1}
 
 
-def list_uploaded_images(thread_id: str) -> list[dict]:
+def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dict]:
     """Return image metadata for one conversation without exposing other files."""
-    result = vectorstore._collection.get(
-        where={"$and": [{"thread_id": thread_id}, {"file_type": "image"}]},
+    conditions = [{"thread_id": thread_id}, {"file_type": "image"}]
+    if user_id:
+        conditions.append({"user_id": str(user_id)})
+
+    where_filter = {"$and": conditions}
+
+    result = get_vectorstore()._collection.get(
+        where=where_filter,
         include=["metadatas"],
     )
     images = {}

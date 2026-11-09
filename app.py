@@ -33,11 +33,20 @@ from database import (
     save_chat_message,
     get_chat_history,
     create_or_update_conversation,
-    list_conversations)
+    list_conversations,
+    get_conversation,
+    delete_conversation,
+    create_user,
+    authenticate_user,
+    get_user_by_id,
+    create_session,
+    get_session,
+    delete_session,
+)
 
 from rag import add_document_to_rag, add_image_to_rag
 from image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
-from tools import set_current_thread_id
+from tools import set_current_thread_id, set_current_user_id
 
 
 app = FastAPI() # tạo ứng dụng backend FastAPI
@@ -48,8 +57,156 @@ Path("uploads").mkdir(exist_ok=True)
 Path("data").mkdir(exist_ok=True)
 
 
-init_db()
+@app.on_event("startup")
+def startup_event():
+    if os.getenv("TESTING", "").lower() in ("1", "true"):
+        return
+    try:
+        init_db()
+    except Exception as exc:
+        logger.warning("Could not initialize MongoDB indexes on startup: %s", exc)
 
+
+def _serialize_user(user: dict | None) -> dict | None:
+    """Chuyển đổi các trường datetime của user sang định dạng ISO string để serialize JSON an toàn."""
+    if not user:
+        return None
+    d = dict(user)
+    if hasattr(d.get("created_at"), "isoformat"):
+        d["created_at"] = d["created_at"].isoformat()
+    if hasattr(d.get("updated_at"), "isoformat"):
+        d["updated_at"] = d["updated_at"].isoformat()
+    return d
+
+
+def get_current_user(request: Request) -> dict | None:
+    """Trích xuất thông tin người dùng từ Cookie, Header Authorization hoặc Query Param."""
+    session_id = request.cookies.get("tit_session")
+    if not session_id:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_id = auth_header[7:].strip()
+    if not session_id:
+        session_id = request.query_params.get("session_id")
+    if not session_id:
+        return None
+
+    session = get_session(session_id)
+    if not session:
+        return None
+
+    return get_user_by_id(session.get("user_id", ""))
+
+
+# ---------------------------------------------------------------------------
+# Authentication APIs
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/signup")
+async def auth_signup(request: Request):
+    """Đăng ký tài khoản người dùng mới và tự động tạo phiên đăng nhập."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
+
+    username = data.get("username", "")
+    email = data.get("email", "")
+    password = data.get("password", "")
+    full_name = data.get("full_name", "")
+
+    try:
+        user = create_user(username=username, email=email, password=password, full_name=full_name)
+        session_id = create_session(user["id"])
+        response = JSONResponse({
+            "success": True,
+            "message": "Đăng ký tài khoản thành công!",
+            "user": _serialize_user(user),
+            "token": session_id,
+        })
+        response.set_cookie(
+            key="tit_session",
+            value=session_id,
+            httponly=True, # Javascript không thể truy cập cookie này, chỉ server mới đọc được
+            samesite="lax", # cho phép gửi cookie trong các request cùng domain và một số request cross-site an toàn
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        return response
+    except ValueError as ve:
+        return JSONResponse({"success": False, "error": str(ve)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Lỗi đăng ký tài khoản:")
+        return JSONResponse({"success": False, "error": f"Lỗi hệ thống: {str(exc)}"}, status_code=500)
+
+
+@app.post("/auth/signin")
+async def auth_signin(request: Request):
+    """Đăng nhập tài khoản bằng username hoặc email."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
+
+    username_or_email = data.get("username", "") or data.get("email", "")
+    password = data.get("password", "")
+
+    user = authenticate_user(username_or_email, password)
+    if not user:
+        return JSONResponse({
+            "success": False,
+            "error": "Tên đăng nhập / Email hoặc mật khẩu không chính xác."
+        }, status_code=401)
+
+    session_id = create_session(user["id"])
+    response = JSONResponse({
+        "success": True,
+        "message": "Đăng nhập thành công!",
+        "user": _serialize_user(user),
+        "token": session_id,
+    })
+    response.set_cookie(
+        key="tit_session",
+        value=session_id,
+        httponly=True, # Javascript không thể truy cập cookie này, chỉ server mới đọc được
+        samesite="lax", # cho phép gửi cookie trong các request cùng domain và một số request cross-site an toàn
+        max_age=7 * 24 * 3600,
+        path="/",
+    )
+    return response
+
+
+@app.post("/auth/signout")
+async def auth_signout(request: Request):
+    """Đăng xuất và hủy bỏ phiên làm việc."""
+    session_id = request.cookies.get("tit_session")
+    if not session_id:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_id = auth_header[7:].strip()
+    if session_id:
+        delete_session(session_id)
+
+    response = JSONResponse({
+        "success": True,
+        "message": "Đã đăng xuất thành công."
+    })
+    response.delete_cookie(key="tit_session", path="/")
+    return response
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    """Lấy thông tin người dùng đang đăng nhập."""
+    user = get_current_user(request)
+    if not user:
+        return {"authenticated": False, "user": None}
+    return {"authenticated": True, "user": _serialize_user(user)}
+
+
+# ---------------------------------------------------------------------------
+# Conversation & History APIs
+# ---------------------------------------------------------------------------
 
 @app.get("/")
 async def home(request: Request):
@@ -60,27 +217,38 @@ async def home(request: Request):
     )
 
 
-
 @app.get("/conversations")
-async def conversations():
-    items = list_conversations()
+async def conversations(request: Request):
+    user = get_current_user(request)
+    user_id = user["id"] if user else None
+    items = list_conversations(user_id=user_id)
 
     return {
         "conversations": [
             {
                 "thread_id": item.thread_id,
                 "title": item.title,
-                "created_at": item.created_at.isoformat(),
-                "updated_at": item.updated_at.isoformat()
+                "created_at": item.created_at.isoformat() if hasattr(item.created_at, "isoformat") else str(item.created_at),
+                "updated_at": item.updated_at.isoformat() if hasattr(item.updated_at, "isoformat") else str(item.updated_at),
+                "user_id": getattr(item, "user_id", None)
             }
             for item in items
         ]
     }
 
 
-
 @app.get("/history/{thread_id}")
-async def history(thread_id: str):
+async def history(thread_id: str, request: Request):
+    user = get_current_user(request)
+    conv = get_conversation(thread_id)
+    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
+    if conv and conv_user_id:
+        if not user or str(user["id"]) != str(conv_user_id):
+            return JSONResponse(
+                {"error": "Bạn không có quyền truy cập cuộc trò chuyện này."},
+                status_code=403
+            )
+
     messages = get_chat_history(thread_id)
 
     return {
@@ -94,10 +262,31 @@ async def history(thread_id: str):
     }
 
 
+@app.delete("/conversations/{thread_id}")
+async def remove_conversation(thread_id: str, request: Request):
+    user = get_current_user(request)
+    conv = get_conversation(thread_id)
+    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
+    if conv and conv_user_id:
+        if not user or str(user["id"]) != str(conv_user_id):
+            return JSONResponse(
+                {"error": "Bạn không có quyền xóa cuộc trò chuyện này."},
+                status_code=403
+            )
+
+    user_id = user["id"] if user else None
+    success = delete_conversation(thread_id, user_id=user_id)
+    if not success:
+        return JSONResponse(
+            {"error": "Không thể xóa hoặc bạn không có quyền xóa cuộc trò chuyện này."},
+            status_code=404
+        )
+    return {"success": True, "message": "Đã xóa cuộc trò chuyện."}
 
 
 @app.post("/upload")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     thread_id: str = Form(...)
 ):
@@ -136,10 +325,12 @@ async def upload_document(
         with open(file_path, "wb") as f:
             f.write(contents)
 
-        create_or_update_conversation(thread_id, "Uploaded document")
+        user = get_current_user(request)
+        user_id = user["id"] if user else None
+        create_or_update_conversation(thread_id, "Uploaded document", user_id=user_id)
 
         if suffix in SUPPORTED_IMAGE_TYPES:
-            result = add_image_to_rag(file_path, thread_id, filename)
+            result = add_image_to_rag(file_path, thread_id, filename, user_id=user_id)
             return JSONResponse({
                 "success": True,
                 "message": f"Uploaded image {result['filename']}. You can now ask questions about it.",
@@ -147,7 +338,8 @@ async def upload_document(
 
         result = add_document_to_rag(
             file_path=file_path,
-            thread_id=thread_id
+            thread_id=thread_id,
+            user_id=user_id
         )
 
         return JSONResponse({
@@ -269,13 +461,27 @@ async def chat_stream(request: Request):
             status_code=400
         )
 
+    user = get_current_user(request)
+    user_id = user["id"] if user else None
+
+    # Kiểm tra quyền sở hữu cuộc trò chuyện nếu thread_id đã tồn tại
+    conv = get_conversation(thread_id)
+    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
+    if conv and conv_user_id:
+        if not user or str(user["id"]) != str(conv_user_id):
+            return JSONResponse(
+                {"error": "Bạn không có quyền gửi tin nhắn trong cuộc trò chuyện này."},
+                status_code=403
+            )
+
     agent = get_agent(selected_model)
     followup_model = normalize_model_name(selected_model)
 
-    create_or_update_conversation(thread_id, user_message)
-    save_chat_message(thread_id, "user", user_message)
+    create_or_update_conversation(thread_id, user_message, user_id=user_id)
+    save_chat_message(thread_id, "user", user_message, user_id=user_id)
 
     set_current_thread_id(thread_id)
+    set_current_user_id(user_id or "")
 
     config = {
         "configurable": {
@@ -309,7 +515,7 @@ async def chat_stream(request: Request):
                     yield sse_data({"token": token})
 
             if final_answer.strip():
-                save_chat_message(thread_id, "assistant", final_answer)
+                save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
         except Exception as e:
             err_str = str(e)
             is_rate_limit = "429" in err_str or "rate_limit_exceeded" in err_str.lower()
@@ -336,7 +542,7 @@ async def chat_stream(request: Request):
                             yield sse_data({"token": token})
 
                     if final_answer.strip():
-                        save_chat_message(thread_id, "assistant", final_answer)
+                        save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
                     stream_error = None
                 except Exception as fallback_exc:
                     stream_error = fallback_exc

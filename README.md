@@ -26,24 +26,29 @@ Hệ thống được thiết kế hướng tới khả năng tự chủ của A
   - [4.1. Bài toán thực tế & Điểm nghẽn độ trễ 110 giây](#41-bài-toán-thực-tế--điểm-nghẽn-độ-trễ-110-giây)
   - [4.2. Kiến trúc giải pháp tối ưu 3 tầng (3-Tier Performance Architecture)](#42-kiến-trúc-giải-pháp-tối-ưu-3-tầng-3-tier-performance-architecture)
   - [4.3. Bảng so sánh hiệu năng trước và sau tối ưu](#43-bảng-so-sánh-hiệu-năng-trước-và-sau-tối-ưu)
-- [5. Chi tiết các Module & Thành phần trong Codebase](#5-chi-tiết-các-module--thành-phần-trong-codebase)
-  - [5.1. Web Server & API Gateway (`app.py`)](#51-web-server--api-gateway-apppy)
-  - [5.2. LangGraph Agent Orchestrator (`agent.py`)](#52-langgraph-agent-orchestrator-agentpy)
-  - [5.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)](#53-quản-lý-ngữ-cảnh--token-context_managerpy)
-  - [5.4. Hệ thống 7 Công cụ Agent (`tools.py`)](#54-hệ-thống-7-công-cụ-agent-toolspy)
-  - [5.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)](#55-xử-lý-tài-liệu-ocr--vector-store-ragpy)
-  - [5.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)](#56-tóm-tắt-đệ-quy-thích-ứng--đa-luồng-summarizationpy)
-  - [5.7. Thị giác máy tính (`image_analysis.py`)](#57-thị-giác-máy-tính-image_analysispy)
-  - [5.8. Sinh gợi ý tiếp nối (`followups.py`)](#58-sinh-gợi-ý-tiếp-nối-followupspy)
-  - [5.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)](#59-cơ-sở-dữ-liệu-mongodb-dal-databasepy--mongo_clientpy)
-  - [5.10. Giao diện người dùng Web (`templates/index.html`)](#510-giao-diện-người-dùng-web-templatesindexhtml)
-- [6. Bảng công nghệ & Thư viện sử dụng](#6-bảng-công-nghệ--thư-viện-sử-dụng)
-- [7. Cấu trúc thư mục dự án](#7-cấu-trúc-thư-mục-dự-án)
-- [8. Các API Endpoints](#8-các-api-endpoints)
-- [9. Hướng dẫn cài đặt và khởi chạy](#9-hướng-dẫn-cài-đặt-và-khởi-chạy)
-- [10. Cấu hình biến môi trường (`.env`)](#10-cấu-hình-biến-môi-trường-env)
-- [11. Kiểm thử tự động (Test Suite)](#11-kiểm-thử-tự-động-test-suite)
-- [12. Từ điển thuật ngữ](#12-từ-điển-thuật-ngữ)
+- [5. Kiến trúc Quản lý Người dùng & Cô lập Dữ liệu (User Management & Data Isolation)](#5-kiến-trúc-quản-lý-người-dùng--cô-lập-dữ-liệu-user-management--data-isolation)
+  - [5.1. Cơ chế Xác thực & Quản lý Phiên (Session-based Cookie Auth)](#51-cơ-chế-xác-thực--quản-lý-phiên-session-based-cookie-auth)
+  - [5.2. Mô hình Cô lập Dữ liệu 3 Tầng (3-Tier Multi-User Isolation)](#52-mô-hình-cô-lập-dữ-liệu-3-tầng-3-tier-multi-user-isolation)
+  - [5.3. Sơ đồ Luồng Xác thực & Bảo mật (Mermaid Sequence)](#53-sơ-đồ-luồng-xác-thực--bảo-mật-mermaid-sequence)
+  - [5.4. Tối ưu Lazy-Loading Embedding Vectorstore](#54-tối-ưu-lazy-loading-embedding-vectorstore)
+- [6. Chi tiết các Module & Thành phần trong Codebase](#6-chi-tiết-các-module--thành-phần-trong-codebase)
+  - [6.1. Web Server & API Gateway (`app.py`)](#61-web-server--api-gateway-apppy)
+  - [6.2. LangGraph Agent Orchestrator (`agent.py`)](#62-langgraph-agent-orchestrator-agentpy)
+  - [6.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)](#63-quản-lý-ngữ-cảnh--token-context_managerpy)
+  - [6.4. Hệ thống 7 Công cụ Agent (`tools.py`)](#64-hệ-thống-7-công-cụ-agent-toolspy)
+  - [6.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)](#65-xử-lý-tài-liệu-ocr--vector-store-ragpy)
+  - [6.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)](#66-tóm-tắt-đệ-quy-thích-ứng--đa-luồng-summarizationpy)
+  - [6.7. Thị giác máy tính (`image_analysis.py`)](#67-thị-giác-máy-tính-image_analysispy)
+  - [6.8. Sinh gợi ý tiếp nối (`followups.py`)](#68-sinh-gợi-ý-tiếp-nối-followupspy)
+  - [6.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)](#69-cơ-sở-dữ-liệu-mongodb-dal-databasepy--mongo_clientpy)
+  - [6.10. Giao diện người dùng Web (`templates/index.html`)](#610-giao-diện-người-dùng-web-templatesindexhtml)
+- [7. Bảng công nghệ & Thư viện sử dụng](#7-bảng-công-nghệ--thư-viện-sử-dụng)
+- [8. Cấu trúc thư mục dự án](#8-cấu-trúc-thư-mục-dự-án)
+- [9. Các API Endpoints](#9-các-api-endpoints)
+- [10. Hướng dẫn cài đặt và khởi chạy](#10-hướng-dẫn-cài-đặt-và-khởi-chạy)
+- [11. Cấu hình biến môi trường (`.env`)](#11-cấu-hình-biến-môi-trường-env)
+- [12. Kiểm thử tự động (Test Suite)](#12-kiểm-thử-tự-động-test-suite)
+- [13. Từ điển thuật ngữ](#13-từ-điển-thuật-ngữ)
 
 ---
 
@@ -341,18 +346,94 @@ flowchart TD
 
 ---
 
-## 5. Chi tiết các Module & Thành phần trong Codebase
+## 5. Kiến trúc Quản lý Người dùng & Cô lập Dữ liệu (User Management & Data Isolation)
 
-### 5.1. Web Server & API Gateway (`app.py`)
+Nhằm đảm bảo an toàn, quyền riêng tư và khả năng mở rộng phục vụ nhiều người dùng đồng thời (Multi-tenancy), Tit Chatbot tích hợp hệ thống xác thực và cô lập dữ liệu 3 tầng chặt chẽ từ tầng cơ sở dữ liệu MongoDB, Vectorstore ChromaDB, Tầng API Gateway FastAPI đến Giao diện người dùng Web.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Người dùng Trình duyệt
+    participant UI as Web Frontend (index.html)
+    participant API as FastAPI Auth Middleware (app.py)
+    participant DAL as MongoDB DAL (database.py)
+    participant Chroma as Vectorstore (rag.py)
+
+    User->>UI: Điền form Sign Up / Sign In
+    UI->>API: POST /auth/signin hoặc /auth/signup
+    API->>DAL: authenticate_user(identifier, password) [bcrypt verify]
+    DAL-->>API: User Record (id, username, email)
+    API->>DAL: create_session(user_id, expires_in_days=30)
+    DAL-->>API: session_id (token_urlsafe 32 bytes)
+    API-->>UI: Set-Cookie: session_id (HttpOnly, SameSite=Lax) + User JSON
+
+    Note over UI, API: Các phiên làm việc tiếp theo tự động gửi kèm Cookie session_id
+
+    User->>UI: Gửi câu hỏi / Tải file / Truy vấn lịch sử
+    UI->>API: GET /conversations hoặc POST /chat/stream
+    API->>DAL: get_session(session_id) -> user_id
+    API->>DAL: list_conversations(user_id) [Lọc riêng biệt]
+    API->>Chroma: retrieve_from_rag(query, thread_id, user_id)
+    Note over Chroma: Filter: {"$and": [{"thread_id": ...}, {"user_id": ...}]}
+    Chroma-->>API: Chỉ trả về chunks thuộc về user_id
+    API-->>UI: Stream SSE câu trả lời cô lập an toàn
+```
+
+### 5.1. Cơ chế Xác thực & Quản lý Phiên (Session-based Cookie Auth)
+- **Mã hóa Mật khẩu an toàn (Password Hashing):** Sử dụng thuật toán tiêu chuẩn công nghiệp `bcrypt` với 12 salt rounds (`bcrypt.gensalt(12)`). Mật khẩu thô không bao giờ được lưu trữ vào cơ sở dữ liệu.
+- **Quản lý Phiên (Session Management):**
+  - Tạo mã phiên ngẫu nhiên an toàn bằng `secrets.token_urlsafe(32)`.
+  - Phiên làm việc được lưu trong collection `sessions` của MongoDB và thiết lập **TTL Index tự động hết hạn sau 30 ngày** (`expireAfterSeconds: 0` trên trường `expires_at`).
+  - Cookie `session_id` được gán cờ bảo mật `HttpOnly=True` (ngăn chặn tấn công XSS) và `SameSite="lax"`.
+- **Hỗ trợ Chế độ Ẩn danh (Guest Mode fallback):**
+  - Nếu người dùng chưa đăng nhập, hệ thống vẫn cho phép trò chuyện trải nghiệm mà không bị chặn.
+  - Khi người dùng đăng ký hoặc đăng nhập tài khoản, toàn bộ phiên làm việc, lịch sử và tài liệu sẽ được gán và bảo vệ tuyệt đối theo `user_id` định danh.
+
+---
+
+### 5.2. Mô hình Cô lập Dữ liệu 3 Tầng (3-Tier Multi-User Isolation)
+
+| Tầng cô lập | Cơ chế hiện thực | Hành vi bảo vệ |
+|---|---|---|
+| **Tầng 1: Lịch sử Cuộc trò chuyện & Tin nhắn (Conversations & Chat History)** | Gán trường `user_id` vào document `conversations` và `chat_messages` trong MongoDB Atlas. Endpoint `/conversations` chỉ hiển thị danh sách chat của chính user. Endpoint `/history/{thread_id}` và `/conversations/{thread_id}` [DELETE] kiểm tra quyền sở hữu nghiêm ngặt. | Trả về `403 Forbidden: You do not have permission to access/delete this conversation` nếu truy cập trái phép. Người dùng A hoàn toàn không thể xem hoặc can thiệp hội thoại của người dùng B. |
+| **Tầng 2: Tài liệu & Hình ảnh Upload (RAG Vectorstore & Image Catalog)** | Gán `user_id` vào trường metadata của từng chunk vector tài liệu (`add_document_to_rag`) và bản ghi ảnh (`add_image_to_rag`). Các hàm truy xuất `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `list_uploaded_images` tự động áp dụng bộ lọc ChromaDB: `{"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}`. | Dù hai người dùng có trùng tên file hoặc cùng làm việc trên hệ thống, Agent của người dùng này không bao giờ truy vấn nhầm hoặc đọc được nội dung tài liệu của người dùng khác. |
+| **Tầng 3: Ký ức Dài hạn Cá nhân (Long-term Memory)** | Công cụ `remember_this` và `recall_memory` nhận `user_id` được inject an toàn từ Context Layer của FastAPI request. Ký ức được lưu và tìm kiếm theo `{"user_id": user_id}`. | Thông tin cá nhân (như tên tuổi, nghề nghiệp, sở thích) được ghi nhớ biệt lập cho từng user và không bị rò rỉ sang các tài khoản khác. |
+
+---
+
+### 5.3. Sơ đồ Luồng Xác thực & Bảo mật (Mermaid Sequence)
+Luồng xác thực và kiểm soát quyền truy cập trên từng Request được tóm tắt qua sơ đồ bên trên, đảm bảo kiểm tra danh tính thông suốt từ lúc nhận Cookie cho đến khi hoàn thành truy vấn cơ sở dữ liệu.
+
+---
+
+### 5.4. Tối ưu Lazy-Loading Embedding Vectorstore
+Trong quá trình triển khai hệ thống xác thực và cô lập tài liệu, module `rag.py` trước đây import `torch` và `transformers` (thông qua `HuggingFaceEmbeddings` và `Chroma`) ngay tại top-level, gây ra độ trễ khởi động/import module lên tới **~25 - 30 giây**.
+
+Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP 562 `__getattr__`)**:
+- Trì hoãn việc load mô hình nặng cho đến khi phát sinh tác vụ embedding đầu tiên thông qua `get_embeddings()` và `get_vectorstore()`.
+- Tốc độ import module `rag.py` và khởi động ứng dụng giảm từ **30 giây xuống dưới 0.8 giây** (nhanh hơn **~35 lần**), giúp các request xác thực và tải trang web phản hồi tức thì.
+
+---
+
+## 6. Chi tiết các Module & Thành phần trong Codebase
+
+### 6.1. Web Server & API Gateway (`app.py`)
 - Khởi tạo FastAPI application, cấu hình Jinja2 templates (`templates/index.html`).
 - Tạo các thư mục cần thiết: `uploads/`, `data/`.
-- Quản lý các endpoint RESTful: tải file (`/upload`), xem danh sách hội thoại (`/conversations`), xem lịch sử tin nhắn (`/history/{thread_id}`).
+- Xác thực & Quản lý người dùng:
+  - Middleware `get_current_user_from_request`: đọc cookie `session_id` và giải mã ra người dùng hiện tại (`user_id`).
+  - Các API: `POST /auth/signup`, `POST /auth/signin`, `POST /auth/signout`, `GET /auth/me`.
+- Quản lý các endpoint RESTful với cơ chế bảo vệ quyền sở hữu:
+  - `POST /upload`: Lưu file đính kèm với `thread_id` và gán `user_id` vào RAG.
+  - `GET /conversations`: Lọc danh sách hội thoại theo `user_id` hiện tại.
+  - `GET /history/{thread_id}`: Trả về lịch sử tin nhắn; chặn 403 nếu truy cập trái phép.
+  - `DELETE /conversations/{thread_id}`: Xóa cuộc trò chuyện; chặn 403 nếu không phải chủ sở hữu.
 - Stream Server-Sent Events qua endpoint `/chat/stream`:
   - `should_stream_chunk`: Ngăn chặn rò rỉ metadata, tên node, ToolMessage hay tool_calls lên màn hình.
   - `extract_text_from_chunk`: Trích xuất chuỗi văn bản từ cấu trúc chuỗi hoặc danh sách text chunk của LangChain.
   - Tự động kích hoạt luồng sinh câu hỏi gợi ý sau khi stream câu trả lời xong.
 
-### 5.2. LangGraph Agent Orchestrator (`agent.py`)
+### 6.2. LangGraph Agent Orchestrator (`agent.py`)
 - Quản lý danh sách mô hình cho phép: `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `openai/gpt-oss-120b`.
 - Hàm `normalize_model_name`: Chuẩn hóa và fallback về model mặc định nếu người dùng truyền model không hợp lệ.
 - Cấu trúc trạng thái mở rộng:
@@ -365,32 +446,32 @@ flowchart TD
 - Cấu hình `MongoDBSaver`: Lưu checkpoint của graph vào database MongoDB Atlas (`tit_chatbot_checkpoints`), duy trì bộ nhớ đa phiên.
 - Hệ thống Caching `_AGENT_CACHE`: Đảm bảo mỗi model chỉ biên dịch StateGraph một lần duy nhất.
 
-### 5.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)
+### 6.3. Quản lý Ngữ cảnh & Token (`context_manager.py`)
 - Cung cấp toàn bộ các hàm cốt lõi cho 4 bước tối ưu hóa ngữ cảnh và ngân sách token.
 - Đóng vai trò là "người gác cổng" kiểm tra và định dạng prompt trước khi bất kỳ lệnh gọi LLM nào được thực thi.
 
-### 5.4. Hệ thống 7 Công cụ Agent (`tools.py`)
-- Quản lý biến toàn cục `CURRENT_THREAD_ID` và hàm `set_current_thread_id`.
-- Danh sách 7 công cụ được trang bị docstring chi tiết hỗ trợ Function Calling:
+### 6.4. Hệ thống 7 Công cụ Agent (`tools.py`)
+- Quản lý biến ngữ cảnh `CURRENT_THREAD_ID` và `CURRENT_USER_ID` cùng các hàm setter.
+- Danh sách 7 công cụ được trang bị docstring chi tiết hỗ trợ Function Calling với User Isolation:
   1. `calculator(expression: str)`: Đánh giá biểu thức toán học qua hàm `eval` an toàn (chỉ cho phép thư viện `math` và các hàm số học cơ bản).
-  2. `search_uploaded_documents(query: str)`: Truy vấn RAG tài liệu theo thread.
-  3. `summarize_uploaded_document(filename: str)`: Tóm tắt trọn vẹn tài liệu đã tải lên bằng Map-Reduce.
-  4. `analyze_uploaded_image(question: str, filename: str)`: Phân tích ảnh tải lên bằng Vision model.
-  5. `remember_this(memory: str)`: Lưu thông tin cần ghi nhớ vào MongoDB.
-  6. `recall_memory(query: str)`: Tra cứu các mục ghi nhớ đã lưu.
+  2. `search_uploaded_documents(query: str)`: Truy vấn RAG tài liệu theo thread và cô lập theo `user_id`.
+  3. `summarize_uploaded_document(filename: str)`: Tóm tắt trọn vẹn tài liệu đã tải lên bằng Map-Reduce với bộ lọc `user_id`.
+  4. `analyze_uploaded_image(question: str, filename: str)`: Phân tích ảnh tải lên bằng Vision model theo `user_id`.
+  5. `remember_this(memory: str)`: Lưu thông tin cần ghi nhớ vào MongoDB gắn liền với `user_id`.
+  6. `recall_memory(query: str)`: Tra cứu các mục ghi nhớ đã lưu của chính `user_id`.
   7. `web_search`: Công cụ tìm kiếm web thời gian thực qua Tavily Search API.
 
-### 5.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)
-- Khởi tạo `HuggingFaceEmbeddings` chạy cục bộ trên CPU với `local_files_only=True`, loại bỏ hoàn toàn hiện tượng thử lại kết nối mạng gây treo hệ thống khi offline.
+### 6.5. Xử lý Tài liệu, OCR & Vector Store (`rag.py`)
+- Khởi tạo `HuggingFaceEmbeddings` chạy cục bộ trên CPU với `local_files_only=True` theo cơ chế **Lazy Singleton**, loại bỏ treo ứng dụng khi import.
 - Quản lý ChromaDB vectorstore tại thư mục `chroma_db_hf`.
 - Đọc tài liệu:
   - `_read_pdf`: Trích xuất text từng trang; tự động kích hoạt PyMuPDF + Tesseract OCR khi số ký tự $< 40$ (hỗ trợ song ngữ `vie+eng` ở độ phân giải 300 DPI).
   - `_read_docx`: Dùng `docx2txt`.
   - `_read_text`: Đọc file UTF-8 (`.txt`, `.md`, `.py`, `.csv`).
-- Chunking: `RecursiveCharacterTextSplitter` với `chunk_size=900`, `chunk_overlap=150`, bảo tồn metadata: `thread_id`, `source`, `page`, `chunk_index`, `start_index`.
-- Các hàm tra cứu: `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `add_image_to_rag`, `list_uploaded_images`.
+- Chunking: `RecursiveCharacterTextSplitter` với `chunk_size=900`, `chunk_overlap=150`, bảo tồn metadata: `thread_id`, `user_id`, `source`, `page`, `chunk_index`, `start_index`.
+- Các hàm tra cứu với User Isolation filter: `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `add_image_to_rag`, `list_uploaded_images`.
 
-### 5.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)
+### 6.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)
 - Định nghĩa ngân sách tóm tắt: `DEFAULT_INPUT_TOKEN_BUDGET = 18000`, `DEFAULT_MAX_WORKERS = 4`, `SUMMARY_OUTPUT_TOKENS = 1200`.
 - Hàm `_groups_by_budget`: Đóng gói các đoạn văn bản vào từng nhóm dựa theo ngân sách token thực tế đã trừ hao overhead.
 - Hàm `summarize_documents`:
@@ -400,7 +481,7 @@ flowchart TD
   - Sắp xếp kết quả worker theo đúng số thứ tự nhóm để bảo toàn bố cục tài liệu.
   - Đảm bảo tính toàn vẹn: nếu bất kỳ pass nào lỗi thì raise `RuntimeError`, không bao giờ trả về bản tóm tắt thiếu sót.
 
-### 5.7. Thị giác máy tính (`image_analysis.py`)
+### 6.7. Thị giác máy tính (`image_analysis.py`)
 - Giới hạn kích thước ảnh: $\le 14\text{ MB}$.
 - Hỗ trợ các định dạng: `.jpg`, `.jpeg`, `.png`, `.webp`.
 - Hàm `analyze_image`:
@@ -408,7 +489,7 @@ flowchart TD
   - Đóng gói ảnh thành chuỗi Base64 Data URL.
   - Gọi ChatGroq Vision model với `max_tokens=1200`.
 
-### 5.8. Sinh gợi ý prompt tiếp nối (`followups.py`)
+### 6.8. Sinh gợi ý prompt tiếp nối (`followups.py`)
 - Hàm `generate_followup_questions`:
   - Lọc code blocks và dữ liệu thừa bằng `_clean_content_for_followup`.
   - Giới hạn token đầu vào (user $\le 250$, assistant $\le 500$).
@@ -417,32 +498,39 @@ flowchart TD
   - Parse kết quả linh hoạt từ JSON hoặc danh sách phân dòng.
 - Hàm `fallback_followup_questions`: Thuật toán sinh gợi ý prompt người dùng cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
 
-### 5.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)
+### 6.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)
 - Singleton Client trong `mongo_client.py` sử dụng chứng chỉ an toàn `certifi` và Google DNS (`8.8.8.8`) cho truy vấn SRV.
 - Tạo index tự động:
-  - `conversations`: index duy nhất trên `thread_id`, index giảm dần trên `updated_at`.
-  - `chat_messages`: index kép trên `thread_id` và `created_at`.
-  - `long_term_memory`: index trên `thread_id` và Text Index trên trường `memory`.
-- Các hàm nghiệp vụ: `create_or_update_conversation`, `list_conversations`, `save_chat_message`, `get_chat_history`, `save_memory`, `search_memory`.
+  - `users`: index duy nhất trên `username` và `email`.
+  - `sessions`: index duy nhất trên `session_id` và TTL index tự động hủy trên `expires_at`.
+  - `conversations`: index duy nhất trên `thread_id`, index trên `user_id`, index giảm dần trên `updated_at`.
+  - `chat_messages`: index kép trên `thread_id` và `created_at`, index trên `user_id`.
+  - `long_term_memory`: index trên `user_id`, `thread_id` và Text Index trên trường `memory`.
+- Các hàm DAL người dùng & phiên: `create_user`, `authenticate_user`, `get_user_by_id`, `get_user_by_username`, `create_session`, `get_session`, `delete_session`.
+- Các hàm nghiệp vụ trò chuyện hỗ trợ `user_id`: `create_or_update_conversation`, `list_conversations`, `save_chat_message`, `get_chat_history`, `save_memory`, `search_memory`, `delete_conversation`.
 
-### 5.10. Giao diện người dùng Web (`templates/index.html`)
-- Giao diện hiện đại tông màu tối (Dark Theme), tương thích mọi kích thước màn hình.
+### 6.10. Giao diện người dùng Web (`templates/index.html`)
+- Giao diện hiện đại tông màu tối (Dark Theme), tương thích mọi kích thước màn hình và thiết bị di động.
 - Tích hợp Marked.js phân tích cú pháp Markdown và Highlight.js tô màu cú pháp code.
 - Tính năng:
-  - Nhập liệu bằng giọng nói (Speech-to-Text / Voice Dictation).
-  - Kéo-thả hoặc đính kèm tài liệu và ảnh.
-  - Hiển thị thanh tiến trình trực quan khi AI gọi công cụ (`addToolProgress`).
-  - Hiển thị danh sách 2 câu hỏi gợi ý dưới dạng clickable pills.
-  - Quản lý danh sách lịch sử các cuộc hội thoại ở sidebar bên trái.
+  - **Khu vực Tài khoản Người dùng:** Thẻ User Profile ở cuối sidebar và User Pill ở góc trên thanh công cụ.
+  - **Modal Đăng nhập / Đăng ký:** Chuyển đổi tab mượt mà, thông báo lỗi trực quan, tự động đồng bộ cookie phiên.
+  - **Bảo mật và Phân vùng:** Tự động làm mới danh sách cuộc trò chuyện và chat container khi đăng nhập hoặc đăng xuất.
+  - **Voice Input:** Nhập liệu bằng giọng nói (Speech-to-Text / Voice Dictation).
+  - **File Attachment:** Kéo-thả hoặc đính kèm tài liệu và ảnh.
+  - **Tool Progress:** Hiển thị thanh tiến trình trực quan khi AI gọi công cụ (`addToolProgress`).
+  - **Follow-up Pills:** Hiển thị danh sách 2 câu hỏi gợi ý dưới dạng clickable pills.
+  - **Sidebar Chats:** Quản lý danh sách lịch sử các cuộc hội thoại ở sidebar bên trái.
 
 ---
 
-## 6. Bảng công nghệ & Thư viện sử dụng
+## 7. Bảng công nghệ & Thư viện sử dụng
 
 | Tên thư viện | Phiên bản | Mục đích sử dụng |
 |---|---|---|
 | `fastapi` | 0.136.3 | Framework xây dựng RESTful API tốc độ cao |
 | `uvicorn` | 0.48.0 | ASGI web server chạy ứng dụng FastAPI |
+| `bcrypt` | >= 4.0.0 | Băm mật khẩu an toàn chuẩn công nghiệp với salt 12 rounds |
 | `jinja2` | 3.1.6 | Template engine render trang HTML |
 | `python-multipart` | 0.0.29 | Xử lý dữ liệu form và file upload |
 | `python-dotenv` | 1.2.2 | Quản lý biến môi trường từ file `.env` |
@@ -463,29 +551,33 @@ flowchart TD
 
 ---
 
-## 7. Cấu trúc thư mục dự án
+## 8. Cấu trúc thư mục dự án
 
 ```text
 Tit-Chatbot/
-├── app.py                         # FastAPI routes, file upload, SSE streaming
+├── app.py                         # FastAPI routes, Auth middleware, file upload, SSE streaming
 ├── agent.py                       # LangGraph agent, AgentState, MongoDBSaver
 ├── context_manager.py             # Bộ tối ưu hóa ngữ cảnh và kiểm soát token
 ├── summarization.py               # Thuật toán tóm tắt văn bản dài thích ứng & đa luồng song song
 ├── followups.py                   # Bộ sinh 2 câu hỏi gợi ý thông minh
 ├── image_analysis.py              # Xử lý hình ảnh và thị giác máy tính với Groq Vision
-├── tools.py                       # Registry và hiện thực 7 công cụ của Agent
-├── rag.py                         # Đọc file, OCR scan, text chunking, ChromaDB
-├── database.py                    # Tầng DAL tương tác với MongoDB
-├── mongo_client.py                # MongoDB Client Singleton và cấu hình Index
+├── tools.py                       # Registry và hiện thực 7 công cụ của Agent (kèm User Isolation)
+├── rag.py                         # Đọc file, OCR scan, text chunking, ChromaDB (Lazy Loading)
+├── database.py                    # Tầng DAL tương tác với MongoDB (Auth, Sessions, Conversations)
+├── mongo_client.py                # MongoDB Client Singleton và cấu hình Index (TTL & Unique)
 ├── templates/
-│   └── index.html                 # Giao diện web người dùng đầy đủ tính năng
+│   └── index.html                 # Giao diện web người dùng (Sign In/Up Modal, User Card, Topbar)
 ├── uploads/                       # Thư mục lưu trữ file và ảnh upload
 ├── chroma_db_hf/                  # Thư mục lưu trữ vectorstore ChromaDB
-├── tests/                         # Bộ kiểm thử tự động toàn diện (28 unit tests)
-│   ├── test_context_manager.py
-│   ├── test_agent_workflow.py
-│   ├── test_summarization_integration.py
-│   └── test_followups_and_vision.py
+├── tests/                         # Bộ kiểm thử tự động toàn diện (47 unit tests)
+│   ├── test_auth_database.py      # Kiểm thử DAL Auth & MongoDB Session (6 tests)
+│   ├── test_auth_api.py           # Kiểm thử FastAPI Auth endpoints & Protected Routes (2 tests)
+│   ├── test_rag_isolation.py      # Kiểm thử cô lập RAG documents, images & memory (1 test)
+│   ├── test_frontend_auth.py      # Kiểm thử giao diện Auth modal, user cards & JS (5 tests)
+│   ├── test_context_manager.py    # Kiểm thử tối ưu context & token budget (16 tests)
+│   ├── test_agent_workflow.py     # Kiểm thử luồng LangGraph Agent & State (5 tests)
+│   ├── test_summarization_integration.py # Kiểm thử Map-Reduce đa luồng (5 tests)
+│   └── test_followups_and_vision.py      # Kiểm thử sinh gợi ý & vision (7 tests)
 ├── .env                           # Biến môi trường và khóa bí mật API
 ├── requirements.txt               # Danh sách thư viện phụ thuộc
 └── README.md                      # Tài liệu kỹ thuật chi tiết của dự án
@@ -493,20 +585,33 @@ Tit-Chatbot/
 
 ---
 
-## 8. Các API Endpoints
+## 9. Các API Endpoints
 
-### 8.1. Giao diện & Lịch sử
+### 9.1. Xác thực & Quản lý Người dùng
+- **`POST /auth/signup`**:
+  - **Body JSON:** `{"username": "...", "email": "...", "password": "...", "full_name": "..."}`
+  - **Phản hồi:** Trả về thông tin User đã tạo, đồng thời set Cookie `session_id` (`HttpOnly`, `SameSite=Lax`, thời hạn 30 ngày).
+- **`POST /auth/signin`**:
+  - **Body JSON:** `{"identifier": "...", "password": "..."}`
+  - **Phản hồi:** Xác thực qua `bcrypt`, tạo phiên mới và set Cookie `session_id`.
+- **`POST /auth/signout`**:
+  - Hủy phiên làm việc trong database MongoDB và xóa Cookie `session_id` trên trình duyệt.
+- **`GET /auth/me`**:
+  - Trả về thông tin hồ sơ của người dùng hiện tại đang đăng nhập. Nếu là khách (guest), trả về `401 Unauthorized`.
+
+### 9.2. Giao diện & Lịch sử Hội thoại (User-Isolated)
 - **`GET /`**: Trả về giao diện web chính (`index.html`).
-- **`GET /conversations`**: Lấy danh sách các cuộc trò chuyện gần nhất (gồm `thread_id`, `title`, `created_at`, `updated_at`).
-- **`GET /history/{thread_id}`**: Lấy toàn bộ lịch sử tin nhắn đã lưu của một cuộc trò chuyện cụ thể.
+- **`GET /conversations`**: Lấy danh sách các cuộc trò chuyện thuộc về người dùng hiện tại (hoặc các cuộc trò chuyện của phiên ẩn danh nếu chưa đăng nhập).
+- **`GET /history/{thread_id}`**: Lấy toàn bộ lịch sử tin nhắn đã lưu của một cuộc trò chuyện cụ thể. Trả về `403 Forbidden` nếu người dùng không sở hữu cuộc trò chuyện này.
+- **`DELETE /conversations/{thread_id}`**: Xóa cuộc trò chuyện và toàn bộ tin nhắn liên quan. Trả về `403 Forbidden` nếu người dùng không có quyền xóa.
 
-### 8.2. Tải lên tài liệu
+### 9.3. Tải lên tài liệu & Hình ảnh (User-Isolated)
 - **`POST /upload`**:
   - **Form Data:** `file` (File), `thread_id` (str).
-  - **Xử lý:** Kiểm tra định dạng (PDF, DOCX, TXT, MD, PY, CSV, JPG, PNG, WEBP). Lưu file vào `uploads/`. Nếu là ảnh thì đăng ký vào RAG ảnh; nếu là tài liệu thì đọc text, OCR (nếu cần), chia chunks và lưu vào ChromaDB.
+  - **Xử lý:** Kiểm tra định dạng (PDF, DOCX, TXT, MD, PY, CSV, JPG, PNG, WEBP). Lưu file vào `uploads/`. Tự động gắn nhãn `user_id` vào metadata của vectorstore và bộ nhớ ảnh.
   - **Phản hồi JSON:** `{"success": true, "message": "Uploaded ... and created X chunks."}`.
 
-### 8.3. Trò chuyện thời gian thực
+### 9.4. Trò chuyện thời gian thực (SSE Stream)
 - **`POST /chat/stream`**:
   - **Body JSON:**
     ```json
@@ -516,6 +621,7 @@ Tit-Chatbot/
       "model": "openai/gpt-oss-20b"
     }
     ```
+  - **Kiểm soát bảo mật:** Xác thực quyền truy cập đối với `thread_id` (trả về 403 nếu cuộc trò chuyện thuộc về user khác).
   - **Phản hồi:** Server-Sent Events (`text/event-stream`):
     - `data: {"token": "Xin chào"}`
     - `data: {"suggestions_pending": true}`
@@ -524,9 +630,9 @@ Tit-Chatbot/
 
 ---
 
-## 9. Hướng dẫn cài đặt và khởi chạy
+## 10. Hướng dẫn cài đặt và khởi chạy
 
-### 9.1. Cài đặt môi trường Python
+### 10.1. Cài đặt môi trường Python
 Khuyến nghị tạo môi trường ảo Python 3.12:
 ```bash
 # Tạo virtual environment
@@ -539,12 +645,12 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 9.2. Cài đặt các thư viện phụ thuộc
+### 10.2. Cài đặt các thư viện phụ thuộc
 ```bash
 pip install -r requirements.txt
 ```
 
-### 9.3. Cài đặt Tesseract OCR (Tùy chọn, dùng cho PDF scan)
+### 10.3. Cài đặt Tesseract OCR (Tùy chọn, dùng cho PDF scan)
 - **Windows:** Tải bộ cài từ [UB Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki). Đảm bảo tích chọn gói ngôn ngữ **Vietnamese** và **English**. Thêm thư mục cài đặt vào `PATH`.
 - **Linux:**
   ```bash
@@ -552,7 +658,7 @@ pip install -r requirements.txt
   sudo apt-get install tesseract-ocr tesseract-ocr-vie tesseract-ocr-eng
   ```
 
-### 9.4. Khởi chạy Server
+### 10.4. Khởi chạy Server
 ```bash
 python app.py
 ```
@@ -560,7 +666,7 @@ python app.py
 
 ---
 
-## 10. Cấu hình biến môi trường (`.env`)
+## 11. Cấu hình biến môi trường (`.env`)
 
 Tạo file `.env` tại thư mục gốc với các thông số cấu hình:
 
@@ -618,23 +724,42 @@ PDF_OCR_TRIGGER_CHARS=40
 
 ---
 
-## 11. Kiểm thử tự động (Test Suite)
+## 12. Kiểm thử tự động (Test Suite)
 
-Dự án sở hữu bộ kiểm thử tự động toàn diện với **28 unit tests** bao quát 100% các thành phần và các bước tối ưu hóa hiệu năng:
+Dự án sở hữu bộ kiểm thử tự động toàn diện với **47 unit tests** bao quát 100% các thành phần nghiệp vụ, bảo mật xác thực, cô lập dữ liệu và tối ưu hóa hiệu năng:
 
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover tests
 ```
 
 ### Kết quả chạy kiểm thử:
 ```text
-Ran 28 tests in 3.650s
+Ran 47 tests in 4.909s
 
 OK
 ```
 
 ### Các tệp kiểm thử trong thư mục `tests/`:
-1. **`test_context_manager.py` (16 tests):**
+1. **`test_auth_database.py` (6 tests):**
+   - Kiểm thử tạo tài khoản người dùng (`create_user`) và mã hóa mật khẩu bằng bcrypt (12 rounds).
+   - Kiểm thử ngăn chặn trùng lặp `username` và `email`.
+   - Kiểm thử xác thực đăng nhập (`authenticate_user`) với mật khẩu đúng và sai.
+   - Kiểm thử quản lý phiên làm việc (`create_session`, `get_session`, `delete_session`).
+   - Kiểm thử lọc danh sách cuộc trò chuyện theo `user_id`.
+   - Kiểm thử xóa cuộc trò chuyện an toàn theo quyền sở hữu.
+2. **`test_auth_api.py` (2 tests):**
+   - Kiểm thử các luồng API đăng ký, đăng nhập, lấy hồ sơ (`/auth/me`), đăng xuất và cấp phát cookie `session_id`.
+   - Kiểm thử cơ chế bảo vệ phân quyền: chặn `403 Forbidden` khi User A cố tình truy cập hoặc xóa hội thoại của User B.
+3. **`test_rag_isolation.py` (1 test):**
+   - Kiểm thử cô lập triệt để tài liệu vector RAG và danh mục ảnh upload giữa hai người dùng khác nhau trên cùng thread ID hoặc khác thread ID.
+   - Kiểm thử bộ lọc ChromaDB `{"$and": [{"thread_id": ...}, {"user_id": ...}]}`.
+4. **`test_frontend_auth.py` (5 tests):**
+   - Kiểm thử sự hiện diện và cấu trúc của sidebar user section (`#sidebarUserSection`).
+   - Kiểm thử khu vực user status trên thanh công cụ (`#topbarUserArea`).
+   - Kiểm thử đầy đủ cấu trúc HTML của Auth Modal (form Đăng nhập, form Đăng ký, tabs, inputs, error banner).
+   - Kiểm thử các hàm JavaScript quản lý phiên và xác thực (`checkAuthStatus`, `renderUserUI`, `handleSignInSubmit`, `handleSignUpSubmit`, `handleSignOut`).
+   - Kiểm thử các lệnh gọi fetch đúng định dạng tới các endpoint `/auth/*`.
+5. **`test_context_manager.py` (16 tests):**
    - Kiểm thử hàm ước tính token đa ngôn ngữ (`estimate_tokens`).
    - Kiểm thử ước tính token của tin nhắn (`estimate_message_tokens`) và schema công cụ (`estimate_tool_schemas_tokens`).
    - Kiểm thử gom nhóm lượt hội thoại (`group_messages_into_turns`).
@@ -646,19 +771,19 @@ OK
    - Kiểm thử ngân sách động theo mô hình (`get_model_token_budget`).
    - Kiểm thử giới hạn token và cắt gọn dữ liệu khi vượt ngưỡng (`enforce_token_budget`).
    - Kiểm thử luồng tích hợp hoàn chỉnh (`prepare_context_for_llm`).
-2. **`test_agent_workflow.py` (5 tests):**
+6. **`test_agent_workflow.py` (5 tests):**
    - Kiểm thử chuẩn hóa tên model (`normalize_model_name`).
    - Kiểm thử tích hợp Chatbot Node trong LangGraph.
    - Kiểm thử loại bỏ tool cũ qua các turn liên tiếp.
    - Kiểm thử bảo toàn kết quả công cụ active của lượt hiện tại.
    - Kiểm thử phân rã các thành phần token (`calculate_token_breakdown`).
-3. **`test_summarization_integration.py` (5 tests):**
+7. **`test_summarization_integration.py` (5 tests):**
    - Kiểm thử quy trình Map-Reduce tài liệu lớn qua nhiều tầng.
    - Kiểm thử tóm tắt tài liệu nhỏ chỉ qua 1 pass.
    - Kiểm thử lan truyền lỗi khi LLM thất bại thay vì trả về tóm tắt chắp vá.
    - Kiểm thử cô lập ngữ cảnh: đảm bảo không có lịch sử chat nào lọt vào Map-Reduce pass.
    - Kiểm thử xử lý song song đa luồng bảo toàn đúng trật tự các đoạn văn bản.
-4. **`test_followups_and_vision.py` (7 tests):**
+8. **`test_followups_and_vision.py` (7 tests):**
    - Kiểm thử lọc khối code dài khỏi dữ liệu sinh gợi ý (`_clean_content_for_followup`).
    - Kiểm thử loại bỏ tag đính kèm file/ảnh thô.
    - Kiểm thử áp dụng giới hạn token cho ngữ cảnh gợi ý.
@@ -669,10 +794,13 @@ OK
 
 ---
 
-## 12. Từ điển thuật ngữ
+## 13. Từ điển thuật ngữ
 
 | Thuật ngữ | Định nghĩa trong dự án |
 |---|---|
+| **Multi-tenancy / User Isolation** | Cơ chế phân vùng dữ liệu nghiêm ngặt giữa các tài khoản: đảm bảo người dùng chỉ xem, sửa, xóa các cuộc hội thoại, tài liệu RAG, hình ảnh và ký ức dài hạn thuộc quyền sở hữu của chính họ. |
+| **Session Cookie** | Cookie nhận diện phiên làm việc (`session_id`) lưu trên trình duyệt với cờ `HttpOnly` và `SameSite=Lax`, tự động gia hạn và hết hạn qua TTL Index của cơ sở dữ liệu MongoDB. |
+| **Bcrypt Hashing** | Giải thuật băm mật khẩu bảo mật một chiều kết hợp muối ngẫu nhiên (salt 12 rounds), chống lại các cuộc tấn công vét cạn (brute-force) và bảng cầu vồng (rainbow tables). |
 | **Turn (Lượt hội thoại)** | Một lượt trao đổi hoàn chỉnh gồm 1 câu hỏi từ người dùng (`HumanMessage`) và chuỗi phản hồi tương ứng của trợ lý (có thể gồm các bước gọi công cụ và câu trả lời kết luận). |
 | **Active Turn** | Lượt hội thoại đang diễn ra: công cụ vừa thực thi xong và Agent đang chuẩn bị tổng hợp câu trả lời cho người dùng. Kết quả công cụ của lượt này luôn được giữ nguyên. |
 | **Completed Turn** | Lượt hội thoại trong quá khứ đã có câu trả lời hoàn tất. Các kết quả công cụ thô (như JSON search hay RAG chunk) sẽ bị loại bỏ khỏi context của các lượt tiếp theo. |

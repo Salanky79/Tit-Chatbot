@@ -17,11 +17,17 @@ load_dotenv()
 
 
 CURRENT_THREAD_ID = "default"
+CURRENT_USER_ID = ""
 
 
 def set_current_thread_id(thread_id: str):
     global CURRENT_THREAD_ID
     CURRENT_THREAD_ID = thread_id
+
+
+def set_current_user_id(user_id: str):
+    global CURRENT_USER_ID
+    CURRENT_USER_ID = user_id or ""
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +97,11 @@ def search_uploaded_documents(query: str) -> str:
     Use this tool ONLY to answer specific factual questions or retrieve
     relevant excerpts from an uploaded PDF, DOCX, TXT, Markdown, CSV, or Python file.
     """
-    return retrieve_from_rag(query=query, thread_id=CURRENT_THREAD_ID)
+    return retrieve_from_rag(
+        query=query,
+        thread_id=CURRENT_THREAD_ID,
+        user_id=CURRENT_USER_ID or None
+    )
 
 
 @tool
@@ -108,7 +118,8 @@ def summarize_uploaded_document(filename: str = "") -> str:
     file. If several files exist and the user has not identified one, call with
     an empty filename to return a clarification request. Never combine files.
     """
-    sources = list_document_sources(CURRENT_THREAD_ID)
+    user_id = CURRENT_USER_ID or None
+    sources = list_document_sources(CURRENT_THREAD_ID, user_id=user_id)
     if not sources:
         return "No uploaded documents were found in this conversation."
 
@@ -134,7 +145,7 @@ def summarize_uploaded_document(filename: str = "") -> str:
                 return f'No uploaded file named "{requested}" was found. Available files: {names}.'
 
     try:
-        chunks = get_document_chunks(selected, CURRENT_THREAD_ID)
+        chunks = get_document_chunks(selected, CURRENT_THREAD_ID, user_id=user_id)
         summary = summarize_documents(chunks)
     except Exception as exc:
         return f'Could not summarize "{selected}": {exc}'
@@ -150,7 +161,8 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     identified. An empty filename selects the only uploaded image; when several
     images exist, ask which one instead of combining or guessing.
     """
-    images = list_uploaded_images(CURRENT_THREAD_ID)
+    user_id = CURRENT_USER_ID or None
+    images = list_uploaded_images(CURRENT_THREAD_ID, user_id=user_id)
     if not images:
         return "No uploaded images were found in this conversation. Upload a JPG, PNG, or WEBP image first."
 
@@ -198,7 +210,7 @@ def remember_this(memory: str) -> str:
     captures the key fact (e.g. "User's name is Nam.").
     Returns a confirmation message on success.
     """
-    return save_memory(thread_id=CURRENT_THREAD_ID, memory=memory)
+    return save_memory(thread_id=CURRENT_THREAD_ID, memory=memory, user_id=CURRENT_USER_ID or None)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +229,7 @@ def recall_memory(query: str) -> str:
 
     Returns a list of matching memory entries, or a message if none are found.
     """
-    return search_memory(thread_id=CURRENT_THREAD_ID, query=query)
+    return search_memory(thread_id=CURRENT_THREAD_ID, query=query, user_id=CURRENT_USER_ID or None)
 
 
 # ---------------------------------------------------------------------------
