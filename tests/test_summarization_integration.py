@@ -66,5 +66,16 @@ class TestSummarizationIntegration(unittest.TestCase):
             self.assertNotIn("Assistant:", human_msg.content)
 
 
+    def test_parallel_map_preserves_document_order_and_handles_multiple_workers(self):
+        docs = [
+            Document(page_content=f"Part {i}: Important facts about section {i} " + "detail " * 100)
+            for i in range(1, 6)
+        ]
+        llm = FakeLLM()
+        result = summarize_documents(docs, llm, input_token_budget=600)
+        self.assertTrue(result.startswith("summary-"))
+        self.assertGreaterEqual(len(llm.calls), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

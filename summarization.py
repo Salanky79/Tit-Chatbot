@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import math
 import os
 from typing import Sequence
@@ -13,7 +14,8 @@ from langchain_groq import ChatGroq
 from context_manager import validate_and_isolate_summarization_context
 
 
-DEFAULT_INPUT_TOKEN_BUDGET = 6000
+DEFAULT_INPUT_TOKEN_BUDGET = 18000
+DEFAULT_MAX_WORKERS = 4
 SUMMARY_OUTPUT_TOKENS = 1200
 
 
@@ -136,14 +138,31 @@ def summarize_documents(
 
     units = [_format_document(doc) for doc in clean_documents if doc.page_content.strip()]
     map_groups = _groups_by_budget(units, effective_chunk_budget)
-    summaries = []
-    for number, group in enumerate(map_groups, start=1):
-        summaries.append(_invoke(
+
+    # Pha 1 (Map): Nếu chỉ có 1 nhóm thì thực thi trực tiếp, nếu nhiều nhóm thì chạy song song đa luồng
+    if len(map_groups) == 1:
+        summaries = [_invoke(
             llm,
-            "Summarize this part of the document. Keep specific facts and caveats.\n\n" + "\n\n".join(group),
+            "Summarize this part of the document. Keep specific facts and caveats.\n\n" + "\n\n".join(map_groups[0]),
             "map",
-            number,
-        ))
+            1,
+        )]
+    else:
+        try:
+            configured_workers = int(os.getenv("SUMMARIZATION_MAX_WORKERS", str(DEFAULT_MAX_WORKERS)))
+        except (TypeError, ValueError):
+            configured_workers = DEFAULT_MAX_WORKERS
+        max_workers = max(1, min(len(map_groups), configured_workers))
+
+        def _map_worker(item: tuple[int, list[str]]) -> tuple[int, str]:
+            idx, grp = item
+            prompt = "Summarize this part of the document. Keep specific facts and caveats.\n\n" + "\n\n".join(grp)
+            return idx, _invoke(llm, prompt, "map", idx)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            map_results = list(executor.map(_map_worker, enumerate(map_groups, start=1)))
+        map_results.sort(key=lambda x: x[0])
+        summaries = [res[1] for res in map_results]
 
     level = 1
     while len(summaries) > 1:
@@ -156,15 +175,38 @@ def summarize_documents(
             groups = _groups_by_budget(summaries, smaller_budget)
             if len(groups) >= len(summaries) and smaller_budget == 256:
                 raise RuntimeError("Document summaries are too large to reduce safely.")
-        for number, group in enumerate(groups, start=1):
-            reduced.append(_invoke(
+
+        if len(groups) == 1:
+            reduced = [_invoke(
                 llm,
                 "Combine these summaries into one faithful summary. Preserve key "
                 "claims, definitions, numbers, conditions, and conclusions; remove "
-                "repetition and do not add facts.\n\n" + "\n\n".join(group),
+                "repetition and do not add facts.\n\n" + "\n\n".join(groups[0]),
                 f"reduce level {level}",
-                number,
-            ))
+                1,
+            )]
+        else:
+            try:
+                configured_workers = int(os.getenv("SUMMARIZATION_MAX_WORKERS", str(DEFAULT_MAX_WORKERS)))
+            except (TypeError, ValueError):
+                configured_workers = DEFAULT_MAX_WORKERS
+            max_workers = max(1, min(len(groups), configured_workers))
+
+            def _reduce_worker(item: tuple[int, list[str], int]) -> tuple[int, str]:
+                idx, grp, lvl = item
+                prompt = (
+                    "Combine these summaries into one faithful summary. Preserve key "
+                    "claims, definitions, numbers, conditions, and conclusions; remove "
+                    "repetition and do not add facts.\n\n" + "\n\n".join(grp)
+                )
+                return idx, _invoke(llm, prompt, f"reduce level {lvl}", idx)
+
+            worker_inputs = [(i, g, level) for i, g in enumerate(groups, start=1)]
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                reduce_results = list(executor.map(_reduce_worker, worker_inputs))
+            reduce_results.sort(key=lambda x: x[0])
+            reduced = [res[1] for res in reduce_results]
+
         if len(reduced) >= len(summaries):
             raise RuntimeError("Document summarization could not make progress reducing intermediate summaries.")
         summaries = reduced
