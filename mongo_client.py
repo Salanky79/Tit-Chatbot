@@ -93,15 +93,31 @@ def get_collection(name: str) -> Collection:
 def ensure_indexes() -> None:
     """Tạo các index cần thiết cho hiệu năng truy vấn.
 
-    - ``conversations``:  ``thread_id`` (unique) + ``updated_at`` (desc)
-    - ``chat_messages``:  ``thread_id`` + ``created_at`` (asc)
+    - ``users``:            ``username`` (unique) + ``email`` (unique)
+    - ``sessions``:         ``session_id`` (unique) + TTL index trên ``expires_at``
+    - ``conversations``:    ``thread_id`` (unique) + ``[user_id, updated_at]``
+    - ``chat_messages``:    ``thread_id`` + ``created_at`` (asc)
     - ``long_term_memory``: ``thread_id`` + text index trên ``memory``
     """
     try:
+        # users
+        users = get_collection("users")
+        users.create_index([("username", ASCENDING)], unique=True, background=True)
+        users.create_index([("email", ASCENDING)], unique=True, background=True)
+
+        # sessions (với TTL index tự động dọn dẹp phiên hết hạn)
+        sessions = get_collection("sessions")
+        sessions.create_index([("session_id", ASCENDING)], unique=True, background=True)
+        sessions.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
+
         # conversations
         conv = get_collection("conversations")
         conv.create_index([("thread_id", ASCENDING)], unique=True, background=True)
         conv.create_index([("updated_at", DESCENDING)], background=True)
+        conv.create_index(
+            [("user_id", ASCENDING), ("updated_at", DESCENDING)],
+            background=True
+        )
 
         # chat_messages
         msgs = get_collection("chat_messages")

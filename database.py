@@ -1,27 +1,52 @@
 """database.py – Lớp truy cập dữ liệu (DAL) dùng MongoDB thay cho SQLite/SQLAlchemy.
 
 Các hàm public giữ nguyên tên và chữ ký để các module khác (app.py, tools.py, …)
-không cần thay đổi logic gọi hàm.
+tương thích hoàn toàn, đồng thời mở rộng hỗ trợ Quản lý User và Cách ly hội thoại.
 
 Collections:
-    - conversations   : metadata của từng luồng chat
-    - chat_messages   : nội dung từng tin nhắn
+    - users           : thông tin tài khoản người dùng và mật khẩu băm
+    - sessions        : phiên đăng nhập của người dùng (TTL tự động dọn dẹp)
+    - conversations   : metadata của từng luồng chat (kèm user_id)
+    - chat_messages   : nội dung từng tin nhắn (kèm user_id)
     - long_term_memory: bộ nhớ dài hạn do user yêu cầu lưu
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import re
+import secrets
 from typing import Any
+
+import bcrypt
+from bson import ObjectId
 
 from mongo_client import get_collection, ensure_indexes
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers & Security
 # ---------------------------------------------------------------------------
 
 def _now() -> datetime:
     """Trả về thời điểm hiện tại theo UTC (timezone-aware)."""
     return datetime.now(timezone.utc)
+
+
+def hash_password(password: str) -> str:
+    """Băm mật khẩu an toàn sử dụng bcrypt với salt 12 rounds."""
+    if not password:
+        raise ValueError("Mật khẩu không được để trống.")
+    salt = bcrypt.gensalt(rounds=12) # tránh mã băm cùng một mật khẩu giống nhau
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Xác thực mật khẩu thô với chuỗi băm bcrypt."""
+    if not plain_password or not hashed_password:
+        return False
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def _conv_to_obj(doc: dict) -> Any:
@@ -54,21 +79,216 @@ def init_db() -> None:
 
 
 # ---------------------------------------------------------------------------
+# User Management APIs
+# ---------------------------------------------------------------------------
+
+def create_user(
+    username: str,
+    email: str,
+    password: str,
+    full_name: str = ""
+) -> dict:
+    """Đăng ký tài khoản người dùng mới.
+
+    Args:
+        username: Tên tài khoản (tối thiểu 3 ký tự, không dấu cách).
+        email: Email hợp lệ.
+        password: Mật khẩu (tối thiểu 6 ký tự).
+        full_name: Tên hiển thị người dùng.
+
+    Returns:
+        dict thông tin user (đã loại bỏ hashed_password).
+    """
+    username = (username or "").strip().lower()
+    email = (email or "").strip().lower()
+    full_name = (full_name or "").strip()
+
+    if not username or len(username) < 3:
+        raise ValueError("Tên đăng nhập phải có ít nhất 3 ký tự.")
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", username):
+        raise ValueError("Tên đăng nhập chỉ được chứa chữ cái, chữ số, dấu gạch dưới, gạch ngang và dấu chấm.")
+    if not email or "@" not in email or "." not in email:
+        raise ValueError("Định dạng email không hợp lệ.")
+    if not password or len(password) < 6:
+        raise ValueError("Mật khẩu phải có ít nhất 6 ký tự.")
+
+    users = get_collection("users")
+    if users.find_one({"username": username}):
+        raise ValueError("Tên đăng nhập này đã được sử dụng.")
+    if users.find_one({"email": email}):
+        raise ValueError("Địa chỉ email này đã được đăng ký.")
+
+    now = _now()
+    hashed_pw = hash_password(password)
+    user_doc = {
+        "username": username,
+        "email": email,
+        "hashed_password": hashed_pw,
+        "full_name": full_name or username,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    result = users.insert_one(user_doc)
+    user_id = str(result.inserted_id)
+
+    return {
+        "id": user_id,
+        "username": username,
+        "email": email,
+        "full_name": user_doc["full_name"],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def authenticate_user(username_or_email: str, password: str) -> dict | None:
+    """Xác thực người dùng khi đăng nhập bằng username hoặc email.
+
+    Returns:
+        dict thông tin user (đã loại bỏ hashed_password) nếu đúng, ngược lại None.
+    """
+    identifier = (username_or_email or "").strip().lower()
+    if not identifier or not password:
+        return None
+
+    users = get_collection("users")
+    user = users.find_one({
+        "$or": [
+            {"username": identifier},
+            {"email": identifier},
+        ]
+    })
+    if not user:
+        return None
+
+    if not verify_password(password, user.get("hashed_password", "")):
+        return None
+
+    return {
+        "id": str(user["_id"]),
+        "username": user["username"],
+        "email": user["email"],
+        "full_name": user.get("full_name", user["username"]),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
+
+
+def get_user_by_id(user_id: str) -> dict | None:
+    """Lấy thông tin user theo ID."""
+    if not user_id:
+        return None
+    users = get_collection("users")
+    try:
+        query_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+        user = users.find_one({"_id": query_id})
+    except Exception:
+        return None
+
+    if not user:
+        return None
+
+    return {
+        "id": str(user["_id"]),
+        "username": user["username"],
+        "email": user["email"],
+        "full_name": user.get("full_name", user["username"]),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """Lấy thông tin user theo username."""
+    username = (username or "").strip().lower()
+    if not username:
+        return None
+    users = get_collection("users")
+    user = users.find_one({"username": username})
+    if not user:
+        return None
+
+    return {
+        "id": str(user["_id"]),
+        "username": user["username"],
+        "email": user["email"],
+        "full_name": user.get("full_name", user["username"]),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Session Management APIs
+# ---------------------------------------------------------------------------
+
+def create_session(user_id: str, duration_days: int = 7) -> str:
+    """Tạo phiên đăng nhập an toàn mới lưu vào MongoDB."""
+    session_id = secrets.token_urlsafe(32)
+    now = _now()
+    expires_at = now + timedelta(days=duration_days)
+
+    sessions = get_collection("sessions")
+    sessions.insert_one({
+        "session_id": session_id,
+        "user_id": str(user_id),
+        "created_at": now,
+        "expires_at": expires_at,
+    })
+    return session_id
+
+
+def get_session(session_id: str) -> dict | None:
+    """Kiểm tra và lấy thông tin phiên đăng nhập còn hiệu lực."""
+    if not session_id:
+        return None
+    sessions = get_collection("sessions")
+    session = sessions.find_one({"session_id": session_id})
+    if not session:
+        return None
+
+    # Kiểm tra hết hạn
+    now = _now()
+    expires_at = session.get("expires_at")
+    if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            sessions.delete_one({"session_id": session_id})
+            return None
+
+    session["id"] = str(session["_id"])
+    session.pop("_id", None)
+    return session
+
+
+def delete_session(session_id: str) -> bool:
+    """Xóa phiên đăng nhập (khi người dùng đăng xuất)."""
+    if not session_id:
+        return False
+    sessions = get_collection("sessions")
+    res = sessions.delete_one({"session_id": session_id})
+    return res.deleted_count > 0
+
+
+# ---------------------------------------------------------------------------
 # Conversation APIs
 # ---------------------------------------------------------------------------
 
 def create_or_update_conversation(
     thread_id: str,
-    first_message: str | None = None
+    first_message: str | None = None,
+    user_id: str | None = None,
 ) -> Any:
-    """Tạo mới hoặc cập nhật conversation theo ``thread_id``.
+    """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``.
 
     - Nếu chưa tồn tại: insert với ``title`` lấy từ ``first_message`` (40 ký tự đầu).
-    - Nếu đã tồn tại: cập nhật ``updated_at``.
+    - Nếu đã tồn tại: cập nhật ``updated_at`` (và gắn ``user_id`` nếu chưa có).
 
     Returns:
         Object-like với các thuộc tính ``thread_id``, ``title``,
-        ``created_at``, ``updated_at``.
+        ``created_at``, ``updated_at``, ``user_id``.
     """
     coll = get_collection("conversations")
     now = _now()
@@ -79,45 +299,88 @@ def create_or_update_conversation(
         stripped = first_message.strip()
         title = stripped[:40] + ("..." if len(stripped) > 40 else "")
 
-    result = coll.update_one(
+    set_fields: dict[str, Any] = {"updated_at": now}
+    set_on_insert: dict[str, Any] = {
+        "thread_id": thread_id,
+        "title": title,
+        "created_at": now,
+    }
+    if user_id:
+        set_fields["user_id"] = str(user_id)
+        set_on_insert["user_id"] = str(user_id)
+
+    coll.update_one(
         {"thread_id": thread_id},
         {
-            "$set": {"updated_at": now},
-            "$setOnInsert": {
-                "thread_id": thread_id,
-                "title": title,
-                "created_at": now,
-            },
+            "$set": set_fields,
+            "$setOnInsert": set_on_insert,
         },
         upsert=True,
     )
 
-    # Nếu là insert mới, trả về doc vừa tạo
     doc = coll.find_one({"thread_id": thread_id}, {"_id": 0})
     return _conv_to_obj(doc)
 
 
-def list_conversations(limit: int = 100) -> list[Any]:
-    """Lấy danh sách conversations, sắp xếp mới nhất trước.
+def get_conversation(thread_id: str) -> dict | None:
+    """Lấy thông tin chi tiết một cuộc trò chuyện để kiểm tra quyền sở hữu."""
+    if not thread_id:
+        return None
+    coll = get_collection("conversations")
+    return coll.find_one({"thread_id": thread_id}, {"_id": 0})
 
-    Returns:
-        List các object-like với thuộc tính ``thread_id``, ``title``,
-        ``created_at``, ``updated_at``.
+
+def list_conversations(
+    user_id: str | None = None,
+    limit: int = 100
+) -> list[Any]:
+    """Lấy danh sách conversations theo user_id, sắp xếp mới nhất trước.
+
+    Nếu user_id được chỉ định, chỉ lấy các cuộc trò chuyện của user đó.
+    Nếu user_id là None, trả về các conversation công khai/mặc định.
     """
     coll = get_collection("conversations")
+    query = {}
+    if user_id is not None:
+        query["user_id"] = str(user_id)
+
     cursor = (
-        coll.find({}, {"_id": 0})
+        coll.find(query, {"_id": 0})
         .sort("updated_at", -1)
         .limit(limit)
     )
     return [_conv_to_obj(doc) for doc in cursor]
 
 
+def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
+    """Xóa cuộc trò chuyện và toàn bộ tin nhắn liên quan.
+    Nếu truyền user_id, chỉ xóa nếu cuộc trò chuyện thuộc về user_id đó.
+    """
+    if not thread_id:
+        return False
+    conv_coll = get_collection("conversations")
+    query: dict[str, Any] = {"thread_id": thread_id}
+    if user_id is not None:
+        query["user_id"] = str(user_id)
+
+    res = conv_coll.delete_one(query)
+    if res.deleted_count > 0:
+        get_collection("chat_messages").delete_many({"thread_id": thread_id})
+        get_collection("long_term_memory").delete_many({"thread_id": thread_id})
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Chat message APIs
 # ---------------------------------------------------------------------------
 
-def save_chat_message(thread_id: str, role: str, content: str) -> Any:
+def save_chat_message(
+    thread_id: str,
+    role: str,
+    content: str,
+    user_id: str | None = None,
+) -> Any:
     """Lưu một tin nhắn vào collection ``chat_messages``.
 
     Đồng thời cập nhật ``updated_at`` của conversation tương ứng.
@@ -126,6 +389,7 @@ def save_chat_message(thread_id: str, role: str, content: str) -> Any:
         thread_id: ID luồng chat.
         role: ``"user"`` hoặc ``"assistant"``.
         content: Nội dung tin nhắn.
+        user_id: ID người dùng gửi tin nhắn (nếu có).
 
     Returns:
         Object-like đại diện cho document vừa insert.
@@ -134,19 +398,24 @@ def save_chat_message(thread_id: str, role: str, content: str) -> Any:
 
     # Insert tin nhắn
     msg_coll = get_collection("chat_messages")
-    doc = {
+    doc: dict[str, Any] = {
         "thread_id": thread_id,
         "role": role,
         "content": content,
         "created_at": now,
     }
+    if user_id:
+        doc["user_id"] = str(user_id)
     msg_coll.insert_one(doc)
 
     # Cập nhật updated_at của conversation
     conv_coll = get_collection("conversations")
+    update_fields: dict[str, Any] = {"updated_at": now}
+    if user_id:
+        update_fields["user_id"] = str(user_id)
     conv_coll.update_one(
         {"thread_id": thread_id},
-        {"$set": {"updated_at": now}},
+        {"$set": update_fields},
     )
 
     doc.pop("_id", None)
@@ -172,42 +441,52 @@ def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
 # Long-term memory APIs
 # ---------------------------------------------------------------------------
 
-def save_memory(thread_id: str, memory: str) -> str:
+def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     """Lưu một đoạn bộ nhớ dài hạn vào collection ``long_term_memory``.
 
     Args:
         thread_id: ID luồng chat.
         memory: Nội dung cần ghi nhớ.
+        user_id: ID người dùng (nếu có) để cách ly bộ nhớ.
 
     Returns:
         Chuỗi xác nhận thành công.
     """
     coll = get_collection("long_term_memory")
-    coll.insert_one({
+    doc: dict[str, Any] = {
         "thread_id": thread_id,
         "memory": memory,
         "created_at": _now(),
-    })
+    }
+    if user_id:
+        doc["user_id"] = str(user_id)
+    coll.insert_one(doc)
     return "Memory saved successfully."
 
 
-def search_memory(thread_id: str, query: str) -> str:
+def search_memory(thread_id: str, query: str, user_id: str | None = None) -> str:
     """Tìm kiếm bộ nhớ dài hạn theo ``query`` (regex, case-insensitive).
 
     Args:
         thread_id: ID luồng chat.
         query: Từ khóa tìm kiếm.
+        user_id: ID người dùng để lọc đúng bộ nhớ của user.
 
     Returns:
         Chuỗi kết quả, mỗi dòng là một mục nhớ, hoặc thông báo không tìm thấy.
     """
     coll = get_collection("long_term_memory")
+    search_filter: dict[str, Any] = {
+        "memory": {"$regex": query, "$options": "i"},
+    }
+    if user_id:
+        search_filter["user_id"] = str(user_id)
+    else:
+        search_filter["thread_id"] = thread_id
+
     cursor = (
         coll.find(
-            {
-                "thread_id": thread_id,
-                "memory": {"$regex": query, "$options": "i"},
-            },
+            search_filter,
             {"_id": 0, "memory": 1},
         )
         .sort("created_at", -1)
