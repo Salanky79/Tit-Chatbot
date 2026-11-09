@@ -42,13 +42,17 @@ class AgentState(TypedDict, total=False):
     conversation_summary: str
 
 
-# Update default and allowed models to use Gemini 2.5
+# Update default and allowed models to use Groq models
 DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 ALLOWED_MODELS = {
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
-    "openai/gpt-oss-120b"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-safeguard-20b",
+    "meta-models/muse-spark-open",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
 }
 
 
@@ -61,6 +65,7 @@ whether to call it.
 
 General rules:
 - Use tools whenever they would produce a more accurate or up-to-date answer.
+- When asked to summarize, overview, or outline an uploaded file, ALWAYS call the `summarize_uploaded_document` tool. The tool uses recursive Map-Reduce to handle documents of any length and page count. NEVER refuse or say a document is too large.
 - For questions about an uploaded image, use the image analysis tool and name the image when several are available.
 - Do NOT fabricate information; prefer tool results over guesses.
 - After using a tool, present the findings clearly, structured, and helpful to the user. For complete document summaries from summarize_uploaded_document, deliver the comprehensive summary faithfully with a brief opening sentence — do NOT re-summarize, truncate, or duplicate the content.

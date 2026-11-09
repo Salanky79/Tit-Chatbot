@@ -17,8 +17,12 @@ from app import (
     auth_signin,
     auth_signout,
     auth_me,
+    auth_update_profile,
+    auth_avatar,
+    get_avatar_file,
     conversations,
     history,
+    pin_conversation,
 )
 import database
 
@@ -107,7 +111,7 @@ class InMemoryCollection:
             def __init__(self, data):
                 self.data = data
 
-            def sort(self, field, order):
+            def sort(self, *args, **kwargs):
                 return self
 
             def limit(self, n):
@@ -232,12 +236,19 @@ class TestAuthAPIs(unittest.TestCase):
         code6, data6 = parse_response(res6)
         self.assertFalse(data6["authenticated"])
 
-        # 7. Signin
+        # 7. Signin with username
         req7 = MockRequest(json_data={"username": "alice", "password": "password123"})
         res7 = run_coro(auth_signin(req7))
         code7, data7 = parse_response(res7)
         self.assertEqual(code7, 200)
         self.assertTrue(data7["success"])
+
+        # 7b. Signin with identifier field (as sent by frontend form)
+        req7b = MockRequest(json_data={"identifier": "alice", "password": "password123"})
+        res7b = run_coro(auth_signin(req7b))
+        code7b, data7b = parse_response(res7b)
+        self.assertEqual(code7b, 200)
+        self.assertTrue(data7b["success"])
 
         # 8. Wrong password
         req8 = MockRequest(json_data={"username": "alice", "password": "wrongpassword"})
@@ -295,6 +306,96 @@ class TestAuthAPIs(unittest.TestCase):
         code_hb, data_hb = parse_response(res_hist_bob)
         self.assertEqual(code_hb, 403)
         self.assertIn("error", data_hb)
+
+    def test_update_profile_and_avatar_endpoints(self):
+        u = database.create_user("charlie", "charlie@example.com", "password123", "Charlie Brown")
+        session_id = database.create_session(u["id"])
+
+        # 1. Update profile without auth -> 401
+        unauth_req = MockRequest(json_data={"full_name": "Charlie Updated"})
+        unauth_res = run_coro(auth_update_profile(unauth_req))
+        code_u, _ = parse_response(unauth_res)
+        self.assertEqual(code_u, 401)
+
+        # 2. Update profile with auth -> 200
+        auth_req = MockRequest(
+            headers={"Authorization": f"Bearer {session_id}"},
+            json_data={"full_name": "Charlie The Great", "email": "charlie_new@example.com"}
+        )
+        auth_res = run_coro(auth_update_profile(auth_req))
+        code, data = parse_response(auth_res)
+        self.assertEqual(code, 200)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["user"]["full_name"], "Charlie The Great")
+        self.assertEqual(data["user"]["email"], "charlie_new@example.com")
+
+        # 3. Avatar upload
+        class FakeUploadFile:
+            def __init__(self, filename, content):
+                self.filename = filename
+                self.content = content
+
+            async def read(self):
+                return self.content
+
+        fake_avatar = FakeUploadFile("avatar.png", b"\x89PNG\r\n\x1a\nfakeimagebytes")
+        avatar_req = MockRequest(headers={"Authorization": f"Bearer {session_id}"})
+        avatar_res = run_coro(auth_avatar(avatar_req, file=fake_avatar))
+        code_av, data_av = parse_response(avatar_res)
+        self.assertEqual(code_av, 200)
+        self.assertTrue(data_av["success"])
+        self.assertIn("/uploads/avatars/", data_av["avatar_url"])
+        self.assertEqual(data_av["user"]["avatar_url"], data_av["avatar_url"])
+
+        # 4. Get avatar file
+        filename = Path(data_av["avatar_url"]).name
+        res_file = run_coro(get_avatar_file(filename))
+        self.assertEqual(getattr(res_file, "status_code", 200), 200)
+
+    def test_pin_conversation_endpoint(self):
+        u_alice = database.create_user("alice_pin", "alice_pin@example.com", "pass123")
+        u_bob = database.create_user("bob_pin", "bob_pin@example.com", "pass123")
+        s_alice = database.create_session(u_alice["id"])
+        s_bob = database.create_session(u_bob["id"])
+
+        database.create_or_update_conversation("thread_alice_pin", "Alice Thread", user_id=u_alice["id"])
+
+        # 1. Non-existent conversation -> 404
+        req_non = MockRequest(headers={"Authorization": f"Bearer {s_alice}"})
+        res_non = run_coro(pin_conversation("non_existent_thread_xyz", req_non))
+        code_non, data_non = parse_response(res_non)
+        self.assertEqual(code_non, 404)
+        self.assertFalse(data_non["success"])
+
+        # 2. Bob tries to pin Alice's thread -> 403
+        req_bob = MockRequest(headers={"Authorization": f"Bearer {s_bob}"})
+        res_bob = run_coro(pin_conversation("thread_alice_pin", req_bob))
+        code_bob, data_bob = parse_response(res_bob)
+        self.assertEqual(code_bob, 403)
+        self.assertFalse(data_bob["success"])
+
+        # 3. Alice pins her own thread -> 200, is_pinned=True
+        req_alice = MockRequest(headers={"Authorization": f"Bearer {s_alice}"})
+        res_alice = run_coro(pin_conversation("thread_alice_pin", req_alice))
+        code_a, data_a = parse_response(res_alice)
+        self.assertEqual(code_a, 200)
+        self.assertTrue(data_a["success"])
+        self.assertTrue(data_a["is_pinned"])
+
+        # 4. Check GET /conversations returns is_pinned=True
+        res_convs = run_coro(conversations(req_alice))
+        code_c, data_c = parse_response(res_convs)
+        self.assertEqual(code_c, 200)
+        found_conv = next((c for c in data_c["conversations"] if c["thread_id"] == "thread_alice_pin"), None)
+        self.assertIsNotNone(found_conv)
+        self.assertTrue(found_conv["is_pinned"])
+
+        # 5. Alice unpins her thread -> 200, is_pinned=False
+        res_unpin = run_coro(pin_conversation("thread_alice_pin", req_alice))
+        code_u, data_u = parse_response(res_unpin)
+        self.assertEqual(code_u, 200)
+        self.assertTrue(data_u["success"])
+        self.assertFalse(data_u["is_pinned"])
 
 
 if __name__ == "__main__":

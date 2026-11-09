@@ -1,4 +1,5 @@
 import math
+import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
@@ -104,6 +105,12 @@ def search_uploaded_documents(query: str) -> str:
     )
 
 
+def _clean_source_name(name: str) -> str:
+    """Normalize a source name by removing UUID prefix and unifying whitespace/underscores."""
+    cleaned = re.sub(r'^[a-f0-9\-]{36}_', '', name, flags=re.IGNORECASE)
+    return re.sub(r'[\s_]+', ' ', cleaned).strip().casefold()
+
+
 @tool
 def summarize_uploaded_document(filename: str = "") -> str:
     """Summarize the complete contents of one uploaded file in this conversation.
@@ -124,25 +131,34 @@ def summarize_uploaded_document(filename: str = "") -> str:
         return "No uploaded documents were found in this conversation."
 
     requested = (filename or "").strip().strip('"\'')
-    if not requested:
-        if len(sources) != 1:
-            names = ", ".join(f'"{source}"' for source in sources)
-            return f"Which file should I summarize? Files in this conversation: {names}."
+    if not requested or len(sources) == 1:
+        # Nếu không truyền filename hoặc chỉ có duy nhất 1 file trong thread, chọn luôn file đó
         selected = sources[0]
     else:
+        # 1. Thử khớp chính xác tên gốc
         exact = [source for source in sources if source.casefold() == requested.casefold()]
         if len(exact) == 1:
             selected = exact[0]
         else:
-            partial = [source for source in sources if requested.casefold() in source.casefold()]
-            if len(partial) == 1:
-                selected = partial[0]
-            elif len(partial) > 1:
-                names = ", ".join(f'"{source}"' for source in partial)
-                return f"The file name matches multiple uploads. Which one did you mean: {names}?"
+            # 2. Khớp theo tên đã chuẩn hóa (bỏ prefix UUID, chuẩn hóa khoảng trắng/gạch dưới)
+            clean_req = _clean_source_name(requested)
+            norm_matches = [source for source in sources if _clean_source_name(source) == clean_req]
+            if len(norm_matches) == 1:
+                selected = norm_matches[0]
             else:
-                names = ", ".join(f'"{source}"' for source in sources)
-                return f'No uploaded file named "{requested}" was found. Available files: {names}.'
+                # 3. Khớp chuỗi con trên tên đã chuẩn hóa
+                partial = [
+                    source for source in sources
+                    if clean_req in _clean_source_name(source) or _clean_source_name(source) in clean_req
+                ]
+                if len(partial) == 1:
+                    selected = partial[0]
+                elif len(partial) > 1:
+                    names = ", ".join(f'"{source}"' for source in partial)
+                    return f"The file name matches multiple uploads. Which one did you mean: {names}?"
+                else:
+                    names = ", ".join(f'"{source}"' for source in sources)
+                    return f'No uploaded file named "{requested}" was found. Available files: {names}.'
 
     try:
         chunks = get_document_chunks(selected, CURRENT_THREAD_ID, user_id=user_id)
@@ -167,22 +183,30 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
         return "No uploaded images were found in this conversation. Upload a JPG, PNG, or WEBP image first."
 
     requested = (filename or "").strip().strip('"\'')
-    if not requested:
-        if len(images) != 1:
-            names = ", ".join(f'"{image["source"]}"' for image in images)
-            return f"Which image should I inspect? Images in this conversation: {names}."
+    if not requested or len(images) == 1:
         selected = images[0]
     else:
         exact = [image for image in images if image["source"].casefold() == requested.casefold()]
-        matches = exact or [
-            image for image in images if requested.casefold() in image["source"].casefold()
-        ]
-        if len(matches) != 1:
-            names = ", ".join(f'"{image["source"]}"' for image in matches or images)
-            if matches:
-                return f"The image name matches multiple uploads. Which one did you mean: {names}?"
-            return f'No uploaded image named "{requested}" was found. Available images: {names}.'
-        selected = matches[0]
+        if len(exact) == 1:
+            selected = exact[0]
+        else:
+            clean_req = _clean_source_name(requested)
+            norm_matches = [image for image in images if _clean_source_name(image["source"]) == clean_req]
+            if len(norm_matches) == 1:
+                selected = norm_matches[0]
+            else:
+                partial = [
+                    image for image in images
+                    if clean_req in _clean_source_name(image["source"]) or _clean_source_name(image["source"]) in clean_req
+                ]
+                if len(partial) == 1:
+                    selected = partial[0]
+                elif len(partial) > 1:
+                    names = ", ".join(f'"{image["source"]}"' for image in partial)
+                    return f"The image name matches multiple uploads. Which one did you mean: {names}?"
+                else:
+                    names = ", ".join(f'"{image["source"]}"' for image in images)
+                    return f'No uploaded image named "{requested}" was found. Available images: {names}.'
 
     try:
         answer = analyze_image(selected["image_path"], question)

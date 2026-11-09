@@ -90,6 +90,7 @@
         /* ---------- Sidebar ---------- */
         .sidebar {
             width: 276px;
+            min-width: 276px;
             background:
                 radial-gradient(120% 60% at 0% 0%, rgba(124, 131, 255, 0.08), transparent 60%),
                 var(--bg-sidebar);
@@ -97,15 +98,33 @@
             display: flex;
             flex-direction: column;
             padding: 16px 14px;
-            transition: transform 0.4s var(--ease-out);
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                        min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                        padding 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 0.25s ease,
+                        transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
             z-index: 40;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        @media (min-width: 769px) {
+            .sidebar.collapsed {
+                width: 0 !important;
+                min-width: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                border-right-width: 0 !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
         }
 
         .brand {
             display: flex;
             align-items: center;
-            gap: 11px;
-            padding: 6px 8px 18px;
+            gap: 10px;
+            padding: 6px 4px 18px;
             margin-bottom: 10px;
             border-bottom: 1px solid var(--border-color);
         }
@@ -142,8 +161,29 @@
             background: rgba(124, 131, 255, 0.14);
             color: var(--accent-soft);
             border: 1px solid rgba(124, 131, 255, 0.28);
-            margin-left: auto;
         }
+
+        .sidebar-collapse-btn {
+            margin-left: auto;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s;
+        }
+
+        .sidebar-collapse-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            border-color: var(--border-color);
+        }
+        .sidebar-collapse-btn:active { transform: scale(0.92); }
 
         .new-chat {
             position: relative;
@@ -188,13 +228,16 @@
 
         .new-chat:active { transform: translateY(0) scale(0.98); }
 
-        .history-title {
+        .history-section-header {
             color: var(--text-muted);
-            font-size: 12px;
-            font-weight: 600;
-            margin: 6px 0 10px;
-            padding-left: 8px;
-            letter-spacing: 0.01em;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 10px 8px 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         #conversationList {
@@ -208,18 +251,16 @@
 
         .history-item {
             position: relative;
-            padding: 9px 12px;
+            padding: 8px 10px;
             border-radius: 10px;
             color: var(--text-secondary);
-            font-size: 13.5px;
+            font-size: 13px;
             cursor: pointer;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
             display: flex;
             align-items: center;
-            gap: 10px;
-            transition: background 0.2s, color 0.2s, padding-left 0.25s var(--ease-out);
+            gap: 8px;
+            transition: background 0.2s, color 0.2s;
+            user-select: none;
         }
 
         .history-item::before {
@@ -238,7 +279,6 @@
         .history-item:hover {
             background: rgba(255, 255, 255, 0.05);
             color: #fff;
-            padding-left: 15px;
         }
 
         .history-item.active {
@@ -247,14 +287,77 @@
         }
         .history-item.active::before { height: 18px; }
 
-        .history-item-icon { flex-shrink: 0; opacity: 0.65; transition: opacity 0.2s, color 0.2s; }
+        .history-item.pinned {
+            background: rgba(124, 131, 255, 0.04);
+        }
+        .history-item.pinned:hover {
+            background: rgba(124, 131, 255, 0.09);
+        }
+        .history-item.pinned.active {
+            background: rgba(124, 131, 255, 0.15);
+        }
+
+        .history-item-icon {
+            flex-shrink: 0;
+            opacity: 0.65;
+            transition: opacity 0.2s, color 0.2s;
+        }
+        .history-item.pinned .history-item-icon {
+            opacity: 0.95;
+            color: var(--accent-soft);
+        }
         .history-item:hover .history-item-icon,
-        .history-item.active .history-item-icon { opacity: 1; color: var(--accent-soft); }
+        .history-item.active .history-item-icon {
+            opacity: 1;
+            color: var(--accent-soft);
+        }
 
         .history-item-title {
+            flex: 1;
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .history-item-actions {
+            display: none;
+            align-items: center;
+            gap: 2px;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        .history-item:hover .history-item-actions,
+        .history-item.active .history-item-actions {
+            display: flex;
+        }
+
+        .history-action-btn {
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: background 0.15s, color 0.15s, transform 0.15s;
+        }
+        .history-action-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+            transform: scale(1.08);
+        }
+        .history-action-btn.pin-btn.is-pinned {
+            color: var(--accent-soft);
+        }
+        .history-action-btn.delete-btn:hover {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
         }
 
         /* ---------- Main ---------- */
@@ -321,16 +424,22 @@
         .topbar-left { display: flex; align-items: center; gap: 12px; }
 
         .mobile-sidebar-toggle {
-            display: none;
-            background: transparent;
-            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
             color: var(--text-secondary);
             cursor: pointer;
             padding: 7px;
             border-radius: 9px;
-            transition: background 0.2s, color 0.2s, transform 0.2s;
+            transition: background 0.2s, color 0.2s, transform 0.2s, border-color 0.2s;
         }
-        .mobile-sidebar-toggle:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+        .mobile-sidebar-toggle:hover {
+            background: rgba(124, 131, 255, 0.12);
+            color: #fff;
+            border-color: var(--border-hover);
+        }
         .mobile-sidebar-toggle:active { transform: scale(0.92); }
 
         .topbar-title {
@@ -1167,7 +1276,7 @@
 
         .model-select {
             height: 40px;
-            max-width: 155px;
+            max-width: 185px;
             background: rgba(255, 255, 255, 0.05);
             color: var(--text-secondary);
             border: 1px solid var(--border-color);
@@ -1509,6 +1618,182 @@
             border-color: rgba(255, 82, 82, 0.25);
         }
 
+        .user-profile-card.clickable {
+            cursor: pointer;
+            position: relative;
+        }
+        .user-profile-card.clickable:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(124, 131, 255, 0.35);
+        }
+        .user-profile-card .edit-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            color: var(--text-muted);
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.2s;
+            margin-right: 2px;
+        }
+        .user-profile-card:hover .edit-badge {
+            opacity: 1;
+            transform: scale(1);
+            color: var(--accent-soft);
+        }
+
+        .sidebar-user-avatar-img {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            border: 1.5px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 4px 12px rgba(107, 115, 255, 0.35);
+        }
+        .pill-avatar-img {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .chat-user-avatar-img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        /* Profile Modal Avatar Uploader Styles */
+        .profile-avatar-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            margin-bottom: 18px;
+        }
+        .profile-avatar-preview {
+            position: relative;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            overflow: hidden;
+            flex-shrink: 0;
+            cursor: pointer;
+            border: 2px solid rgba(124, 131, 255, 0.4);
+            box-shadow: 0 4px 16px rgba(107, 115, 255, 0.25);
+        }
+        .profile-avatar-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .profile-avatar-initial {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent-gradient);
+            color: #fff;
+            font-size: 26px;
+            font-weight: 700;
+        }
+        .profile-avatar-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(5, 7, 13, 0.65);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            color: #fff;
+        }
+        .profile-avatar-preview:hover .profile-avatar-overlay {
+            opacity: 1;
+        }
+        .profile-avatar-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+        .avatar-action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 14px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            width: fit-content;
+            transition: all 0.2s;
+        }
+        .avatar-action-btn:hover {
+            background: rgba(124, 131, 255, 0.22);
+            border-color: rgba(124, 131, 255, 0.5);
+            transform: translateY(-1px);
+        }
+        .avatar-hint {
+            font-size: 11.5px;
+            color: var(--text-muted);
+        }
+        .auth-input-disabled {
+            background: rgba(255, 255, 255, 0.02) !important;
+            color: var(--text-muted) !important;
+            cursor: not-allowed;
+            border-color: rgba(255, 255, 255, 0.06) !important;
+        }
+        .profile-password-divider {
+            margin: 18px 0 14px;
+            position: relative;
+            text-align: center;
+        }
+        .profile-password-divider::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--border-color);
+        }
+        .profile-password-divider span {
+            position: relative;
+            background: #0d101d;
+            padding: 0 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .auth-success-banner {
+            padding: 10px 14px;
+            background: rgba(52, 217, 179, 0.12);
+            border: 1px solid rgba(52, 217, 179, 0.3);
+            border-radius: 10px;
+            color: #4ef2c7;
+            font-size: 12.5px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         /* Topbar User Pill */
         .topbar-user-pill {
             display: inline-flex;
@@ -1832,6 +2117,12 @@
         <div class="brand-logo" id="brandLogo" role="button" tabindex="0" aria-label="Logo Tit"></div>
         <span class="brand-name">Tit</span>
         <span class="brand-badge">2.0</span>
+        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" aria-label="Thu gọn thanh bên" title="Thu gọn thanh bên (Ctrl+B)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+        </button>
     </div>
 
     <button class="new-chat" onclick="newChat()">
@@ -1842,7 +2133,6 @@
         <span>New chat</span>
     </button>
 
-    <div class="history-title">Recent Chats</div>
     <div id="conversationList"></div>
     <div class="sidebar-user-section" id="sidebarUserSection"></div>
 </aside>
@@ -1854,7 +2144,7 @@
 
     <div class="topbar">
         <div class="topbar-left">
-            <button class="mobile-sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Toggle Sidebar">
+            <button class="mobile-sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Đóng/Mở thanh bên" title="Đóng/Mở thanh bên (Ctrl+B)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="3" y1="12" x2="21" y2="12"></line>
                     <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -1904,9 +2194,13 @@
 
                 <div class="input-actions">
                     <select id="modelSelect" class="model-select" title="Select model">
-                        <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
-                        <option value="qwen/qwen3.8-27b">Qwen 2.5 27B</option>
+                        <option value="openai/gpt-oss-20b">GPT-OSS 20B (Default)</option>
+                        <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
                         <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
+                        <option value="openai/gpt-oss-safeguard-20b">GPT-OSS Safeguard 20B</option>
+                        <option value="meta-models/muse-spark-open">Muse Spark Open</option>
+                        <option value="llama-3.3-70b-versatile">Llama 3.3 70B</option>
+                        <option value="llama-3.1-8b-instant">Llama 3.1 8B</option>
                     </select>
 
                     <button class="mic-btn" id="micBtn" onclick="toggleDictation()" title="Dictate voice">
@@ -1948,17 +2242,37 @@
 
     function toggleSidebar() {
         const sidebar = document.querySelector(".sidebar");
-        if (sidebar) {
+        if (!sidebar) return;
+        if (window.innerWidth <= 768) {
             sidebar.classList.toggle("open");
+        } else {
+            sidebar.classList.toggle("collapsed");
+            try {
+                localStorage.setItem("sidebar_collapsed", sidebar.classList.contains("collapsed") ? "true" : "false");
+            } catch (e) {}
         }
     }
+
+    // Phím tắt Ctrl+B hoặc Cmd+B để đóng/mở thanh bên
+    window.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+            const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
+            if (tag !== "input" && tag !== "textarea") {
+                e.preventDefault();
+                toggleSidebar();
+            }
+        }
+    });
 
     // Close sidebar when clicking outside on mobile
     document.addEventListener("click", (e) => {
         const sidebar = document.querySelector(".sidebar");
         const toggle = document.getElementById("sidebarToggle");
-        if (sidebar && sidebar.classList.contains("open") && !sidebar.contains(e.target) && (!toggle || !toggle.contains(e.target))) {
-            sidebar.classList.remove("open");
+        const collapseBtn = document.getElementById("sidebarCollapseBtn");
+        if (window.innerWidth <= 768 && sidebar && sidebar.classList.contains("open")) {
+            if (!sidebar.contains(e.target) && (!toggle || !toggle.contains(e.target)) && (!collapseBtn || !collapseBtn.contains(e.target))) {
+                sidebar.classList.remove("open");
+            }
         }
     });
 
@@ -2306,9 +2620,15 @@
             ? "avatar user-avatar"
             : "avatar bot-avatar";
 
-        avatar.innerHTML = role === "user"
-            ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`
-            : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`;
+        if (role === "user") {
+            if (currentUser && currentUser.avatar_url) {
+                avatar.innerHTML = `<img src="${escapeHtml(currentUser.avatar_url)}" class="chat-user-avatar-img" alt="User" onerror="this.outerHTML='<svg width=\\'17\\' height=\\'17\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2.2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'></path><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'></circle></svg>'">`;
+            } else {
+                avatar.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+            }
+        } else {
+            avatar.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>`;
+        }
 
         const messageContent = document.createElement("div");
         messageContent.className = "message-content";
@@ -2467,32 +2787,127 @@
 
             if (!data.conversations || data.conversations.length === 0) {
                 conversationList.innerHTML = `
-                    <div class="history-item" style="color: var(--text-muted); cursor: default;">No chats yet</div>
+                    <div class="history-item" style="color: var(--text-muted); cursor: default; justify-content: center;">Chưa có cuộc trò chuyện nào</div>
                 `;
                 return;
             }
 
-            data.conversations.forEach(conv => {
+            const pinned = data.conversations.filter(c => c.is_pinned);
+            const recent = data.conversations.filter(c => !c.is_pinned);
+
+            const renderItem = (conv) => {
                 const item = document.createElement("div");
-                item.className = "history-item";
+                item.className = "history-item" + (conv.is_pinned ? " pinned" : "");
 
                 if (conv.thread_id === threadId) {
                     item.classList.add("active");
                 }
 
+                const itemIcon = conv.is_pinned
+                    ? `<svg class="history-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-2l-1.8-1.8a2 2 0 0 1-.6-1.4V6h1V4H6v2h1v5.8a2 2 0 0 1-.6 1.4L5 15v2z"></path></svg>`
+                    : `<svg class="history-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+
+                const pinIconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="${conv.is_pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-2l-1.8-1.8a2 2 0 0 1-.6-1.4V6h1V4H6v2h1v5.8a2 2 0 0 1-.6 1.4L5 15v2z"></path></svg>`;
+
+                const trashIconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+
                 item.innerHTML = `
-                    <svg class="history-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                    <span class="history-item-title">${escapeHtml(conv.title || "New Chat")}</span>
+                    ${itemIcon}
+                    <span class="history-item-title" title="${escapeHtml(conv.title || 'Đoạn chat mới')}">${escapeHtml(conv.title || "Đoạn chat mới")}</span>
+                    <div class="history-item-actions">
+                        <button class="history-action-btn pin-btn ${conv.is_pinned ? 'is-pinned' : ''}" title="${conv.is_pinned ? 'Bỏ ghim' : 'Ghim lên đầu'}" aria-label="${conv.is_pinned ? 'Bỏ ghim' : 'Ghim'}">
+                            ${pinIconSvg}
+                        </button>
+                        <button class="history-action-btn delete-btn" title="Xóa cuộc trò chuyện" aria-label="Xóa">
+                            ${trashIconSvg}
+                        </button>
+                    </div>
                 `;
+
                 item.onclick = () => loadConversation(conv.thread_id);
 
-                conversationList.appendChild(item);
-            });
+                const pinBtn = item.querySelector(".pin-btn");
+                if (pinBtn) {
+                    pinBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        togglePinConversation(conv.thread_id);
+                    };
+                }
+
+                const delBtn = item.querySelector(".delete-btn");
+                if (delBtn) {
+                    delBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deleteConversationPrompt(conv.thread_id);
+                    };
+                }
+
+                return item;
+            };
+
+            if (pinned.length > 0) {
+                const pinnedHeader = document.createElement("div");
+                pinnedHeader.className = "history-section-header";
+                pinnedHeader.innerHTML = `
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-2l-1.8-1.8a2 2 0 0 1-.6-1.4V6h1V4H6v2h1v5.8a2 2 0 0 1-.6 1.4L5 15v2z"></path></svg>
+                    <span>Đã ghim</span>
+                `;
+                conversationList.appendChild(pinnedHeader);
+                pinned.forEach(c => conversationList.appendChild(renderItem(c)));
+            }
+
+            if (recent.length > 0) {
+                if (pinned.length > 0) {
+                    const recentHeader = document.createElement("div");
+                    recentHeader.className = "history-section-header";
+                    recentHeader.innerHTML = `<span>Gần đây</span>`;
+                    conversationList.appendChild(recentHeader);
+                }
+                recent.forEach(c => conversationList.appendChild(renderItem(c)));
+            }
 
         } catch (error) {
             console.error("Failed to load conversations:", error);
+        }
+    }
+
+    async function togglePinConversation(id) {
+        try {
+            const res = await fetch(`/conversations/${id}/pin`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                await loadConversations();
+            } else {
+                alert(data.error || "Không thể thay đổi trạng thái ghim.");
+            }
+        } catch (err) {
+            console.error("Failed to toggle pin conversation:", err);
+        }
+    }
+
+    async function deleteConversationPrompt(id) {
+        if (!confirm("Bạn có chắc chắn muốn xóa cuộc trò chuyện này?")) return;
+        try {
+            const res = await fetch(`/conversations/${id}`, {
+                method: "DELETE"
+            });
+            if (res.ok) {
+                if (threadId === id) {
+                    threadId = crypto.randomUUID();
+                    localStorage.setItem("thread_id", threadId);
+                    chatContainer.innerHTML = "";
+                    renderWelcome();
+                }
+                await loadConversations();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || "Không thể xóa cuộc trò chuyện.");
+            }
+        } catch (err) {
+            console.error("Failed to delete conversation:", err);
         }
     }
 
@@ -2500,6 +2915,12 @@
         clearPendingAttachment();
         threadId = selectedThreadId;
         localStorage.setItem("thread_id", threadId);
+
+        // Đóng sidebar trên mobile sau khi chọn đoạn chat
+        if (window.innerWidth <= 768) {
+            const sidebar = document.querySelector(".sidebar");
+            if (sidebar) sidebar.classList.remove("open");
+        }
 
         try {
             const response = await fetch(`/history/${threadId}`);
@@ -3104,7 +3525,8 @@
         try {
             const res = await fetch("/auth/me");
             if (res.ok) {
-                currentUser = await res.json();
+                const data = await res.json();
+                currentUser = data.user || (data.authenticated ? data.user : null);
             } else {
                 currentUser = null;
             }
@@ -3123,15 +3545,24 @@
         if (currentUser) {
             const displayName = currentUser.full_name || currentUser.username;
             const initial = (currentUser.username || "U").charAt(0).toUpperCase();
+            const avatarHtml = currentUser.avatar_url
+                ? `<img src="${escapeHtml(currentUser.avatar_url)}" class="sidebar-user-avatar-img" alt="Avatar" onerror="this.outerHTML='<div class=\\'sidebar-user-avatar\\'>${escapeHtml(initial)}</div>'">`
+                : `<div class="sidebar-user-avatar">${escapeHtml(initial)}</div>`;
 
             sidebarSec.innerHTML = `
-                <div class="user-profile-card">
-                    <div class="sidebar-user-avatar">${escapeHtml(initial)}</div>
+                <div class="user-profile-card clickable" onclick="openProfileModal()" title="Bấm để chỉnh sửa hồ sơ & đổi ảnh đại diện" role="button" tabindex="0">
+                    ${avatarHtml}
                     <div class="user-info">
                         <div class="user-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
                         <div class="user-handle" title="@${escapeHtml(currentUser.username)}">@${escapeHtml(currentUser.username)}</div>
                     </div>
-                    <button class="logout-btn" onclick="handleSignOut()" title="Đăng xuất" aria-label="Đăng xuất">
+                    <div class="edit-badge" title="Chỉnh sửa hồ sơ">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                        </svg>
+                    </div>
+                    <button class="logout-btn" onclick="event.stopPropagation(); handleSignOut()" title="Đăng xuất" aria-label="Đăng xuất">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                             <polyline points="16 17 21 12 16 7"></polyline>
@@ -3141,10 +3572,14 @@
                 </div>
             `;
 
+            const topbarAvatarHtml = currentUser.avatar_url
+                ? `<img src="${escapeHtml(currentUser.avatar_url)}" class="pill-avatar-img" alt="Avatar" onerror="this.outerHTML='<div class=\\'pill-avatar\\'>${escapeHtml(initial)}</div>'">`
+                : `<div class="pill-avatar">${escapeHtml(initial)}</div>`;
+
             topbarArea.innerHTML = `
-                <div class="topbar-user-pill" title="Đang đăng nhập: ${escapeHtml(currentUser.username)}">
-                    <div class="pill-avatar">${escapeHtml(initial)}</div>
-                    <span>${escapeHtml(currentUser.username)}</span>
+                <div class="topbar-user-pill clickable" onclick="openProfileModal()" title="Chỉnh sửa thông tin: ${escapeHtml(currentUser.username)}" role="button" tabindex="0">
+                    ${topbarAvatarHtml}
+                    <span>${escapeHtml(displayName)}</span>
                 </div>
             `;
         } else {
@@ -3258,18 +3693,18 @@
             const res = await fetch("/auth/signin", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ identifier, password })
+                body: JSON.stringify({ identifier, username: identifier, email: identifier, password })
             });
 
             const data = await res.json();
-            if (!res.ok) {
-                showAuthError(data.detail || "Đăng nhập thất bại.");
+            if (!res.ok || !data.success) {
+                showAuthError(data.error || data.detail || "Đăng nhập thất bại.");
                 btn.disabled = false;
                 btn.innerHTML = `<span>Đăng nhập</span>`;
                 return;
             }
 
-            currentUser = data;
+            currentUser = data.user || data;
             renderUserUI();
             closeAuthModal();
 
@@ -3314,14 +3749,14 @@
             });
 
             const data = await res.json();
-            if (!res.ok) {
-                showAuthError(data.detail || "Đăng ký thất bại.");
+            if (!res.ok || !data.success) {
+                showAuthError(data.error || data.detail || "Đăng ký thất bại.");
                 btn.disabled = false;
                 btn.innerHTML = `<span>Tạo tài khoản</span>`;
                 return;
             }
 
-            currentUser = data;
+            currentUser = data.user || data;
             renderUserUI();
             closeAuthModal();
 
@@ -3349,11 +3784,194 @@
         await newChat();
     }
 
+    // ==========================================
+    // Profile Management & Avatar Upload
+    // ==========================================
+    function openProfileModal() {
+        if (!currentUser) return;
+        const modal = document.getElementById("profileModal");
+        if (!modal) return;
+
+        const err = document.getElementById("profileErrorBanner");
+        const succ = document.getElementById("profileSuccessBanner");
+        if (err) err.style.display = "none";
+        if (succ) succ.style.display = "none";
+
+        const uInput = document.getElementById("profileUsername");
+        const fInput = document.getElementById("profileFullName");
+        const eInput = document.getElementById("profileEmail");
+        const cpInput = document.getElementById("profileCurrentPassword");
+        const npInput = document.getElementById("profileNewPassword");
+
+        if (uInput) uInput.value = currentUser.username || "";
+        if (fInput) fInput.value = currentUser.full_name || currentUser.username || "";
+        if (eInput) eInput.value = currentUser.email || "";
+        if (cpInput) cpInput.value = "";
+        if (npInput) npInput.value = "";
+
+        updateProfileAvatarPreview(currentUser.avatar_url, currentUser.username);
+
+        modal.style.display = "flex";
+    }
+
+    function closeProfileModal() {
+        const modal = document.getElementById("profileModal");
+        if (modal) modal.style.display = "none";
+    }
+
+    function updateProfileAvatarPreview(avatarUrl, username) {
+        const img = document.getElementById("profileAvatarImg");
+        const initial = document.getElementById("profileAvatarInitial");
+        if (!img || !initial) return;
+
+        const u = username || (currentUser ? currentUser.username : "U");
+        const letter = (u || "U").charAt(0).toUpperCase();
+
+        if (avatarUrl) {
+            img.src = avatarUrl;
+            img.style.display = "block";
+            initial.style.display = "none";
+        } else {
+            img.style.display = "none";
+            initial.textContent = letter;
+            initial.style.display = "flex";
+        }
+    }
+
+    async function handleAvatarFileSelected(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        const err = document.getElementById("profileErrorBanner");
+        const succ = document.getElementById("profileSuccessBanner");
+        if (err) err.style.display = "none";
+        if (succ) succ.style.display = "none";
+
+        if (file.size > 5 * 1024 * 1024) {
+            if (err) {
+                err.textContent = "Kích thước ảnh vượt quá 5MB. Vui lòng chọn ảnh nhỏ hơn.";
+                err.style.display = "block";
+            }
+            return;
+        }
+
+        const uploadBtn = document.getElementById("uploadAvatarBtn");
+        const oldHtml = uploadBtn ? uploadBtn.innerHTML : "";
+        if (uploadBtn) {
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = `<span>Đang tải lên...</span>`;
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const res = await fetch("/auth/avatar", {
+                method: "POST",
+                body: formData
+            });
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Tải ảnh đại diện thất bại.");
+            }
+
+            currentUser = data.user || currentUser;
+            if (data.avatar_url) {
+                currentUser.avatar_url = data.avatar_url;
+            }
+            renderUserUI();
+            updateProfileAvatarPreview(currentUser.avatar_url, currentUser.username);
+
+            if (succ) {
+                succ.textContent = "Đã cập nhật ảnh đại diện thành công!";
+                succ.style.display = "block";
+            }
+        } catch (error) {
+            if (err) {
+                err.textContent = error.message;
+                err.style.display = "block";
+            }
+        } finally {
+            if (uploadBtn) {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = oldHtml;
+            }
+            e.target.value = "";
+        }
+    }
+
+    async function handleProfileSubmit(e) {
+        e.preventDefault();
+        const err = document.getElementById("profileErrorBanner");
+        const succ = document.getElementById("profileSuccessBanner");
+        if (err) err.style.display = "none";
+        if (succ) succ.style.display = "none";
+
+        const fullName = (document.getElementById("profileFullName").value || "").trim();
+        const email = (document.getElementById("profileEmail").value || "").trim();
+        const currentPassword = document.getElementById("profileCurrentPassword").value;
+        const newPassword = document.getElementById("profileNewPassword").value;
+
+        if (newPassword && !currentPassword) {
+            if (err) {
+                err.textContent = "Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu mới.";
+                err.style.display = "block";
+            }
+            return;
+        }
+
+        const submitBtn = document.getElementById("profileSubmitBtn");
+        const oldHtml = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>Đang lưu...</span>`;
+
+        try {
+            const res = await fetch("/auth/profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    full_name: fullName,
+                    email: email,
+                    current_password: currentPassword || undefined,
+                    new_password: newPassword || undefined
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Cập nhật thông tin thất bại.");
+            }
+
+            currentUser = data.user || currentUser;
+            renderUserUI();
+
+            document.getElementById("profileCurrentPassword").value = "";
+            document.getElementById("profileNewPassword").value = "";
+
+            if (succ) {
+                succ.textContent = "Cập nhật thông tin cá nhân thành công!";
+                succ.style.display = "block";
+            }
+        } catch (error) {
+            if (err) {
+                err.textContent = error.message;
+                err.style.display = "block";
+            }
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = oldHtml;
+        }
+    }
+
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
             const modal = document.getElementById("authModal");
             if (modal && modal.style.display !== "none") {
                 closeAuthModal();
+            }
+            const pModal = document.getElementById("profileModal");
+            if (pModal && pModal.style.display !== "none") {
+                closeProfileModal();
             }
         }
     });
@@ -3513,6 +4131,14 @@
         window.addEventListener("blur", () => { S.inside = false; S.down = false; kick(); });
     })();
 
+    // Khôi phục trạng thái sidebar đã lưu trên màn hình máy tính
+    try {
+        if (window.innerWidth > 768 && localStorage.getItem("sidebar_collapsed") === "true") {
+            const sb = document.querySelector(".sidebar");
+            if (sb) sb.classList.add("collapsed");
+        }
+    } catch (e) {}
+
     checkAuthStatus();
     renderWelcome();
     loadConversations();
@@ -3574,6 +4200,78 @@
             </div>
             <button type="submit" class="auth-submit-btn" id="signUpSubmitBtn">
                 <span>Tạo tài khoản</span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="auth-modal-overlay" id="profileModal" style="display: none;">
+    <div class="auth-modal-backdrop" onclick="closeProfileModal()"></div>
+    <div class="auth-modal-container" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+        <button class="auth-modal-close" onclick="closeProfileModal()" aria-label="Đóng">&times;</button>
+        <div class="auth-modal-header">
+            <h2 class="auth-modal-title" id="profileModalTitle">Hồ sơ cá nhân</h2>
+            <p class="auth-modal-desc">Thay đổi ảnh đại diện và cập nhật thông tin tài khoản của bạn</p>
+        </div>
+
+        <div class="profile-avatar-section">
+            <div class="profile-avatar-preview" onclick="document.getElementById('avatarFileInput').click()" title="Bấm để thay đổi ảnh đại diện">
+                <img id="profileAvatarImg" src="" alt="Avatar" class="profile-avatar-img" style="display: none;">
+                <div id="profileAvatarInitial" class="profile-avatar-initial">U</div>
+                <div class="profile-avatar-overlay">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                </div>
+            </div>
+            <input type="file" id="avatarFileInput" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;" onchange="handleAvatarFileSelected(event)">
+            <div class="profile-avatar-actions">
+                <button type="button" class="avatar-action-btn" onclick="document.getElementById('avatarFileInput').click()" id="uploadAvatarBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span>Tải ảnh mới</span>
+                </button>
+                <div class="avatar-hint">PNG, JPG, WEBP (tối đa 5MB)</div>
+            </div>
+        </div>
+
+        <div class="auth-error-banner" id="profileErrorBanner" style="display: none;"></div>
+        <div class="auth-success-banner" id="profileSuccessBanner" style="display: none;"></div>
+
+        <form id="profileForm" onsubmit="handleProfileSubmit(event)">
+            <div class="auth-field">
+                <label for="profileUsername">Tên đăng nhập</label>
+                <input type="text" id="profileUsername" disabled readonly class="auth-input-disabled">
+            </div>
+            <div class="auth-field">
+                <label for="profileFullName">Họ và tên hiển thị</label>
+                <input type="text" id="profileFullName" placeholder="Nhập họ tên hiển thị" required autocomplete="name">
+            </div>
+            <div class="auth-field">
+                <label for="profileEmail">Email</label>
+                <input type="email" id="profileEmail" placeholder="name@example.com" required autocomplete="email">
+            </div>
+
+            <div class="profile-password-divider">
+                <span>Đổi mật khẩu (bỏ trống nếu không đổi)</span>
+            </div>
+
+            <div class="auth-field">
+                <label for="profileCurrentPassword">Mật khẩu hiện tại</label>
+                <input type="password" id="profileCurrentPassword" placeholder="Nhập mật khẩu hiện tại" autocomplete="current-password">
+            </div>
+            <div class="auth-field">
+                <label for="profileNewPassword">Mật khẩu mới</label>
+                <input type="password" id="profileNewPassword" placeholder="Tối thiểu 6 ký tự" autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="auth-submit-btn" id="profileSubmitBtn">
+                <span>Lưu thay đổi</span>
             </button>
         </form>
     </div>

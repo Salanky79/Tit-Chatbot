@@ -96,7 +96,7 @@ class InMemoryCollection:
             def __init__(self, data):
                 self.data = data
 
-            def sort(self, field, order):
+            def sort(self, *args, **kwargs):
                 return self
 
             def limit(self, n):
@@ -204,6 +204,64 @@ class TestAuthDatabase(unittest.TestCase):
         convs_B = database.list_conversations(user_id="user_B")
         self.assertEqual(len(convs_B), 1)
         self.assertEqual(convs_B[0].thread_id, "thread_B1")
+
+    def test_toggle_pin_conversation(self):
+        # 1. Create a conversation
+        database.create_or_update_conversation("thread_pin_1", "Pinned Test", user_id="user_pin")
+        conv = database.get_conversation("thread_pin_1")
+        self.assertFalse(conv.get("is_pinned", False))
+
+        # 2. Toggle pin -> True
+        res = database.toggle_pin_conversation("thread_pin_1", user_id="user_pin")
+        self.assertTrue(res)
+        conv = database.get_conversation("thread_pin_1")
+        self.assertTrue(conv.get("is_pinned", False))
+
+        # 3. Toggle pin again -> False
+        res = database.toggle_pin_conversation("thread_pin_1", user_id="user_pin")
+        self.assertFalse(res)
+        conv = database.get_conversation("thread_pin_1")
+        self.assertFalse(conv.get("is_pinned", False))
+
+        # 4. Another user cannot toggle pin
+        res_other = database.toggle_pin_conversation("thread_pin_1", user_id="other_user")
+        self.assertIsNone(res_other)
+
+        # 5. Non-existent thread -> None
+        self.assertIsNone(database.toggle_pin_conversation("non_existent_thread"))
+
+        # 6. Verify sorting: pinned conversations appear first in list_conversations
+        database.create_or_update_conversation("thread_early", "Early thread", user_id="user_pin")
+        database.create_or_update_conversation("thread_late", "Late thread", user_id="user_pin")
+        # Pin thread_early
+        database.toggle_pin_conversation("thread_early", user_id="user_pin")
+
+        listed = database.list_conversations(user_id="user_pin")
+        # thread_early is pinned, so it must be first
+        self.assertTrue(listed[0].is_pinned)
+        self.assertEqual(listed[0].thread_id, "thread_early")
+
+    def test_update_user_profile(self):
+        user = database.create_user("bob_marley", "bob@example.com", "pass12345", "Bob Marley")
+        user_id = user["id"]
+
+        # Update full_name and avatar_url
+        updated = database.update_user_profile(user_id, full_name="Robert Nesta Marley", avatar_url="/uploads/avatars/bob.png")
+        self.assertEqual(updated["full_name"], "Robert Nesta Marley")
+        self.assertEqual(updated["avatar_url"], "/uploads/avatars/bob.png")
+
+        # Update password with wrong current_password should raise ValueError
+        with self.assertRaises(ValueError):
+            database.update_user_profile(user_id, current_password="wrong", new_password="newsecret123")
+
+        # Update password with correct current_password
+        updated_pw = database.update_user_profile(user_id, current_password="pass12345", new_password="newsecret123")
+        self.assertIsNotNone(updated_pw)
+
+        # Authenticate with new password
+        auth_user = database.authenticate_user("bob_marley", "newsecret123")
+        self.assertIsNotNone(auth_user)
+        self.assertEqual(auth_user["avatar_url"], "/uploads/avatars/bob.png")
 
 
 if __name__ == "__main__":

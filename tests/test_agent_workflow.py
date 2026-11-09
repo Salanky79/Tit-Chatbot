@@ -13,6 +13,10 @@ class TestAgentWorkflow(unittest.TestCase):
         self.assertEqual(normalize_model_name("   "), "openai/gpt-oss-20b")
         self.assertEqual(normalize_model_name("unknown-model"), "openai/gpt-oss-20b")
         self.assertEqual(normalize_model_name("openai/gpt-oss-120b"), "openai/gpt-oss-120b")
+        self.assertEqual(normalize_model_name("openai/gpt-oss-safeguard-20b"), "openai/gpt-oss-safeguard-20b")
+        self.assertEqual(normalize_model_name("meta-models/muse-spark-open"), "meta-models/muse-spark-open")
+        self.assertEqual(normalize_model_name("llama-3.3-70b-versatile"), "llama-3.3-70b-versatile")
+        self.assertEqual(normalize_model_name("llama-3.1-8b-instant"), "llama-3.1-8b-instant")
 
     def test_agent_chatbot_node_workflow_integration(self):
         mock_llm_response = AIMessage(content="Hello! How can I help you today?")

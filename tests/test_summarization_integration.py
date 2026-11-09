@@ -76,6 +76,44 @@ class TestSummarizationIntegration(unittest.TestCase):
         self.assertTrue(result.startswith("summary-"))
         self.assertGreaterEqual(len(llm.calls), 3)
 
+    def test_clean_source_name_normalizes_uuid_and_spaces(self):
+        from tools import _clean_source_name
+        raw_source = "099a6ec2-3eed-4dbb-8de4-23bdb6a591bf_Nguyễn_Thái_Sơn_-_25021970_-_Tiểu_luận_CNXHKH_-_Đề_1_.pdf"
+        user_filename = "Nguyễn Thái Sơn - 25021970 - Tiểu luận CNXHKH - Đề 1 .pdf"
+        self.assertEqual(_clean_source_name(raw_source), _clean_source_name(user_filename))
+
+    def test_parse_wait_time_handles_minutes_and_seconds(self):
+        from summarization import _parse_wait_time
+        self.assertAlmostEqual(_parse_wait_time("Please try again in 14m20.112s."), 860.112, places=2)
+        self.assertAlmostEqual(_parse_wait_time("Please try again in 5.5s."), 5.5, places=2)
+        self.assertIsNone(_parse_wait_time("No wait time specified."))
+
+    def test_invoke_fails_fast_on_tpd_daily_limit(self):
+        from summarization import _invoke
+
+        class FailingDailyLimitLLM:
+            def __init__(self):
+                self.calls = 0
+
+            def invoke(self, messages):
+                self.calls += 1
+                raise RuntimeError(
+                    "Error code: 429 - Rate limit reached on tokens per day (TPD): Limit 200000, Used 198154. "
+                    "Please try again in 14m20.112s."
+                )
+
+        import time
+        start = time.time()
+        failing_llm = FailingDailyLimitLLM()
+        with self.assertRaises(RuntimeError) as ctx:
+            _invoke(failing_llm, "test prompt", "map", 1, max_retries=4)
+        elapsed = time.time() - start
+
+        self.assertIn("rate limit exceeded", str(ctx.exception).lower())
+        # Zero retries: must call exactly once and fail immediately (< 0.1s)
+        self.assertEqual(failing_llm.calls, 1)
+        self.assertLess(elapsed, 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

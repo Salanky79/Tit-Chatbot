@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import logging
 import math
 import os
+import re
+import time
 from typing import Sequence
 
 from langchain_core.documents import Document
@@ -13,21 +16,22 @@ from langchain_groq import ChatGroq
 
 from context_manager import validate_and_isolate_summarization_context
 
+logger = logging.getLogger(__name__)
 
-DEFAULT_INPUT_TOKEN_BUDGET = 18000
-DEFAULT_MAX_WORKERS = 4
+
+DEFAULT_INPUT_TOKEN_BUDGET = 4500
+DEFAULT_MAX_WORKERS = 2
 SUMMARY_OUTPUT_TOKENS = 1200
 
 
 def estimate_tokens(text: str) -> int:
     """Conservative token estimate that also works for Vietnamese text.
 
-    The estimate uses a character bound instead of requiring an extra tokenizer
-    package. The budget is configurable and reserved for prompt instructions.
+    Uses a character bound (2.5 chars/token for Vietnamese with diacritics).
     """
     if not text:
         return 0
-    return max(1, math.ceil(len(text) / 3))
+    return max(1, math.ceil(len(text) / 2.5))
 
 
 def _input_budget() -> int:
@@ -91,7 +95,21 @@ def _content_text(response) -> str:
     return ""
 
 
-def _invoke(llm, prompt: str, stage: str, group_number: int) -> str:
+def _parse_wait_time(err_msg: str) -> float | None:
+    match = re.search(r"try again in (?:(\d+)\s*m\s*)?([\d\.]+)\s*s", err_msg, re.IGNORECASE)
+    if match:
+        minutes = float(match.group(1)) if match.group(1) else 0.0
+        seconds = float(match.group(2))
+        return minutes * 60.0 + seconds
+    return None
+
+
+def _invoke(llm, prompt: str, stage: str, group_number: int, max_retries: int = 1) -> str:
+    """Invoke the summarization LLM for a prompt unit.
+
+    Không retry/backoff khi chạm Rate Limit hay hết token để tránh treo/ngâm ứng dụng.
+    Bất kỳ lỗi RateLimit (429/TPM/TPD) đều được ghi log và raise ngay lập tức.
+    """
     try:
         result = _content_text(llm.invoke([
             SystemMessage(content=(
@@ -101,41 +119,43 @@ def _invoke(llm, prompt: str, stage: str, group_number: int) -> str:
             )),
             HumanMessage(content=prompt),
         ]))
+        if not result:
+            raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: the model returned an empty result.")
+        return result
     except Exception as exc:
-        raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: {exc}") from exc
-    if not result:
-        raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: the model returned an empty result.")
-    return result
-
-
-def summarize_documents(
-    documents: Sequence[Document],
-    llm=None,
-    *,
-    input_token_budget: int | None = None,
-) -> str:
-    """Summarize all supplied chunks with recursive map-reduce passes.
-
-    Tách context theo tác vụ:
-    - Xác thực và cô lập hoàn toàn tài liệu: chỉ đưa các chunk và summary cần thiết
-      vào pipeline Map-Reduce, tuyệt đối không gửi lịch sử chat.
-    - Bất kỳ lỗi map/reduce nào đều raise error; không bao giờ trả về bản tóm tắt thiếu sót.
-    """
-    clean_documents = validate_and_isolate_summarization_context(documents)
-
-    if llm is None:
-        summarization_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
-        llm = ChatGroq(
-            model=summarization_model,
-            temperature=0.1,
-            max_tokens=SUMMARY_OUTPUT_TOKENS,
+        err_str = str(exc).lower()
+        is_rate_limit = (
+            "429" in err_str
+            or "rate_limit_exceeded" in err_str
+            or "tokens per minute" in err_str
+            or "tokens per day" in err_str
+            or "tpm" in err_str
+            or "tpd" in err_str
+            or "rate limit" in err_str
+            or "ratelimit" in err_str
         )
+        if is_rate_limit:
+            logger.error(f"[RateLimit] Summarization hit Groq rate limit during {stage}, group {group_number}: {exc}")
+            raise RuntimeError(f"Document summarization rate limit exceeded: {exc}") from exc
 
-    budget = input_token_budget or _input_budget()
-    # 4. Giới hạn token: Đảm bảo tổng chunk + prompt overhead + output không vượt quá budget
-    prompt_overhead = 150 + SUMMARY_OUTPUT_TOKENS
-    effective_chunk_budget = max(256, budget - prompt_overhead) if budget > prompt_overhead else budget
+        logger.error(f"[SummarizationError] Failed during {stage}, group {group_number}: {exc}")
+        raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: {exc}") from exc
 
+
+def _build_groq_llm(model_name: str | None = None) -> ChatGroq:
+    model = model_name or os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
+    return ChatGroq(
+        model=model,
+        temperature=0.1,
+        max_tokens=SUMMARY_OUTPUT_TOKENS,
+    )
+
+
+def _execute_map_reduce(
+    clean_documents: Sequence[Document],
+    llm,
+    effective_chunk_budget: int,
+) -> str:
     units = [_format_document(doc) for doc in clean_documents if doc.page_content.strip()]
     map_groups = _groups_by_budget(units, effective_chunk_budget)
 
@@ -168,8 +188,6 @@ def summarize_documents(
     while len(summaries) > 1:
         reduced = []
         groups = _groups_by_budget(summaries, effective_chunk_budget)
-        # If summaries are so large that grouping did not reduce their count,
-        # lower the next pass budget to ensure the reduction makes progress.
         if len(groups) >= len(summaries):
             smaller_budget = max(256, effective_chunk_budget // 2)
             groups = _groups_by_budget(summaries, smaller_budget)
@@ -213,3 +231,30 @@ def summarize_documents(
         level += 1
 
     return summaries[0]
+
+
+def summarize_documents(
+    documents: Sequence[Document],
+    llm=None,
+    *,
+    input_token_budget: int | None = None,
+) -> str:
+    """Summarize all supplied chunks with recursive map-reduce passes.
+
+    Tách context theo tác vụ:
+    - Xác thực và cô lập hoàn toàn tài liệu: chỉ đưa các chunk và summary cần thiết
+      vào pipeline Map-Reduce, tuyệt đối không gửi lịch sử chat.
+    - Bất kỳ lỗi map/reduce nào đều raise error; không bao giờ trả về bản tóm tắt thiếu sót.
+    """
+    clean_documents = validate_and_isolate_summarization_context(documents)
+
+    budget = input_token_budget or _input_budget()
+    prompt_overhead = 150 + SUMMARY_OUTPUT_TOKENS
+    effective_chunk_budget = max(256, budget - prompt_overhead) if budget > prompt_overhead else budget
+
+    if llm is not None:
+        return _execute_map_reduce(clean_documents, llm, effective_chunk_budget)
+
+    primary_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
+    active_llm = _build_groq_llm(primary_model)
+    return _execute_map_reduce(clean_documents, active_llm, effective_chunk_budget)

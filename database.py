@@ -125,6 +125,7 @@ def create_user(
         "email": email,
         "hashed_password": hashed_pw,
         "full_name": full_name or username,
+        "avatar_url": "",
         "created_at": now,
         "updated_at": now,
     }
@@ -137,6 +138,7 @@ def create_user(
         "username": username,
         "email": email,
         "full_name": user_doc["full_name"],
+        "avatar_url": "",
         "created_at": now,
         "updated_at": now,
     }
@@ -170,6 +172,7 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
         "username": user["username"],
         "email": user["email"],
         "full_name": user.get("full_name", user["username"]),
+        "avatar_url": user.get("avatar_url", ""),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }
@@ -194,6 +197,7 @@ def get_user_by_id(user_id: str) -> dict | None:
         "username": user["username"],
         "email": user["email"],
         "full_name": user.get("full_name", user["username"]),
+        "avatar_url": user.get("avatar_url", ""),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }
@@ -214,6 +218,71 @@ def get_user_by_username(username: str) -> dict | None:
         "username": user["username"],
         "email": user["email"],
         "full_name": user.get("full_name", user["username"]),
+        "avatar_url": user.get("avatar_url", ""),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
+
+
+def update_user_profile(
+    user_id: str,
+    *,
+    full_name: str | None = None,
+    avatar_url: str | None = None,
+    email: str | None = None,
+    new_password: str | None = None,
+    current_password: str | None = None,
+) -> dict:
+    """Cập nhật thông tin cá nhân của người dùng (tên hiển thị, avatar, email, mật khẩu)."""
+    if not user_id:
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    users = get_collection("users")
+    query_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+    user = users.find_one({"_id": query_id})
+    if not user:
+        raise ValueError("Không tìm thấy thông tin người dùng.")
+
+    set_fields = {}
+    now = _now()
+
+    if full_name is not None:
+        clean_name = full_name.strip()
+        if clean_name:
+            set_fields["full_name"] = clean_name
+
+    if avatar_url is not None:
+        set_fields["avatar_url"] = avatar_url.strip()
+
+    if email is not None:
+        clean_email = email.strip().lower()
+        if not clean_email or "@" not in clean_email or "." not in clean_email:
+            raise ValueError("Định dạng email không hợp lệ.")
+        existing = users.find_one({"email": clean_email})
+        if existing and str(existing.get("_id")) != str(user.get("_id")):
+            raise ValueError("Địa chỉ email này đã được sử dụng bởi tài khoản khác.")
+        set_fields["email"] = clean_email
+
+    if new_password:
+        if not current_password:
+            raise ValueError("Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu mới.")
+        if not verify_password(current_password, user.get("hashed_password", "")):
+            raise ValueError("Mật khẩu hiện tại không chính xác.")
+        if len(new_password) < 6:
+            raise ValueError("Mật khẩu mới phải có ít nhất 6 ký tự.")
+        set_fields["hashed_password"] = hash_password(new_password)
+
+    if set_fields:
+        set_fields["updated_at"] = now
+        users.update_one({"_id": query_id}, {"$set": set_fields})
+        user = users.find_one({"_id": query_id})
+
+    return {
+        "id": str(user["_id"]),
+        "username": user["username"],
+        "email": user["email"],
+        "full_name": user.get("full_name", user["username"]),
+        "avatar_url": user.get("avatar_url", ""),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }
@@ -304,6 +373,7 @@ def create_or_update_conversation(
         "thread_id": thread_id,
         "title": title,
         "created_at": now,
+        "is_pinned": False,
     }
     if user_id:
         set_fields["user_id"] = str(user_id)
@@ -333,7 +403,7 @@ def list_conversations(
     user_id: str | None = None,
     limit: int = 100
 ) -> list[Any]:
-    """Lấy danh sách conversations theo user_id, sắp xếp mới nhất trước.
+    """Lấy danh sách conversations theo user_id, ưu tiên các cuộc trò chuyện được ghim lên đầu.
 
     Nếu user_id được chỉ định, chỉ lấy các cuộc trò chuyện của user đó.
     Nếu user_id là None, trả về các conversation công khai/mặc định.
@@ -343,12 +413,51 @@ def list_conversations(
     if user_id is not None:
         query["user_id"] = str(user_id)
 
-    cursor = (
-        coll.find(query, {"_id": 0})
-        .sort("updated_at", -1)
-        .limit(limit)
+    try:
+        cursor = (
+            coll.find(query, {"_id": 0})
+            .sort([("is_pinned", -1), ("updated_at", -1)])
+            .limit(limit)
+        )
+        items = [_conv_to_obj(doc) for doc in cursor]
+    except TypeError:
+        cursor = (
+            coll.find(query, {"_id": 0})
+            .sort("updated_at", -1)
+            .limit(limit)
+        )
+        items = [_conv_to_obj(doc) for doc in cursor]
+
+    def _sort_key(item):
+        pinned = bool(getattr(item, "is_pinned", False))
+        ts = getattr(item, "pinned_at", None) or getattr(item, "updated_at", None) or getattr(item, "created_at", None)
+        val = ts.timestamp() if hasattr(ts, "timestamp") else 0.0
+        return (1 if pinned else 0, val)
+
+    items.sort(key=_sort_key, reverse=True)
+    return items
+
+
+def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool | None:
+    """Bật/tắt trạng thái ghim (is_pinned) của một cuộc trò chuyện."""
+    if not thread_id:
+        return None
+    coll = get_collection("conversations")
+    query: dict[str, Any] = {"thread_id": thread_id}
+    if user_id is not None:
+        query["user_id"] = str(user_id)
+
+    doc = coll.find_one(query)
+    if not doc:
+        return None
+
+    new_pinned = not bool(doc.get("is_pinned", False))
+    now = _now()
+    coll.update_one(
+        {"thread_id": thread_id},
+        {"$set": {"is_pinned": new_pinned, "pinned_at": now if new_pinned else None}}
     )
-    return [_conv_to_obj(doc) for doc in cursor]
+    return new_pinned
 
 
 def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:

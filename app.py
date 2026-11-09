@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
 from langchain_core.messages import (
@@ -36,9 +36,11 @@ from database import (
     list_conversations,
     get_conversation,
     delete_conversation,
+    toggle_pin_conversation,
     create_user,
     authenticate_user,
     get_user_by_id,
+    update_user_profile,
     create_session,
     get_session,
     delete_session,
@@ -54,6 +56,7 @@ app = FastAPI() # tạo ứng dụng backend FastAPI
 templates = Jinja2Templates(directory="templates") # giao diện người dùng (UI) được lưu trong thư mục templates
 
 Path("uploads").mkdir(exist_ok=True)
+Path("uploads/avatars").mkdir(exist_ok=True, parents=True)
 Path("data").mkdir(exist_ok=True)
 
 
@@ -148,7 +151,12 @@ async def auth_signin(request: Request):
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
 
-    username_or_email = data.get("username", "") or data.get("email", "")
+    username_or_email = (
+        data.get("identifier", "")
+        or data.get("username", "")
+        or data.get("email", "")
+        or data.get("username_or_email", "")
+    )
     password = data.get("password", "")
 
     user = authenticate_user(username_or_email, password)
@@ -204,6 +212,99 @@ async def auth_me(request: Request):
     return {"authenticated": True, "user": _serialize_user(user)}
 
 
+@app.post("/auth/profile")
+async def auth_update_profile(request: Request):
+    """Cập nhật thông tin cá nhân (họ tên, email, mật khẩu)."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Bạn cần đăng nhập để thực hiện tính năng này."}, status_code=401)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Dữ liệu JSON không hợp lệ."}, status_code=400)
+
+    full_name = data.get("full_name")
+    email = data.get("email")
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+
+    try:
+        updated_user = update_user_profile(
+            user["id"],
+            full_name=full_name,
+            email=email,
+            current_password=current_password,
+            new_password=new_password,
+        )
+        return JSONResponse({
+            "success": True,
+            "message": "Cập nhật thông tin cá nhân thành công!",
+            "user": _serialize_user(updated_user),
+        })
+    except ValueError as ve:
+        return JSONResponse({"success": False, "error": str(ve)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Lỗi cập nhật thông tin cá nhân:")
+        return JSONResponse({"success": False, "error": f"Lỗi hệ thống: {str(exc)}"}, status_code=500)
+
+
+@app.post("/auth/avatar")
+async def auth_avatar(request: Request, file: UploadFile = File(...)):
+    """Upload và cập nhật ảnh đại diện người dùng."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Bạn cần đăng nhập để thực hiện tính năng này."}, status_code=401)
+
+    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in allowed_exts:
+        return JSONResponse({
+            "success": False,
+            "error": "Định dạng file không hỗ trợ. Vui lòng tải file ảnh (PNG, JPG, WEBP, GIF)."
+        }, status_code=400)
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        return JSONResponse({"success": False, "error": "Kích thước ảnh không được vượt quá 5MB."}, status_code=400)
+
+    avatar_dir = Path("uploads/avatars")
+    avatar_dir.mkdir(exist_ok=True, parents=True)
+    safe_filename = f"{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
+    target_path = avatar_dir / safe_filename
+    with open(target_path, "wb") as f:
+        f.write(content)
+
+    avatar_url = f"/uploads/avatars/{safe_filename}"
+    updated_user = update_user_profile(user["id"], avatar_url=avatar_url)
+
+    return JSONResponse({
+        "success": True,
+        "message": "Cập nhật ảnh đại diện thành công!",
+        "avatar_url": avatar_url,
+        "user": _serialize_user(updated_user),
+    })
+
+
+@app.get("/uploads/avatars/{filename}")
+async def get_avatar_file(filename: str):
+    """Trả về file ảnh đại diện."""
+    safe_name = Path(filename).name
+    file_path = Path("uploads/avatars") / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        return JSONResponse({"error": "Không tìm thấy ảnh đại diện."}, status_code=404)
+    suffix = file_path.suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    return FileResponse(file_path, media_type=media_type)
+
+
 # ---------------------------------------------------------------------------
 # Conversation & History APIs
 # ---------------------------------------------------------------------------
@@ -230,10 +331,45 @@ async def conversations(request: Request):
                 "title": item.title,
                 "created_at": item.created_at.isoformat() if hasattr(item.created_at, "isoformat") else str(item.created_at),
                 "updated_at": item.updated_at.isoformat() if hasattr(item.updated_at, "isoformat") else str(item.updated_at),
-                "user_id": getattr(item, "user_id", None)
+                "user_id": getattr(item, "user_id", None),
+                "is_pinned": bool(getattr(item, "is_pinned", False)),
             }
             for item in items
         ]
+    }
+
+
+@app.post("/conversations/{thread_id}/pin")
+async def pin_conversation(thread_id: str, request: Request):
+    """Bật/tắt trạng thái ghim (pin/unpin) của một cuộc trò chuyện."""
+    user = get_current_user(request)
+    conv = get_conversation(thread_id)
+    if not conv:
+        return JSONResponse(
+            {"success": False, "error": "Cuộc trò chuyện không tồn tại."},
+            status_code=404
+        )
+
+    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
+    if conv_user_id and (not user or str(conv_user_id) != str(user["id"])):
+        return JSONResponse(
+            {"success": False, "error": "Bạn không có quyền ghim cuộc trò chuyện này."},
+            status_code=403
+        )
+
+    user_id = user["id"] if user else None
+    new_pinned = toggle_pin_conversation(thread_id, user_id=user_id)
+    if new_pinned is None:
+        return JSONResponse(
+            {"success": False, "error": "Không thể thay đổi trạng thái ghim."},
+            status_code=400
+        )
+
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "is_pinned": new_pinned,
+        "message": "Đã ghim cuộc trò chuyện." if new_pinned else "Đã bỏ ghim cuộc trò chuyện."
     }
 
 
@@ -518,37 +654,32 @@ async def chat_stream(request: Request):
                 save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
         except Exception as e:
             err_str = str(e)
-            is_rate_limit = "429" in err_str or "rate_limit_exceeded" in err_str.lower()
-            if is_rate_limit and selected_model == "openai/gpt-oss-120b":
-                logger.warning("Groq Rate Limit 429 on 120b. Falling back to openai/gpt-oss-20b.")
-                fallback_msg = (
-                    "\n\n> ⚠️ **Hệ thống:** Mô hình *gpt-oss-120b* tạm thời đạt giới hạn 8,000 TPM của Groq. "
-                    "Tit đang tự động chuyển tiếp sang mô hình *gpt-oss-20b* để tiếp tục phản hồi cho bạn mà không bị ngắt quãng...\n\n"
-                )
-                yield sse_data({"token": fallback_msg})
-                final_answer += fallback_msg
-                try:
-                    fallback_agent = get_agent("openai/gpt-oss-20b")
-                    for chunk, metadata in fallback_agent.stream(
-                        inputs,
-                        config=config,
-                        stream_mode="messages"
-                    ):
-                        if not should_stream_chunk(chunk, metadata):
-                            continue
-                        token = extract_text_from_chunk(chunk)
-                        if token:
-                            final_answer += token
-                            yield sse_data({"token": token})
+            is_rate_limit = (
+                "429" in err_str
+                or "rate_limit_exceeded" in err_str.lower()
+                or "rate limit" in err_str.lower()
+                or "tokens per minute" in err_str.lower()
+                or "tokens per day" in err_str.lower()
+            )
+            is_model_unavailable = (
+                "model_terms_required" in err_str
+                or "model_not_found" in err_str
+                or "does not exist or you do not have access to it" in err_str
+            )
+            stream_error = e
 
-                    if final_answer.strip():
-                        save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
-                    stream_error = None
-                except Exception as fallback_exc:
-                    stream_error = fallback_exc
-                    yield sse_data({"error": f"Lỗi giới hạn tốc độ (Rate Limit 429): {str(fallback_exc)}"})
+            if is_rate_limit:
+                logger.error(f"[RateLimit] Model '{selected_model}' hit Groq rate limit: {e}")
+                yield sse_data({
+                    "error": f"⚠️ Mô hình '{selected_model}' đã đạt giới hạn tốc độ / hạn mức token (Rate Limit) của Groq API. Vui lòng thử lại sau hoặc chọn mô hình khác."
+                })
+            elif is_model_unavailable:
+                logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
+                yield sse_data({
+                    "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
+                })
             else:
-                stream_error = e
+                logger.error(f"[ChatError] Error during chat streaming: {e}")
                 yield sse_data({"error": str(e)})
 
         # Mỗi lượt chat hợp lệ luôn kết thúc bằng đúng hai gợi ý.
