@@ -307,7 +307,6 @@ def create_or_update_conversation(
     }
     if user_id:
         set_fields["user_id"] = str(user_id)
-        set_on_insert["user_id"] = str(user_id)
 
     coll.update_one(
         {"thread_id": thread_id},

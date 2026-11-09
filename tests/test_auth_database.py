@@ -43,6 +43,12 @@ class InMemoryCollection:
         return None
 
     def update_one(self, filter_q, update_q, upsert=False):
+        set_keys = set(update_q.get("$set", {}).keys())
+        set_on_insert_keys = set(update_q.get("$setOnInsert", {}).keys())
+        overlap = set_keys.intersection(set_on_insert_keys)
+        if overlap:
+            raise Exception(f"Updating the path '{next(iter(overlap))}' would create a conflict at '{next(iter(overlap))}'")
+
         found = None
         for doc in self.docs:
             if all(doc.get(k) == v for k, v in filter_q.items()):
