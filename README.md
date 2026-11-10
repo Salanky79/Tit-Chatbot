@@ -1,6 +1,6 @@
 # Tit Chatbot — Agentic AI Chatbot with RAG & Context Optimization
 
-Tit Chatbot là một hệ thống chatbot AI toàn diện, đa phương thức (Multimodal Agentic AI) được phát triển bằng **Python 3.12+**, **FastAPI**, **LangGraph**, **Groq LLM**, **ChromaDB**, và **MongoDB**. 
+Tit Chatbot là một hệ thống chatbot AI toàn diện, đa phương thức (Multimodal Agentic AI) được phát triển bằng **Python 3.11+**, **FastAPI**, **LangGraph**, **Groq LLM**, **ChromaDB**, và **MongoDB**. 
 
 Hệ thống được thiết kế hướng tới khả năng tự chủ của Agent: tự động lập luận và gọi công cụ (Function Calling), hỏi đáp thông minh trên tài liệu cá nhân (RAG), tóm tắt văn bản dài đệ quy (Recursive Map-Reduce Summarization), phân tích hình ảnh (Vision AI), ghi nhớ ngữ cảnh dài hạn (Long-term Memory), và stream phản hồi theo thời gian thực (Server-Sent Events — SSE).
 
@@ -143,7 +143,7 @@ flowchart TD
    - Graph tải trạng thái `AgentState` từ MongoDB Checkpointer ứng với `thread_id`.
    - Node `chatbot` tiếp nhận danh sách tin nhắn.
 4. **Tiền xử lý tối ưu hóa Context (`context_manager.py`):**
-   - **Trimming:** Giữ $N$ lượt gần nhất (`MAX_HISTORY_TURNS = 4`), tóm tắt các lượt cũ đưa vào `SystemMessage`.
+   - **Trimming:** Giữ $N$ lượt gần nhất (`MAX_HISTORY_TURNS = 2`), tóm tắt các lượt cũ đưa vào `SystemMessage`.
    - **Pruning:** Xóa kết quả công cụ cũ (web search, RAG) từ các lượt trước; chỉ giữ lượt hỏi-đáp sạch.
    - **Tách context theo tác vụ:** Nhận diện tác vụ tài liệu độc lập; nhận diện ngoại lệ dịch tiếp nối (nếu lượt trước vừa tóm tắt và lượt này yêu cầu dịch/tóm tắt bằng tiếng Việt thì giữ nguyên lịch sử).
    - **Enforce Budget:** Tính toán tổng token (System + Tools + History + Output) và cắt ngắn nếu vượt ngưỡng an toàn theo model (ví dụ: $\le 2.800$ tokens đối với model 120B).
@@ -256,7 +256,7 @@ flowchart LR
 - **Hàm:** `group_messages_into_turns`, `summarize_old_messages`, `trim_conversation_history`, `_deduplicate_summary_lines`.
 - **Cơ chế:**
   - Nhóm tin nhắn thành các lượt hội thoại (`turns`).
-  - Giữ lại tối đa `DEFAULT_MAX_HISTORY_TURNS = 4` lượt gần nhất trong bộ nhớ tích cực.
+  - Giữ lại tối đa `DEFAULT_MAX_HISTORY_TURNS = 2` lượt gần nhất trong bộ nhớ tích cực.
   - Các lượt cũ hơn được chuyển cho hàm `summarize_old_messages` để tóm tắt thành các gạch đầu dòng ngắn gọn (bảo toàn sở thích, thông tin cá nhân, tên riêng, chủ đề cốt lõi).
   - **Chống phình to & trùng lặp (Deduplication):** Sử dụng thuật toán `_deduplicate_summary_lines` chuẩn hóa gạch đầu dòng và loại bỏ trùng lặp ngữ nghĩa, ngăn chặn hiện tượng tóm tắt bị nhân bản lặp đi lặp lại qua nhiều lượt chat.
   - **Lọc sạch dữ liệu tạm (Ephemeral Media Filter):** Tuyệt đối không đưa mô tả hình ảnh tạm thời, OCR dumps hoặc văn bản tài liệu đã upload vào tóm tắt hội thoại dài hạn.
@@ -557,8 +557,8 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
   - Tự động kích hoạt luồng sinh câu hỏi gợi ý sau khi stream câu trả lời xong (luôn dùng model nhẹ `openai/gpt-oss-20b`).
 
 ### 6.2. LangGraph Agent Orchestrator (`agent.py`)
-- Quản lý danh sách mô hình cho phép: `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `openai/gpt-oss-120b`, v.v.
-- Hàm `normalize_model_name`: Chuẩn hóa và fallback về model mặc định nếu người dùng truyền model không hợp lệ.
+- Quản lý danh sách đúng 3 mô hình cho phép: `openai/gpt-oss-20b` (mặc định), `openai/gpt-oss-120b`, và `qwen/qwen3.8-27b`.
+- Hàm `normalize_model_name`: Chuẩn hóa và fallback về model mặc định (`openai/gpt-oss-20b`) nếu người dùng truyền model không hợp lệ hoặc nằm ngoài danh sách 3 model trên.
 - Cấu trúc trạng thái mở rộng:
   ```python
   class AgentState(TypedDict, total=False):
@@ -651,6 +651,7 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
   - **Tìm kiếm Cuộc trò chuyện (Chat Search):** Thanh tìm kiếm thời gian thực lọc nhanh các cuộc trò chuyện theo tiêu đề.
   - **Phân nhóm Thời gian:** Tự động chia danh sách chat thành: "Đã ghim", "Hôm nay", "7 ngày qua", và "Cũ hơn".
   - **Xuất Lịch sử Trò chuyện (Export Chats):** Tải về cuộc trò chuyện dưới dạng file Markdown (`.md`) hoặc JSON (`.json`).
+  - **Bộ chọn Mô hình Tinh gọn (Model Selector):** Cung cấp danh sách đúng 3 mô hình tối ưu nhất trên Groq: GPT-OSS 20B (mặc định), Qwen 3.8 27B (Vision/Chat), và GPT-OSS 120B (Lập luận sâu).
   - **Voice Input:** Nhập liệu bằng giọng nói (Speech-to-Text / Voice Dictation qua Web Speech API).
   - **File Attachment:** Kéo-thả hoặc đính kèm tài liệu đa định dạng và hình ảnh.
   - **Tool Progress:** Hiển thị thanh tiến trình trực quan khi AI gọi công cụ (`addToolProgress`).
@@ -839,8 +840,8 @@ MONGODB_CHECKPOINT_DB=tit_chatbot_checkpoints
 # ===========================================================================
 # Context Optimization & Token Budgeting (context_manager.py)
 # ===========================================================================
-# Số lượt chat gần nhất giữ trong active context trước khi tóm tắt (mặc định: 4 turns)
-MAX_HISTORY_TURNS=4
+# Số lượt chat gần nhất giữ trong active context trước khi tóm tắt (mặc định: 2 turns)
+MAX_HISTORY_TURNS=2
 
 # Ngân sách token tối đa cho mỗi lượt gọi LLM (mặc định: 6000 tokens)
 MAX_CONTEXT_TOKENS=6000

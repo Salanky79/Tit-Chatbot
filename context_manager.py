@@ -31,7 +31,7 @@ from langchain_groq import ChatGroq
 logger = logging.getLogger(__name__)
 
 # Cấu hình mặc định (có thể điều chỉnh qua biến môi trường)
-DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "4"))
+DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "2"))
 DEFAULT_MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
 DEFAULT_EXPECTED_OUTPUT_TOKENS = int(os.getenv("EXPECTED_OUTPUT_TOKENS", "1200"))
 DEFAULT_MAX_TOOL_RESULT_TOKENS = int(os.getenv("MAX_TOOL_RESULT_TOKENS", "1800"))
