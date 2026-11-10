@@ -20,6 +20,10 @@ load_dotenv()
 CURRENT_THREAD_ID = "default"
 CURRENT_USER_ID = ""
 
+# Tiền tố của kết quả tóm tắt THÀNH CÔNG. agent.py dựa vào đây để trả thẳng bản tóm tắt
+# cho người dùng mà không gọi LLM lần nữa (lỗi / câu hỏi làm rõ không có tiền tố này).
+SUMMARY_RESULT_PREFIX = "Summary of "
+
 
 def set_current_thread_id(thread_id: str):
     global CURRENT_THREAD_ID
@@ -112,11 +116,11 @@ def _clean_source_name(name: str) -> str:
 
 
 @tool
-def summarize_uploaded_document(filename: str = "") -> str:
+def summarize_uploaded_document(filename: str = "", target_language: str = "auto") -> str:
     """Summarize the complete contents of one uploaded file in this conversation.
 
     CRITICAL: ALWAYS use this tool (and NEVER search_uploaded_documents) whenever
-    the user asks to summarize, outline, or give an overview of an uploaded file
+    the user asks to summarize, outline, or give an overview of a newly uploaded file
     or document (e.g. 'tóm tắt file', 'tóm tắt tài liệu', 'tóm tắt văn bản',
     'summarize', 'overview', 'synopsis').
 
@@ -124,6 +128,11 @@ def summarize_uploaded_document(filename: str = "") -> str:
     conversation. If only one file is uploaded, an empty filename selects that
     file. If several files exist and the user has not identified one, call with
     an empty filename to return a clarification request. Never combine files.
+
+    Pass target_language:
+    - 'auto' (default): Keep the document's original language (e.g., English file -> English summary, Vietnamese file -> Vietnamese summary).
+    - 'Vietnamese': If the user explicitly requested Vietnamese for an English document.
+    - 'English': If the user explicitly requested English.
     """
     user_id = CURRENT_USER_ID or None
     sources = list_document_sources(CURRENT_THREAD_ID, user_id=user_id)
@@ -162,10 +171,10 @@ def summarize_uploaded_document(filename: str = "") -> str:
 
     try:
         chunks = get_document_chunks(selected, CURRENT_THREAD_ID, user_id=user_id)
-        summary = summarize_documents(chunks)
+        summary = summarize_documents(chunks, target_language=target_language)
     except Exception as exc:
         return f'Could not summarize "{selected}": {exc}'
-    return f'Summary of "{selected}" (all {len(chunks)} stored chunks):\n\n{summary}'
+    return f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n{summary}'
 
 
 @tool
@@ -220,40 +229,48 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
 # ---------------------------------------------------------------------------
 @tool
 def remember_this(memory: str) -> str:
-    """Save an important fact, preference, or piece of information to
-    long-term memory so it can be recalled in future conversations.
+    """Save an important fact, preference, identity, or detail to the user's permanent long-term memory.
 
-    Use this tool when the user explicitly asks you to remember something,
+    CRITICAL: This memory is permanently saved for the CURRENT USER across ALL their chat
+    conversations. When saved here, it can be recalled in any other chat of this user.
+
+    Use this tool whenever the user explicitly asks you to remember or store something,
     for example:
+    - "Nhớ rằng tôi tên là Sơn."
     - "Remember that my name is Nam."
-    - "Save this: I prefer dark mode."
+    - "Tôi thích giao diện dark mode và lập trình Python."
     - "Keep in mind that my birthday is March 15."
-    - "Store this for later: ..."
+    - "Lưu lại điều này: tôi đang học Đại học Công nghệ (UET)."
 
-    The memory string should be a concise, self-contained sentence that
-    captures the key fact (e.g. "User's name is Nam.").
+    The memory string should be a concise, self-contained statement
+    capturing the key fact (e.g. "Tên người dùng là Sơn.").
     Returns a confirmation message on success.
     """
-    return save_memory(thread_id=CURRENT_THREAD_ID, memory=memory, user_id=CURRENT_USER_ID or None)
+    user_id = CURRENT_USER_ID or None
+    return save_memory(thread_id=CURRENT_THREAD_ID, memory=memory, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------
 # Long-term memory - Recall
 # ---------------------------------------------------------------------------
 @tool
-def recall_memory(query: str) -> str:
-    """Search and retrieve previously saved long-term memories relevant to
-    the given query.
+def recall_memory(query: str = "") -> str:
+    """Recall and search the current user's long-term memories across ALL chats.
 
-    Use this tool when the user:
-    - Asks "What do you remember about me?"
-    - Refers to something they told you to remember earlier.
-    - Asks about their saved preferences, name, or personal details.
-    - Uses phrases like "recall", "do you remember", "what did I tell you".
+    CRITICAL: Use this tool to recall facts, personal information, identity, background,
+    preferences, or previous statements that the user asked you to remember in ANY chat.
+    This tool searches across all conversations of the current user.
+
+    Use this tool whenever the user:
+    - Asks personal questions: "Tôi tên là gì?", "Bạn nhớ gì về tôi?", "Tôi học trường nào?", "What is my name?"
+    - Asks about their saved preferences, personal details, interests, or background.
+    - Uses phrases like "recall", "do you remember", "bạn có nhớ tôi là ai không".
+    - Pass key terms (e.g. 'tên', 'name', 'trường') or an empty query to retrieve memories.
 
     Returns a list of matching memory entries, or a message if none are found.
     """
-    return search_memory(thread_id=CURRENT_THREAD_ID, query=query, user_id=CURRENT_USER_ID or None)
+    user_id = CURRENT_USER_ID or None
+    return search_memory(thread_id=CURRENT_THREAD_ID, query=query, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------

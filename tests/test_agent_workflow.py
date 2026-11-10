@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 
-from agent import AgentState, SYSTEM_PROMPT, normalize_model_name
+from agent import AgentState, SYSTEM_PROMPT, normalize_model_name, route_after_tools, emit_summary_node
 from context_manager import prepare_context_for_llm, calculate_token_breakdown
 
 
@@ -107,6 +107,46 @@ class TestAgentWorkflow(unittest.TestCase):
         self.assertGreater(breakdown["history_tokens"], 0)
         self.assertEqual(breakdown["expected_output_tokens"], 1000)
         self.assertGreater(breakdown["total_tokens"], breakdown["system_tokens"])
+
+    def test_route_after_tools_and_emit_summary(self):
+        # 1. Successful document summary routes to emit_summary
+        state_success: AgentState = {
+            "messages": [
+                HumanMessage(content="Tóm tắt tài liệu này"),
+                ToolMessage(
+                    content='Summary of "report.pdf" (all 5 stored chunks):\n\nKey takeaways...',
+                    name="summarize_uploaded_document",
+                    tool_call_id="call_sum_1",
+                ),
+            ]
+        }
+        self.assertEqual(route_after_tools(state_success), "emit_summary")
+
+        # emit_summary_node turns it into an AIMessage
+        emitted = emit_summary_node(state_success)
+        self.assertEqual(len(emitted["messages"]), 1)
+        self.assertIsInstance(emitted["messages"][0], AIMessage)
+        self.assertIn("Key takeaways...", emitted["messages"][0].content)
+
+        # 2. Error or clarification routes back to chatbot
+        state_clarify: AgentState = {
+            "messages": [
+                ToolMessage(
+                    content='The file name matches multiple uploads. Which one did you mean: "a.pdf", "b.pdf"?',
+                    name="summarize_uploaded_document",
+                    tool_call_id="call_sum_2",
+                ),
+            ]
+        }
+        self.assertEqual(route_after_tools(state_clarify), "chatbot")
+
+        # 3. Other tools route back to chatbot
+        state_calc: AgentState = {
+            "messages": [
+                ToolMessage(content="42", name="calculator", tool_call_id="call_calc_1"),
+            ]
+        }
+        self.assertEqual(route_after_tools(state_calc), "chatbot")
 
 
 if __name__ == "__main__":

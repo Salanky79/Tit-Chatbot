@@ -14,17 +14,18 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 from langchain_groq import ChatGroq
 # Định dạng tin nhắn hệ thống (System Prompt) cho mô hình
-from langchain_core.messages import SystemMessage, BaseMessage
-from langgraph.graph import StateGraph, START
+from langchain_core.messages import SystemMessage, BaseMessage, AIMessage, ToolMessage
+from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 # ToolNode: Node chạy các công cụ; tools_condition: Điều kiện rẽ nhánh kiểm tra xem LLM có gọi tool không
 from langgraph.prebuilt import ToolNode, tools_condition
 # MongoDBSaver: Lưu trạng thái và lịch sử hội thoại vào MongoDB để duy trì ngữ cảnh nhiều lượt chat
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from mongo_client import get_client
-from tools import tools
+from tools import tools, SUMMARY_RESULT_PREFIX
 from context_manager import (
     prepare_context_for_llm,
+    log_token_usage,
     DEFAULT_MAX_HISTORY_TURNS,
     DEFAULT_MAX_CONTEXT_TOKENS,
     DEFAULT_EXPECTED_OUTPUT_TOKENS,
@@ -40,6 +41,39 @@ class AgentState(TypedDict, total=False):
     """
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
+
+
+# Trả thẳng bản tóm tắt tài liệu cho người dùng, bỏ lượt gọi LLM thứ 2 (vốn chỉ để chép lại
+# đúng bản tóm tắt đó: tốn ~5k token TPM + vài giây). Đặt SUMMARY_DIRECT_RETURN=0 để tắt.
+SUMMARY_DIRECT_RETURN = os.getenv("SUMMARY_DIRECT_RETURN", "1").lower() not in ("0", "false", "no")
+SUMMARY_TOOL_NAME = "summarize_uploaded_document"
+
+
+def route_after_tools(state: AgentState) -> str:
+    """Sau node 'tools': nếu vừa chạy đúng 1 tool tóm tắt và nó thành công thì kết thúc luôn
+    (qua node 'emit_summary'); còn lại quay về 'chatbot' như cũ."""
+    if not SUMMARY_DIRECT_RETURN:
+        return "chatbot"
+    recent: list[ToolMessage] = []
+    for msg in reversed(state.get("messages", [])):
+        if not isinstance(msg, ToolMessage):
+            break
+        recent.append(msg)
+    if (
+        len(recent) == 1
+        and getattr(recent[0], "name", None) == SUMMARY_TOOL_NAME
+        and isinstance(recent[0].content, str)
+        and recent[0].content.startswith(SUMMARY_RESULT_PREFIX)
+    ):
+        return "emit_summary"
+    return "chatbot"
+
+
+def emit_summary_node(state: AgentState):
+    """Biến kết quả tool thành AIMessage (không gọi LLM) để:
+    - frontend nhận được qua should_stream_chunk như một câu trả lời bình thường,
+    - lượt sau vẫn còn bản tóm tắt trong lịch sử hội thoại để hỏi tiếp."""
+    return {"messages": [AIMessage(content=str(state["messages"][-1].content))]}
 
 
 # Update default and allowed models to use Groq models
@@ -65,8 +99,15 @@ whether to call it.
 
 General rules:
 - Use tools whenever they would produce a more accurate or up-to-date answer.
-- When asked to summarize, overview, or outline an uploaded file, ALWAYS call the `summarize_uploaded_document` tool. The tool uses recursive Map-Reduce to handle documents of any length and page count. NEVER refuse or say a document is too large.
+- When asked to summarize, overview, or outline an uploaded file:
+  * By default, summarize in the ORIGINAL LANGUAGE of the uploaded document (e.g. English file -> English summary, Vietnamese file -> Vietnamese summary). Only pass a different target_language (such as 'Vietnamese') if the user explicitly requested it in that prompt.
+  * CRITICAL FOR TRANSLATION / RE-SUMMARIZING FOLLOW-UPS: If a summary of that document ALREADY EXISTS in the recent conversation and the user asks to translate it, rewrite it, or summarize it in another language (e.g., "hãy tóm tắt bằng tiếng Việt", "dịch sang tiếng Việt", "bản tiếng Việt", "translate to English"):
+    DO NOT call `summarize_uploaded_document` again! Instead, directly translate and reformat the existing summary from the conversation history into the requested language. This provides an instantaneous, zero-overhead response without redundant processing.
 - For questions about an uploaded image, use the image analysis tool and name the image when several are available.
+- Cross-chat Long-term memory for each user:
+  * When the user asks you to remember a personal detail, fact, identity, or preference (e.g. "Nhớ rằng tôi tên là...", "Lưu lại điều này...", "Remember that..."), ALWAYS call `remember_this`.
+  * When the user asks what you remember about them, asks their name, school, preferences, or refers to things saved in other chats (e.g. "Tôi tên là gì?", "Bạn nhớ gì về tôi?", "Tôi học trường nào?", "What is my name?"), ALWAYS call `recall_memory`.
+  * Memories are permanently shared across all conversations belonging to that user, but strictly isolated from other users.
 - Do NOT fabricate information; prefer tool results over guesses.
 - After using a tool, present the findings clearly, structured, and helpful to the user. For complete document summaries from summarize_uploaded_document, deliver the comprehensive summary faithfully with a brief opening sentence — do NOT re-summarize, truncate, or duplicate the content.
 - Be friendly, structured, and easy to understand.
@@ -151,6 +192,9 @@ def build_agent(model_name: str):
 
         response = llm_with_tools.invoke(final_messages)
 
+        task_desc = "Tool Call Request" if getattr(response, "tool_calls", None) else "Chatbot Answer"
+        log_token_usage(selected_model, task_desc, response)
+
         return {
             "messages": [response],
             "conversation_summary": updated_summary,
@@ -165,14 +209,19 @@ def build_agent(model_name: str):
     # Đăng ký các node vào đồ thị
     workflow.add_node("chatbot", chatbot_node)
     workflow.add_node("tools", tool_node)
+    workflow.add_node("emit_summary", emit_summary_node)
 
     # Thiết lập luồng di chuyển giữa các node:
     # 1. Bắt đầu từ START -> đi vào node 'chatbot'
     workflow.add_edge(START, "chatbot")
     # 2. Điều kiện rẽ nhánh: nếu LLM yêu cầu gọi tool -> chuyển sang node 'tools', nếu không -> kết thúc lượt
     workflow.add_conditional_edges("chatbot", tools_condition) # mac dinh tim node ten la tools
-    # 3. Sau khi node 'tools' chạy xong -> trả kết quả về lại node 'chatbot' để LLM đọc và trả lời người dùng
-    workflow.add_edge("tools", "chatbot")
+    # 3. Sau khi node 'tools' chạy xong -> trả kết quả về lại node 'chatbot' để LLM đọc và trả lời người dùng.
+    #    Riêng tool tóm tắt tài liệu: trả thẳng bản tóm tắt (emit_summary -> END), khỏi gọi LLM lần nữa.
+    workflow.add_conditional_edges(
+        "tools", route_after_tools, {"chatbot": "chatbot", "emit_summary": "emit_summary"}
+    )
+    workflow.add_edge("emit_summary", END)
 
     # Lấy MongoDB client singleton từ mongo_client để tái sử dụng kết nối
     mongo_client = get_client()

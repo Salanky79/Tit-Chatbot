@@ -86,7 +86,19 @@ class InMemoryCollection:
         query = query or {}
         matched = []
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            match = True
+            for k, v in query.items():
+                if isinstance(v, dict) and "$regex" in v:
+                    import re
+                    pattern = v["$regex"]
+                    flags = re.IGNORECASE if v.get("$options") == "i" else 0
+                    if not re.search(pattern, str(doc.get(k, "")), flags):
+                        match = False
+                        break
+                elif doc.get(k) != v:
+                    match = False
+                    break
+            if match:
                 res = dict(doc)
                 if projection and "_id" in projection and projection["_id"] == 0:
                     res.pop("_id", None)
@@ -262,6 +274,51 @@ class TestAuthDatabase(unittest.TestCase):
         auth_user = database.authenticate_user("bob_marley", "newsecret123")
         self.assertIsNotNone(auth_user)
         self.assertEqual(auth_user["avatar_url"], "/uploads/avatars/bob.png")
+
+    def test_long_term_memory_cross_chat_and_user_isolation(self):
+        user_a = "user_aaa_111"
+        user_b = "user_bbb_222"
+
+        # User A lưu ký ức trong cuộc trò chuyện Chat 1 (thread_chat_1)
+        save_res = database.save_memory(
+            thread_id="thread_chat_1",
+            memory="Tên người dùng là Sơn, sinh viên UET thích lập trình AI",
+            user_id=user_a,
+        )
+        self.assertEqual(save_res, "Memory saved successfully.")
+
+        # User A mở một cuộc trò chuyện hoàn toàn mới Chat 2 (thread_chat_2) và hỏi lại:
+        # Cross-chat recall: Tìm kiếm trong Chat 2 vẫn lấy được thông tin từ Chat 1
+        recall_res = database.search_memory(
+            thread_id="thread_chat_2",
+            query="tôi tên là gì",
+            user_id=user_a,
+        )
+        self.assertIn("Tên người dùng là Sơn", recall_res)
+        self.assertIn("sinh viên UET", recall_res)
+
+        # Truy vấn rỗng / chung chung: Lấy toàn bộ ký ức của User A
+        all_memories = database.search_memory(
+            thread_id="thread_chat_99",
+            query="",
+            user_id=user_a,
+        )
+        self.assertIn("Tên người dùng là Sơn", all_memories)
+
+        # Cách ly tuyệt đối: User B trong bất kỳ cuộc trò chuyện nào KHÔNG THỂ nhìn thấy ký ức của User A
+        b_recall = database.search_memory(
+            thread_id="thread_chat_b",
+            query="tôi tên là gì",
+            user_id=user_b,
+        )
+        self.assertEqual(b_recall, "No saved memory found.")
+
+        b_all = database.search_memory(
+            thread_id="thread_chat_b",
+            query="",
+            user_id=user_b,
+        )
+        self.assertEqual(b_all, "No saved memory found.")
 
 
 if __name__ == "__main__":

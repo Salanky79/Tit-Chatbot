@@ -114,6 +114,27 @@ class TestSummarizationIntegration(unittest.TestCase):
         self.assertEqual(failing_llm.calls, 1)
         self.assertLess(elapsed, 0.5)
 
+    def test_invoke_retries_and_succeeds_on_tpm_minute_limit(self):
+        from summarization import _invoke
+
+        class FailingOnceTPMLLM:
+            def __init__(self):
+                self.calls = 0
+
+            def invoke(self, messages):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError(
+                        "Error code: 429 - Rate limit reached on tokens per minute (TPM): Limit 8000, Used 7200. "
+                        "Please try again in 0.05s."
+                    )
+                return SimpleNamespace(content="Successful summary after TPM wait")
+
+        failing_tpm_llm = FailingOnceTPMLLM()
+        result = _invoke(failing_tpm_llm, "test prompt", "map", 1)
+        self.assertEqual(result, "Successful summary after TPM wait")
+        self.assertEqual(failing_tpm_llm.calls, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

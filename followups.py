@@ -9,7 +9,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
-from context_manager import estimate_tokens
+from context_manager import estimate_tokens, log_token_usage
 
 
 logger = logging.getLogger(__name__)
@@ -234,6 +234,7 @@ def generate_followup_questions(
             )),
             HumanMessage(content=json.dumps(context, ensure_ascii=False)),
         ])
+        log_token_usage(model_name, "Follow-up Suggestions", response)
         raw = _response_text(response)
         questions = _parse_questions(raw)
         if len(questions) == 2:

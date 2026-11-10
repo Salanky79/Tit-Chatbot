@@ -163,6 +163,14 @@ class TestContextManager(unittest.TestCase):
         msg_chat = [HumanMessage(content="Xin chào, bạn có thể giúp tôi viết code Python không?")]
         self.assertFalse(is_isolated_document_task(msg_chat))
 
+        # Yêu cầu dịch / tóm tắt lại sang tiếng Việt khi đã có bản tóm tắt trước đó không bị cô lập
+        msg_followup = [
+            HumanMessage(content="Tóm tắt tài liệu đính kèm"),
+            AIMessage(content='Summary of "NguyenThaiSon_CV.pdf" (all 4 stored chunks):\n\nNguyen Thai Son - Summary...'),
+            HumanMessage(content="Hãy tóm tắt bằng tiếng Việt"),
+        ]
+        self.assertFalse(is_isolated_document_task(msg_followup))
+
     def test_prepare_context_for_llm_isolates_document_task(self):
         messages = [
             HumanMessage(content="Turn 1: Phân tích ảnh hoa trắng"),

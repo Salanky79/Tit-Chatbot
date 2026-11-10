@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import logging
 import math
 import os
@@ -14,13 +13,12 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
-from context_manager import validate_and_isolate_summarization_context
+from context_manager import validate_and_isolate_summarization_context, log_token_usage
 
 logger = logging.getLogger(__name__)
 
 
 DEFAULT_INPUT_TOKEN_BUDGET = 4500
-DEFAULT_MAX_WORKERS = 2
 SUMMARY_OUTPUT_TOKENS = 1200
 
 
@@ -104,42 +102,109 @@ def _parse_wait_time(err_msg: str) -> float | None:
     return None
 
 
-def _invoke(llm, prompt: str, stage: str, group_number: int, max_retries: int = 1) -> str:
+def _invoke(
+    llm,
+    prompt: str,
+    stage: str,
+    group_number: int,
+    max_retries: int | None = None,
+    target_language: str = "auto",
+) -> str:
     """Invoke the summarization LLM for a prompt unit.
 
-    Không retry/backoff khi chạm Rate Limit hay hết token để tránh treo/ngâm ứng dụng.
-    Bất kỳ lỗi RateLimit (429/TPM/TPD) đều được ghi log và raise ngay lập tức.
+    - Nếu chạm giới hạn TPM (8.000 token/phút): Tự động chờ (sleep) theo thời gian
+      Groq yêu cầu và retry liên tục cho đến khi hoàn thành ("chạy khi nào xong thì thôi").
+    - Chỉ khi chạm giới hạn TPD (200.000 token/ngày): Fail-fast ngay lập tức và ném lỗi
+      rõ ràng để báo ra màn hình vì quota trong ngày đã hết.
     """
-    try:
-        result = _content_text(llm.invoke([
-            SystemMessage(content=(
-                "You summarize source material faithfully. Preserve the important "
-                "claims, definitions, figures, conditions, and conclusions. Avoid "
-                "repetition. Do not add facts or imply coverage beyond the supplied text."
-            )),
-            HumanMessage(content=prompt),
-        ]))
-        if not result:
-            raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: the model returned an empty result.")
-        return result
-    except Exception as exc:
-        err_str = str(exc).lower()
-        is_rate_limit = (
-            "429" in err_str
-            or "rate_limit_exceeded" in err_str
-            or "tokens per minute" in err_str
-            or "tokens per day" in err_str
-            or "tpm" in err_str
-            or "tpd" in err_str
-            or "rate limit" in err_str
-            or "ratelimit" in err_str
-        )
-        if is_rate_limit:
-            logger.error(f"[RateLimit] Summarization hit Groq rate limit during {stage}, group {group_number}: {exc}")
-            raise RuntimeError(f"Document summarization rate limit exceeded: {exc}") from exc
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            lang_rule = ""
+            if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
+                lang_rule = (
+                    "\n\nCRITICAL LANGUAGE REQUIREMENT: You MUST write the entire summary in fluent, natural Vietnamese (Tiếng Việt). "
+                    "Translate and explain all section titles, roles, project descriptions, and key takeaways into Vietnamese. "
+                    "Preserve proper nouns, names of people, universities, programming languages, and technical libraries intact."
+                )
+            elif target_language and target_language.lower() in ("auto", "original", "default", "ngôn ngữ gốc"):
+                lang_rule = (
+                    "\n\nCRITICAL LANGUAGE REQUIREMENT: Write the summary in the same primary language as the source document "
+                    "(e.g., if the document is in English, write the summary in English; if in Vietnamese, write in Vietnamese)."
+                )
+            elif target_language:
+                lang_rule = f"\n\nCRITICAL LANGUAGE REQUIREMENT: You MUST write the entire summary in {target_language}."
 
-        logger.error(f"[SummarizationError] Failed during {stage}, group {group_number}: {exc}")
-        raise RuntimeError(f"Document summarization failed during {stage}, group {group_number}: {exc}") from exc
+            response = llm.invoke([
+                SystemMessage(content=(
+                    "You summarize source material faithfully. Preserve the important "
+                    "claims, definitions, figures, conditions, and conclusions. Avoid "
+                    "repetition. Do not add facts or imply coverage beyond the supplied text."
+                    + lang_rule
+                )),
+                HumanMessage(content=prompt),
+            ])
+            model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-LLM")
+            log_token_usage(str(model_name), f"Summarization ({stage}, group {group_number})", response)
+            result = _content_text(response)
+            if not result:
+                raise RuntimeError(
+                    f"Document summarization failed during {stage}, group {group_number}: the model returned an empty result."
+                )
+            return result
+        except Exception as exc:
+            err_str = str(exc).lower()
+            is_rate_limit = (
+                "429" in err_str
+                or "rate_limit_exceeded" in err_str
+                or "tokens per minute" in err_str
+                or "tokens per day" in err_str
+                or "tpm" in err_str
+                or "tpd" in err_str
+                or "rate limit" in err_str
+                or "ratelimit" in err_str
+            )
+
+            if not is_rate_limit:
+                logger.error(f"[SummarizationError] Failed during {stage}, group {group_number}: {exc}")
+                raise RuntimeError(
+                    f"Document summarization failed during {stage}, group {group_number}: {exc}"
+                ) from exc
+
+            # Kiểm tra nếu là chạm trần NGÀY (TPD - Tokens Per Day, ví dụ 200.000 token)
+            is_daily_limit = (
+                "tokens per day" in err_str
+                or "tpd" in err_str
+                or "daily" in err_str
+                or "per day" in err_str
+            )
+
+            parsed_wait = _parse_wait_time(str(exc))
+
+            # Nếu là giới hạn ngày (TPD) hoặc thời gian chờ quá lớn (> 3 phút - biểu hiện của quota ngày/giờ):
+            if is_daily_limit or (parsed_wait is not None and parsed_wait > 180):
+                logger.error(
+                    f"[RateLimit-TPD] Summarization hit daily token limit (TPD 200.000) during {stage}, group {group_number}: {exc}"
+                )
+                raise RuntimeError(
+                    f"Document summarization rate limit exceeded (Đã hết hạn mức 200.000 token trong ngày): {exc}"
+                ) from exc
+
+            # Nếu có cấu hình max_retries hữu hạn và đã vượt quá:
+            if max_retries is not None and attempt > max_retries:
+                logger.error(
+                    f"[RateLimit-TPM] Exceeded maximum retries ({max_retries}) during {stage}, group {group_number}: {exc}"
+                )
+                raise RuntimeError(f"Document summarization rate limit exceeded: {exc}") from exc
+
+            # Nếu là chạm trần PHÚT (8.000 TPM) hoặc RPM: tự động chờ rồi retry cho tới khi xong
+            wait_seconds = max(1.0, (parsed_wait + 0.5)) if parsed_wait is not None else 6.0
+            logger.warning(
+                f"[RateLimit-TPM] Reached 8.000 TPM limit at {stage}, group {group_number} (Lần thử {attempt}). "
+                f"Tự động đợi {wait_seconds:.2f}s để qua cửa sổ phút tiếp theo rồi chạy tiếp..."
+            )
+            time.sleep(wait_seconds)
 
 
 def _build_groq_llm(model_name: str | None = None) -> ChatGroq:
@@ -155,35 +220,40 @@ def _execute_map_reduce(
     clean_documents: Sequence[Document],
     llm,
     effective_chunk_budget: int,
+    target_language: str = "auto",
 ) -> str:
     units = [_format_document(doc) for doc in clean_documents if doc.page_content.strip()]
     map_groups = _groups_by_budget(units, effective_chunk_budget)
 
-    # Pha 1 (Map): Nếu chỉ có 1 nhóm thì thực thi trực tiếp, nếu nhiều nhóm thì chạy song song đa luồng
+    lang_phrase = ""
+    if target_language and target_language.lower() not in ("auto", "original", "default", "ngôn ngữ gốc"):
+        lang_phrase = f" in {target_language}"
+
+    # =========================================================================
+    # TRƯỜNG HỢP 1: TÀI LIỆU NGẮN (vừa vặn trong 1 nhóm <= ngân sách token)
+    # Gọi LLM đúng 1 lần duy nhất để tóm tắt và trả về luôn, KHÔNG cần Map-Reduce!
+    # =========================================================================
     if len(map_groups) == 1:
-        summaries = [_invoke(
-            llm,
-            "Summarize this part of the document. Keep specific facts and caveats.\n\n" + "\n\n".join(map_groups[0]),
-            "map",
-            1,
-        )]
-    else:
-        try:
-            configured_workers = int(os.getenv("SUMMARIZATION_MAX_WORKERS", str(DEFAULT_MAX_WORKERS)))
-        except (TypeError, ValueError):
-            configured_workers = DEFAULT_MAX_WORKERS
-        max_workers = max(1, min(len(map_groups), configured_workers))
+        prompt = (
+            f"Summarize this part of the document{lang_phrase}. Keep specific facts and caveats.\n\n"
+            + "\n\n".join(map_groups[0])
+        )
+        return _invoke(llm, prompt, "map", 1, target_language=target_language)
 
-        def _map_worker(item: tuple[int, list[str]]) -> tuple[int, str]:
-            idx, grp = item
-            prompt = "Summarize this part of the document. Keep specific facts and caveats.\n\n" + "\n\n".join(grp)
-            return idx, _invoke(llm, prompt, "map", idx)
+    # =========================================================================
+    # TRƯỜNG HỢP 2: TÀI LIỆU DÀI (nhiều hơn 1 nhóm > ngân sách token)
+    # Bắt buộc phải thực hiện quy trình MAP - REDUCE đệ quy nhiều tầng
+    # =========================================================================
+    # Pha 1 (Map): Chạy tuần tự từng nhóm để tránh nghẽn trần Rate Limit (8.000 TPM)
+    summaries: list[str] = []
+    for group_number, group in enumerate(map_groups, start=1):
+        prompt = (
+            f"Summarize this part of the document{lang_phrase}. Keep specific facts and caveats.\n\n"
+            + "\n\n".join(group)
+        )
+        summaries.append(_invoke(llm, prompt, "map", group_number, target_language=target_language))
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            map_results = list(executor.map(_map_worker, enumerate(map_groups, start=1)))
-        map_results.sort(key=lambda x: x[0])
-        summaries = [res[1] for res in map_results]
-
+    # Pha 2 (Reduce): Tóm tắt đệ quy các bản tóm tắt trung gian cho đến khi còn đúng 1 bản
     level = 1
     while len(summaries) > 1:
         reduced = []
@@ -194,36 +264,16 @@ def _execute_map_reduce(
             if len(groups) >= len(summaries) and smaller_budget == 256:
                 raise RuntimeError("Document summaries are too large to reduce safely.")
 
-        if len(groups) == 1:
-            reduced = [_invoke(
-                llm,
-                "Combine these summaries into one faithful summary. Preserve key "
+        for group_number, group in enumerate(groups, start=1):
+            prompt = (
+                f"Combine these summaries into one faithful summary{lang_phrase}. Preserve key "
                 "claims, definitions, numbers, conditions, and conclusions; remove "
-                "repetition and do not add facts.\n\n" + "\n\n".join(groups[0]),
-                f"reduce level {level}",
-                1,
-            )]
-        else:
-            try:
-                configured_workers = int(os.getenv("SUMMARIZATION_MAX_WORKERS", str(DEFAULT_MAX_WORKERS)))
-            except (TypeError, ValueError):
-                configured_workers = DEFAULT_MAX_WORKERS
-            max_workers = max(1, min(len(groups), configured_workers))
-
-            def _reduce_worker(item: tuple[int, list[str], int]) -> tuple[int, str]:
-                idx, grp, lvl = item
-                prompt = (
-                    "Combine these summaries into one faithful summary. Preserve key "
-                    "claims, definitions, numbers, conditions, and conclusions; remove "
-                    "repetition and do not add facts.\n\n" + "\n\n".join(grp)
-                )
-                return idx, _invoke(llm, prompt, f"reduce level {lvl}", idx)
-
-            worker_inputs = [(i, g, level) for i, g in enumerate(groups, start=1)]
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                reduce_results = list(executor.map(_reduce_worker, worker_inputs))
-            reduce_results.sort(key=lambda x: x[0])
-            reduced = [res[1] for res in reduce_results]
+                "repetition and do not add facts.\n\n"
+                + "\n\n".join(group)
+            )
+            reduced.append(
+                _invoke(llm, prompt, f"reduce level {level}", group_number, target_language=target_language)
+            )
 
         if len(reduced) >= len(summaries):
             raise RuntimeError("Document summarization could not make progress reducing intermediate summaries.")
@@ -238,8 +288,9 @@ def summarize_documents(
     llm=None,
     *,
     input_token_budget: int | None = None,
+    target_language: str = "auto",
 ) -> str:
-    """Summarize all supplied chunks with recursive map-reduce passes.
+    """Summarize supplied chunks with sequential recursive map-reduce passes.
 
     Tách context theo tác vụ:
     - Xác thực và cô lập hoàn toàn tài liệu: chỉ đưa các chunk và summary cần thiết
@@ -253,8 +304,8 @@ def summarize_documents(
     effective_chunk_budget = max(256, budget - prompt_overhead) if budget > prompt_overhead else budget
 
     if llm is not None:
-        return _execute_map_reduce(clean_documents, llm, effective_chunk_budget)
+        return _execute_map_reduce(clean_documents, llm, effective_chunk_budget, target_language=target_language)
 
-    primary_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
+    primary_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-120b")
     active_llm = _build_groq_llm(primary_model)
-    return _execute_map_reduce(clean_documents, active_llm, effective_chunk_budget)
+    return _execute_map_reduce(clean_documents, active_llm, effective_chunk_budget, target_language=target_language)

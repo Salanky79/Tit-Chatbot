@@ -552,14 +552,22 @@ def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
 def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     """Lưu một đoạn bộ nhớ dài hạn vào collection ``long_term_memory``.
 
+    Bộ nhớ dài hạn được liên kết trực tiếp với ``user_id`` để dùng chung xuyên suốt
+    cho TẤT CẢ các cuộc trò chuyện của người dùng đó (Cross-chat memory).
+
     Args:
         thread_id: ID luồng chat.
         memory: Nội dung cần ghi nhớ.
-        user_id: ID người dùng (nếu có) để cách ly bộ nhớ.
+        user_id: ID người dùng (nếu có) để gắn kết và cách ly bộ nhớ.
 
     Returns:
         Chuỗi xác nhận thành công.
     """
+    if not user_id and thread_id:
+        conv = get_conversation(thread_id)
+        if conv and conv.get("user_id"):
+            user_id = str(conv["user_id"])
+
     coll = get_collection("long_term_memory")
     doc: dict[str, Any] = {
         "thread_id": thread_id,
@@ -572,25 +580,73 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     return "Memory saved successfully."
 
 
-def search_memory(thread_id: str, query: str, user_id: str | None = None) -> str:
-    """Tìm kiếm bộ nhớ dài hạn theo ``query`` (regex, case-insensitive).
+def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -> str:
+    """Tìm kiếm bộ nhớ dài hạn của người dùng trên TẤT CẢ các cuộc trò chuyện.
+
+    - Nếu user_id được xác định (trực tiếp hoặc qua thread_id), tìm kiếm trên TOÀN BỘ
+      các ký ức của user_id đó bất kể được lưu từ cuộc trò chuyện nào.
+    - Đảm bảo cô lập tuyệt đối: Chỉ lấy ký ức của đúng user đó, không lẫn sang user khác.
+    - Hỗ trợ câu hỏi tự nhiên và tìm kiếm từ khóa linh hoạt:
+      + Nếu query chung chung (ví dụ: 'tất cả', 'về tôi', 'nhớ gì', 'bạn nhớ gì về tôi', ''): lấy toàn bộ ký ức của user.
+      + Nếu query cụ thể (ví dụ: 'tôi tên là gì', 'sở thích'): trích xuất từ khóa chính để tìm kiếm chính xác.
 
     Args:
-        thread_id: ID luồng chat.
-        query: Từ khóa tìm kiếm.
+        thread_id: ID luồng chat hiện tại.
+        query: Từ khóa hoặc câu hỏi tìm kiếm.
         user_id: ID người dùng để lọc đúng bộ nhớ của user.
 
     Returns:
         Chuỗi kết quả, mỗi dòng là một mục nhớ, hoặc thông báo không tìm thấy.
     """
+    if not user_id and thread_id:
+        conv = get_conversation(thread_id)
+        if conv and conv.get("user_id"):
+            user_id = str(conv["user_id"])
+
     coll = get_collection("long_term_memory")
-    search_filter: dict[str, Any] = {
-        "memory": {"$regex": query, "$options": "i"},
-    }
+
+    # 1. Điều kiện cô lập theo user_id hoặc fallback thread_id
+    base_filter: dict[str, Any] = {}
     if user_id:
-        search_filter["user_id"] = str(user_id)
+        base_filter["user_id"] = str(user_id)
     else:
-        search_filter["thread_id"] = thread_id
+        base_filter["thread_id"] = thread_id
+
+    # 2. Xử lý query tìm kiếm linh hoạt
+    clean_query = (query or "").strip().lower()
+    generic_markers = {
+        "", "all", "everything", "any", "me", "about me", "my profile",
+        "tất cả", "tat ca", "về tôi", "ve toi", "thông tin", "thong tin",
+        "nhớ gì", "nho gi", "bạn nhớ gì", "ban nho gi", "thông tin về tôi",
+        "thong tin ve toi", "nhớ", "nho", "gì về tôi", "gi ve toi"
+    }
+
+    if not clean_query or clean_query in generic_markers:
+        search_filter = base_filter
+    else:
+        # Tách các từ khóa có nghĩa để tìm kiếm linh hoạt hơn
+        stop_words = {
+            "là", "gì", "của", "tôi", "cho", "biết", "what", "is", "my",
+            "the", "a", "an", "do", "you", "remember", "about", "bạn",
+            "có", "nhớ", "nào", "không", "ko"
+        }
+        words = [
+            w for w in re.split(r"[\s,;?!\.]+", clean_query)
+            if len(w) > 1 and w not in stop_words
+        ]
+        if words:
+            # Khớp câu gốc HOẶC khớp bất kỳ từ khóa chính nào
+            patterns = [re.escape(clean_query)] + [re.escape(w) for w in words]
+            combined = "|".join(patterns)
+            search_filter = {
+                **base_filter,
+                "memory": {"$regex": combined, "$options": "i"},
+            }
+        else:
+            search_filter = {
+                **base_filter,
+                "memory": {"$regex": re.escape(clean_query), "$options": "i"},
+            }
 
     cursor = (
         coll.find(

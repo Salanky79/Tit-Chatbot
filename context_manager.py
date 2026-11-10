@@ -287,6 +287,7 @@ def summarize_old_messages(
             )),
             HumanMessage(content=prompt_content),
         ])
+        log_token_usage(summary_model, "Conversation Trimming Summary", response)
         content = getattr(response, "content", "")
         if isinstance(content, str) and content.strip():
             text = content.strip()
@@ -500,6 +501,35 @@ def is_isolated_document_task(messages: Sequence[BaseMessage]) -> bool:
     ]
     if any(marker in lower_content for marker in attachment_markers):
         return True
+
+    # Nếu không có tệp đính kèm mới, kiểm tra xem tin nhắn trước có phải là bản tóm tắt vừa tạo không.
+    # Nếu tin nhắn trước đã là bản tóm tắt và người dùng đang yêu cầu dịch / viết lại sang tiếng khác
+    # (ví dụ: "hãy tóm tắt bằng tiếng việt", "dịch sang tiếng việt", "translate to english"):
+    # ĐÂY LÀ HỘI THOẠI TIẾP NỐI, KHÔNG PHẢI TÁC VỤ ĐỘC LẬP MỚI -> Giữ lại ngữ cảnh để LLM dịch trực tiếp!
+    has_recent_summary = False
+    for msg in reversed(messages[:-1]):
+        if isinstance(msg, AIMessage):
+            content_str = str(getattr(msg, "content", ""))
+            if "Summary of " in content_str or "Tóm tắt" in content_str:
+                has_recent_summary = True
+                break
+
+    if has_recent_summary:
+        followup_translation_markers = [
+            "tiếng việt",
+            "tiếng anh",
+            "tieng viet",
+            "tieng anh",
+            "dịch",
+            "dich",
+            "translate",
+            "vietnamese",
+            "english",
+            "bản dịch",
+            "ban dich",
+        ]
+        if any(marker in lower_content for marker in followup_translation_markers):
+            return False
 
     # Dấu hiệu 2: Từ khóa tóm tắt tài liệu hoặc yêu cầu đọc tài liệu cụ thể
     doc_keywords = [
@@ -720,3 +750,84 @@ def prepare_context_for_llm(
 
     final_messages = system_messages + budgeted_messages
     return final_messages, updated_summary
+
+
+# =============================================================================
+# THEO DÕI VÀ GHI LOG SỐ LƯỢNG TOKEN GROQ (TOKEN USAGE MONITORING)
+# =============================================================================
+
+_SESSION_TOKEN_STATS = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "calls_count": 0,
+}
+
+
+def extract_token_usage(response: Any) -> dict[str, int]:
+    """Trích xuất số lượng token từ response của LangChain / ChatGroq.
+
+    Hỗ trợ cả response.usage_metadata (chuẩn LangChain)
+    và response.response_metadata['token_usage'] (từ Groq API raw).
+    """
+    if response is None:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    usage = getattr(response, "usage_metadata", None)
+    if isinstance(usage, dict) and usage:
+        prompt = int(usage.get("input_tokens") or 0)
+        completion = int(usage.get("output_tokens") or 0)
+        total = int(usage.get("total_tokens") or (prompt + completion))
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": total,
+        }
+
+    resp_meta = getattr(response, "response_metadata", {}) or {}
+    token_usage = resp_meta.get("token_usage", {}) or {}
+    if isinstance(token_usage, dict) and token_usage:
+        prompt = int(token_usage.get("prompt_tokens") or 0)
+        completion = int(token_usage.get("completion_tokens") or 0)
+        total = int(token_usage.get("total_tokens") or (prompt + completion))
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": total,
+        }
+
+    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def log_token_usage(model_name: str, task: str, response: Any) -> dict[str, int]:
+    """Ghi log chi tiết số lượng token đã tiêu thụ sau mỗi lần gọi ChatGroq API.
+
+    - In ra Git Bash / Console dạng chuẩn: Model, Tác vụ, Prompt, Completion, Total, Tích lũy phiên.
+    - Cập nhật số token tích lũy toàn phiên (_SESSION_TOKEN_STATS).
+    - Trả về dictionary thông số token.
+    """
+    usage = extract_token_usage(response)
+    prompt_tokens = usage["prompt_tokens"]
+    completion_tokens = usage["completion_tokens"]
+    total_tokens = usage["total_tokens"]
+
+    if total_tokens > 0:
+        _SESSION_TOKEN_STATS["prompt_tokens"] += prompt_tokens
+        _SESSION_TOKEN_STATS["completion_tokens"] += completion_tokens
+        _SESSION_TOKEN_STATS["total_tokens"] += total_tokens
+        _SESSION_TOKEN_STATS["calls_count"] += 1
+
+        session_total = _SESSION_TOKEN_STATS["total_tokens"]
+        calls = _SESSION_TOKEN_STATS["calls_count"]
+
+        log_msg = (
+            f"[Groq-Usage] Model: '{model_name}' | Tác vụ: {task} | "
+            f"Prompt: {prompt_tokens:,} | Output: {completion_tokens:,} | "
+            f"Lần này: {total_tokens:,} tokens | "
+            f"Tích lũy phiên ({calls} cuộc gọi): {session_total:,} tokens"
+        )
+        logger.info(log_msg)
+        print(log_msg, flush=True)
+
+    return usage
+
