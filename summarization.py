@@ -18,8 +18,8 @@ from context_manager import validate_and_isolate_summarization_context, log_toke
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_INPUT_TOKEN_BUDGET = 4500
-SUMMARY_OUTPUT_TOKENS = 1200
+DEFAULT_INPUT_TOKEN_BUDGET = 3500
+SUMMARY_OUTPUT_TOKENS = 900
 
 
 def estimate_tokens(text: str) -> int:

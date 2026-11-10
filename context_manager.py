@@ -32,32 +32,33 @@ logger = logging.getLogger(__name__)
 
 # Cấu hình mặc định (có thể điều chỉnh qua biến môi trường)
 DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "2"))
-DEFAULT_MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
-DEFAULT_EXPECTED_OUTPUT_TOKENS = int(os.getenv("EXPECTED_OUTPUT_TOKENS", "1200"))
-DEFAULT_MAX_TOOL_RESULT_TOKENS = int(os.getenv("MAX_TOOL_RESULT_TOKENS", "1800"))
+DEFAULT_MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2800"))
+DEFAULT_EXPECTED_OUTPUT_TOKENS = int(os.getenv("EXPECTED_OUTPUT_TOKENS", "800"))
+DEFAULT_MAX_TOOL_RESULT_TOKENS = int(os.getenv("MAX_TOOL_RESULT_TOKENS", "1000"))
 
 # Model helper dùng cho tóm tắt background để bảo vệ quota TPM của model chính
 SUMMARY_BACKGROUND_MODEL = "openai/gpt-oss-20b"
 
 # Ngân sách token động theo model nhằm ngăn chặn triệt để lỗi Groq Rate Limit 429 TPM
+# Cả 3 mô hình trên Groq Free Tier (GPT-OSS 20B, GPT-OSS 120B, Qwen 3.8 27B) đều có chung hạn ngạch:
+# 8.000 TPM (Tokens Per Minute), 200.000 TPD (Tokens Per Day), 30 RPM và 1.000 RPD.
+# Cần giới hạn tổng context <= 2,800 token và output <= 800 token để 2 lần gọi trong 1 lượt
+# (Tool Call Request + Answer) không bao giờ chạm trần 8.000 TPM.
 MODEL_TOKEN_BUDGETS = {
-    # Groq free tier limit cho gpt-oss-120b chỉ có 8,000 TPM
-    # Cần giới hạn tổng context <= 2,800 token để 2 lần gọi trong 1 lượt (tool call + answer) <= 7,000 TPM
     "openai/gpt-oss-120b": {
         "max_context_tokens": 2800,
         "max_tool_result_tokens": 1000,
         "expected_output_tokens": 800,
     },
-    # gpt-oss-20b có giới hạn TPM cao (> 150,000 TPM)
     "openai/gpt-oss-20b": {
-        "max_context_tokens": 6000,
-        "max_tool_result_tokens": 1800,
-        "expected_output_tokens": 1200,
+        "max_context_tokens": 2800,
+        "max_tool_result_tokens": 1000,
+        "expected_output_tokens": 800,
     },
     "qwen/qwen3.8-27b": {
-        "max_context_tokens": 5000,
-        "max_tool_result_tokens": 1500,
-        "expected_output_tokens": 1000,
+        "max_context_tokens": 2800,
+        "max_tool_result_tokens": 1000,
+        "expected_output_tokens": 800,
     },
 }
 
@@ -277,7 +278,7 @@ def summarize_old_messages(
         llm = ChatGroq(
             model=summary_model,
             temperature=0.1,
-            max_tokens=400,
+            max_tokens=250,
             request_timeout=4.0,
         )
         response = llm.invoke([

@@ -14,9 +14,9 @@ from context_manager import estimate_tokens, log_token_usage
 
 logger = logging.getLogger(__name__)
 
-MAX_FOLLOWUP_USER_TOKENS = 250
-MAX_FOLLOWUP_ANSWER_TOKENS = 500
-FOLLOWUP_OUTPUT_TOKENS = 512
+MAX_FOLLOWUP_USER_TOKENS = 150
+MAX_FOLLOWUP_ANSWER_TOKENS = 250
+FOLLOWUP_OUTPUT_TOKENS = 128
 
 
 def _clean_content_for_followup(text: str, max_tokens_limit: int) -> str:

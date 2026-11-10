@@ -288,16 +288,20 @@ flowchart LR
 
 ### Bước 4: Kiểm soát token trước khi gọi LLM (Token Budget Enforcement)
 - **Hàm:** `get_model_token_budget`, `estimate_tokens`, `estimate_message_tokens`, `estimate_tool_schemas_tokens`, `calculate_token_breakdown`, `enforce_token_budget`.
-- **Ngân sách động theo từng mô hình (Dynamic Model Token Budgets):**
-  - **`openai/gpt-oss-120b`:** Groq Free Tier giới hạn nghiêm ngặt **8.000 TPM** (Tokens Per Minute). Hệ thống tự động thiết lập ngân sách an toàn:
-    - `max_context_tokens = 2800`
-    - `max_tool_result_tokens = 1000`
-    - `expected_output_tokens = 800`
-    $\rightarrow$ Đảm bảo 2 lần gọi trong 1 lượt (lập luận gọi tool + tổng hợp kết quả) không bao giờ vượt quá 7.000 token, giải quyết triệt để lỗi **Groq 429 Rate Limit**.
-  - **`openai/gpt-oss-20b`:** Ngân sách rộng rãi 6.000 context tokens (hạn ngạch Groq > 150.000 TPM).
-  - **`qwen/qwen3.8-27b`:** Ngân sách 5.000 context tokens.
-- **Cơ chế Fallback thông minh khi gặp Rate Limit (`app.py`):**
-  Nếu mô hình 120B gặp lỗi Rate Limit 429 từ Groq, hệ thống không làm gián đoạn người dùng hoặc văng lỗi JSON thô, mà gửi thông báo chuyển tiếp mượt mà và tự động fallback sang `openai/gpt-oss-20b` để hoàn thành câu trả lời.
+- **Hạn mức Thực tế từ Groq Free Tier (Áp dụng cho TẤT CẢ các mô hình):**
+  Dựa trên cấu hình hạn mức trực tiếp từ Groq API:
+  | Hạn mức Groq | GPT-OSS 20B | GPT-OSS 120B | Qwen 3.8 27B |
+  |---|---|---|---|
+  | **Token/phút (TPM)** | **8.000** | **8.000** | **8.000** |
+  | **Token/ngày (TPD)** | **200.000** | **200.000** | **200.000** |
+  | **Request/phút (RPM)** | **30** | **30** | **30** |
+  | **Request/ngày (RPD)** | **1.000** | **1.000** | **1.000** |
+- **Chính sách Ngân sách Đồng bộ Cho Tất cả Mô hình (`MODEL_TOKEN_BUDGETS`):**
+  Vì cả 3 mô hình (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`) đều chia sẻ chung trần **8.000 TPM**, hệ thống áp dụng ngân sách kiểm soát nghiêm ngặt đồng nhất:
+  - `max_context_tokens = 2800`: Giới hạn tổng context đầu vào (System prompt + Tool schemas + History + Tool results).
+  - `max_tool_result_tokens = 1000`: Giới hạn kết quả thô của tool (RAG chunks, web search JSON).
+  - `expected_output_tokens = 800`: Giới hạn token đầu ra, truyền trực tiếp vào `ChatGroq(max_tokens=800)` để ngăn Groq rate limiter reserve dư thừa token.
+  $\rightarrow$ Đảm bảo tổng `Prompt + max_tokens` trong mỗi request chỉ $\le 3.600$ tokens. Khi một lượt chat thực hiện 2 lần gọi (Tool Call Request + Final Answer), tổng token tích lũy chỉ $\sim 5.100$ tokens, luôn thấp hơn ngưỡng 8.000 TPM và ngăn chặn triệt để lỗi **Groq 429 Rate Limit**.
 - **Công thức tính toán tổng token:**
   $$\text{Total Tokens} = T_{\text{system}} + T_{\text{tool\_schemas}} + T_{\text{history}} + T_{\text{tool\_results}} + \text{Reserved Output}$$
 
@@ -601,33 +605,33 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
 - Các hàm tra cứu với User Isolation filter: `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `add_image_to_rag`, `list_uploaded_images`.
 
 ### 6.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)
-- Ngân sách tóm tắt: `DEFAULT_INPUT_TOKEN_BUDGET = 4500` (được tối ưu hóa an toàn cho trần 8.000 TPM), `SUMMARY_OUTPUT_TOKENS = 1200`.
+- Ngân sách tóm tắt: `DEFAULT_INPUT_TOKEN_BUDGET = 3500` (được tối ưu hóa an toàn cho trần 8.000 TPM), `SUMMARY_OUTPUT_TOKENS = 900`.
 - Hàm `_groups_by_budget`: Đóng gói các đoạn văn bản vào từng nhóm dựa theo ngân sách token thực tế đã trừ hao overhead.
 - Hàm `_invoke`:
   * Tự động điều chỉnh quy tắc ngôn ngữ theo `target_language` (`auto`, `Vietnamese`, `English`).
   * Đo lường token qua `log_token_usage`.
   * Bắt lỗi Rate Limit 429: Phân biệt chính xác giữa 8.000 TPM (nghẽn phút $\rightarrow$ tự động sleep và retry trong vòng lặp) và 200.000 TPD (hết quota ngày $\rightarrow$ fail-fast dừng ngay).
 - Hàm `summarize_documents`:
-  * Tự thích ứng: Nếu tài liệu $\le 4.500$ tokens, tóm tắt trực tiếp trong 1 pass duy nhất.
+  * Tự thích ứng: Nếu tài liệu $\le 3.500$ tokens, tóm tắt trực tiếp trong 1 pass duy nhất.
   * Nếu tài liệu dài: chạy Map tuần tự kiểm soát quota TPM, sau đó Reduce đệ quy đa tầng.
 
 ### 6.7. Thị giác máy tính (`image_analysis.py`)
 - Giới hạn kích thước ảnh: $\le 14\text{ MB}$.
 - Hỗ trợ các định dạng: `.jpg`, `.jpeg`, `.png`, `.webp`.
 - Hàm `analyze_image`:
-  - Kiểm soát token câu hỏi trực quan: $\le 400$ token.
+  - Kiểm soát token câu hỏi trực quan: $\le 350$ token.
   - Đóng gói ảnh thành chuỗi Base64 Data URL.
-  - Gọi ChatGroq Vision model (`qwen/qwen3.8-27b`) với `max_tokens=1200`.
+  - Gọi ChatGroq Vision model (`qwen/qwen3.8-27b`) với `max_tokens=800` (hiệu chuẩn theo hạn mức 8.000 TPM của Qwen).
   - Ghi nhận token sử dụng qua `log_token_usage`.
 
 ### 6.8. Sinh gợi ý prompt tiếp nối (`followups.py`)
 - Hàm `generate_followup_questions`:
   - Lọc code blocks và dữ liệu thừa bằng `_clean_content_for_followup`.
-  - Giới hạn token đầu vào (user $\le 250$, assistant $\le 500$).
+  - Giới hạn token đầu vào nghiêm ngặt (user $\le 150$, assistant $\le 250$) và `max_tokens=128`.
   - System prompt định hướng tạo **User Prompt** (câu lệnh / yêu cầu từ góc nhìn người dùng gửi tới AI), tuyệt đối loại bỏ các đại từ và câu hỏi từ phía trợ lý.
   - Hàm `_clean_prompt_suggestion`: Bộ lọc hậu xử lý Regex tự động chuyển đổi mọi câu hỏi kiểu trợ lý còn sót thành câu lệnh hành động trực tiếp của người dùng.
-  - Luôn dùng model nhẹ `openai/gpt-oss-20b` để không tiêu tốn quota của model chính.
   - Ghi log token tiêu thụ qua `log_token_usage`.
+- Hàm `fallback_followup_questions`: Thuật toán sinh gợi ý prompt người dùng cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
 - Hàm `fallback_followup_questions`: Thuật toán sinh gợi ý prompt người dùng cục bộ hỗ trợ tiếng Việt và tiếng Anh khi model offline.
 
 ### 6.9. Cơ sở dữ liệu MongoDB DAL (`database.py` & `mongo_client.py`)
@@ -843,20 +847,20 @@ MONGODB_CHECKPOINT_DB=tit_chatbot_checkpoints
 # Số lượt chat gần nhất giữ trong active context trước khi tóm tắt (mặc định: 2 turns)
 MAX_HISTORY_TURNS=2
 
-# Ngân sách token tối đa cho mỗi lượt gọi LLM (mặc định: 6000 tokens)
-MAX_CONTEXT_TOKENS=6000
+# Ngân sách token tối đa cho mỗi lượt gọi LLM (hiệu chuẩn an toàn cho ngưỡng 8.000 TPM)
+MAX_CONTEXT_TOKENS=2800
 
-# Token dự kiến dành riêng cho LLM sinh câu trả lời (mặc định: 1200 tokens)
-EXPECTED_OUTPUT_TOKENS=1200
+# Token dự kiến dành riêng cho LLM sinh câu trả lời (mặc định: 800 tokens)
+EXPECTED_OUTPUT_TOKENS=800
 
-# Ngưỡng token tối đa cho kết quả công cụ active (mặc định: 1800 tokens)
-MAX_TOOL_RESULT_TOKENS=1800
+# Ngưỡng token tối đa cho kết quả công cụ active (mặc định: 1000 tokens)
+MAX_TOOL_RESULT_TOKENS=1000
 
 # ===========================================================================
 # Tóm tắt tài liệu Thích ứng & Đa luồng (summarization.py & agent.py)
 # ===========================================================================
 # Ngân sách token đầu vào an toàn cho 1 chunk tóm tắt (hiệu chuẩn theo 8.000 TPM limit)
-SUMMARIZATION_MAX_INPUT_TOKENS=4500
+SUMMARIZATION_MAX_INPUT_TOKENS=3500
 
 # Trả thẳng bản tóm tắt qua node emit_summary, bypass lượt gọi LLM re-run thứ hai (1 = bật, 0 = tắt)
 SUMMARY_DIRECT_RETURN=1

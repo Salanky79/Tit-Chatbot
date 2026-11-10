@@ -26,6 +26,7 @@ from tools import tools, SUMMARY_RESULT_PREFIX
 from context_manager import (
     prepare_context_for_llm,
     log_token_usage,
+    get_model_token_budget,
     DEFAULT_MAX_HISTORY_TURNS,
     DEFAULT_MAX_CONTEXT_TOKENS,
     DEFAULT_EXPECTED_OUTPUT_TOKENS,
@@ -154,11 +155,14 @@ def build_agent(model_name: str):
 
     # Đảm bảo tên model luôn hợp lệ
     selected_model = normalize_model_name(model_name)
+    budget = get_model_token_budget(selected_model)
+    max_output = budget.get("expected_output_tokens", 800)
 
-    # Initialize ChatGroq
+    # Initialize ChatGroq với max_tokens khớp với budget (800 tokens) để bảo vệ ngưỡng 8.000 TPM
     llm = ChatGroq(
         model=selected_model,
         temperature=0.3,    # Giảm tính sáng tạo ngẫu nhiên, ưu tiên câu trả lời chính xác, bám sát sự thật
+        max_tokens=max_output, # Giới hạn token output dự kiến, ngăn Groq rate limiter reserve quá trần 8.000 TPM
         streaming=True       # Hỗ trợ stream phản hồi theo thời gian thực về giao diện
     )
 

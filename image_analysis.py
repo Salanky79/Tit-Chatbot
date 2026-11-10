@@ -19,8 +19,8 @@ SUPPORTED_IMAGE_TYPES = {
     ".webp": "image/webp",
 }
 MAX_IMAGE_BYTES = 14 * 1024 * 1024
-MAX_IMAGE_QUESTION_TOKENS = 400
-VISION_OUTPUT_TOKENS = 1200
+MAX_IMAGE_QUESTION_TOKENS = 350
+VISION_OUTPUT_TOKENS = 800
 
 
 def analyze_image(image_path: str, question: str, llm=None) -> str:
