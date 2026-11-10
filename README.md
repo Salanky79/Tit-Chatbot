@@ -202,7 +202,7 @@ flowchart TD
 Khi người dùng yêu cầu tóm tắt toàn bộ file (ví dụ sách, tiểu luận, giáo trình):
 1. Tool `summarize_uploaded_document` kiểm tra tên file cần tóm tắt trong thread hiện tại và tiếp nhận tham số `target_language: str = "auto"`.
 2. Hàm `get_document_chunks` đọc **toàn bộ các chunk** của file trong ChromaDB (sắp xếp tuần tự theo `page`, `start_index`, `chunk_index`), không dùng similarity search để tránh bỏ sót thông tin.
-3. Chuyển giao các chunk cho pipeline [`summarize_documents`](file:///d:/Tit-Chatbot/summarization.py#L286):
+3. Chuyển giao các chunk cho pipeline [`summarize_documents`](summarization.py):
    - **Tách biệt ngữ cảnh tuyệt đối (Step 3):** Hàm `validate_and_isolate_summarization_context` lọc sạch các chunk, chỉ truyền nội dung tài liệu và metadata trang vào pipeline, **tuyệt đối không đưa lịch sử chat vào**.
    - **Tự động bảo toàn ngôn ngữ gốc (`target_language="auto"`):** Nếu tài liệu gốc là tiếng Anh, bản tóm tắt được viết bằng tiếng Anh chuẩn xác; nếu tài liệu là tiếng Việt, viết bằng tiếng Việt. Nếu người dùng chỉ định rõ ngôn ngữ (ví dụ: *"tóm tắt bằng tiếng Việt"*), tool truyền `target_language="Vietnamese"`.
    - **Cơ chế Thích ứng (Single-Pass Stuffing):** Nếu tài liệu vừa và nhỏ ($\le 4.500$ tokens input budget, như bài tiểu luận ngắn), hệ thống thực hiện tóm tắt trong **1 lượt gọi LLM duy nhất**, hoàn thành chỉ trong ~4-6 giây.
