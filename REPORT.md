@@ -706,9 +706,76 @@ flowchart LR
 
 ---
 
-# PHẦN VII: CƠ CHẾ QUẢN LÝ NGƯỜI DÙNG & BỘ NHỚ DÀI HẠN (USER MANAGEMENT & LONG-TERM MEMORY)
+# PHẦN VII: CƠ CHẾ QUẢN LÝ NGƯỜI DÙNG & PHÂN QUYỀN HỘI THOẠI (USER MANAGEMENT & ACCESS CONTROL)
 
-## 1. Pipeline Đăng Ký, Đăng Nhập & Băm Mật Khẩu An Toàn (Registration, Auth & Bcrypt)
+## 1. Sơ Đồ Thực Thể Liên Kết Dữ Liệu Các Collections (Users, Sessions, Conversations, Chat Messages)
+
+```mermaid
+erDiagram
+    USERS ||--o{ SESSIONS : "cấp phát phiên (1:N)"
+    USERS ||--o{ CONVERSATIONS : "sở hữu cuộc trò chuyện (1:N)"
+    USERS ||--o{ CHAT_MESSAGES : "gửi tin nhắn (1:N)"
+    CONVERSATIONS ||--o{ CHAT_MESSAGES : "chứa các tin nhắn (1:N)"
+
+    USERS {
+        ObjectId id PK "_id duy nhất"
+        string username UK "Tên đăng nhập (Unique Index)"
+        string email UK "Địa chỉ email (Unique Index)"
+        string hashed_password "Mật khẩu băm bcrypt (Salt 12 rounds)"
+        string full_name "Họ và tên hiển thị người dùng"
+        string avatar_url "Đường dẫn ảnh đại diện uploads/avatars"
+        datetime created_at "Thời điểm tạo tài khoản"
+        datetime updated_at "Thời điểm cập nhật thông tin"
+    }
+
+    SESSIONS {
+        ObjectId id PK "_id duy nhất"
+        string session_id UK "Token URL-safe 32 bytes (Cookie tit_session)"
+        string user_id FK "Liên kết USERS._id"
+        datetime created_at "Thời điểm tạo phiên"
+        datetime expires_at "TTL Index: Tự động hết hạn và xóa sau 7 ngày"
+    }
+
+    CONVERSATIONS {
+        ObjectId id PK "_id duy nhất"
+        string thread_id UK "UUID phiên hội thoại duy nhất"
+        string user_id FK "Liên kết USERS._id (Cô lập dữ liệu người dùng)"
+        string title "Tiêu đề cuộc trò chuyện"
+        boolean is_pinned "Trạng thái ghim hội thoại"
+        datetime created_at "Thời điểm tạo"
+        datetime updated_at "Index: user_id + updated_at DESC"
+    }
+
+    CHAT_MESSAGES {
+        ObjectId id PK "_id duy nhất"
+        string thread_id FK "Liên kết CONVERSATIONS.thread_id"
+        string user_id FK "Liên kết USERS._id (Xác thực tác giả)"
+        string role "Vai trò: user / assistant"
+        string content "Nội dung văn bản tin nhắn"
+        datetime created_at "Index: thread_id + created_at ASC"
+    }
+```
+
+```mermaid
+flowchart LR
+    Browser["Trình duyệt Client\n(Cookie: tit_session = token)"] --> Route["FastAPI Request Handler\n(get_current_user)"]
+    Route --> SessColl[("Collection: SESSIONS\nsession_id = token\n-> user_id")]
+    SessColl --> UserColl[("Collection: USERS\n_id = user_id\n-> User Profile")]
+    UserColl --> ConvColl[("Collection: CONVERSATIONS\nuser_id = user.id\n-> Thread Isolation")]
+    ConvColl --> MsgColl[("Collection: CHAT_MESSAGES\nthread_id = conv.thread_id\nuser_id = user.id")]
+```
+
+* **Vị trí code:**
+  * Khởi tạo và thiết lập Index cho `users`, `sessions`, `conversations`, `chat_messages`: [`mongo_client.py` (Dòng 103–128)](file:///d:/Tit-Chatbot/mongo_client.py#L103-L128)
+  * Khởi tạo cơ sở dữ liệu (`init_db`): [`database.py` (Dòng 72–79)](file:///d:/Tit-Chatbot/database.py#L72-L79)
+  * Tạo và truy vấn tài khoản trong `users`: [`database.py` (Dòng 85–225)](file:///d:/Tit-Chatbot/database.py#L85-L225)
+  * Tạo và kiểm tra phiên làm việc trong `sessions`: [`database.py` (Dòng 295–340)](file:///d:/Tit-Chatbot/database.py#L295-L340)
+  * Lưu trữ và truy vấn cuộc trò chuyện trong `conversations`: [`database.py` (Dòng 348–440)](file:///d:/Tit-Chatbot/database.py#L348-L440)
+  * Lưu vết lịch sử tin nhắn vào `chat_messages`: [`database.py` (Dòng 486–545)](file:///d:/Tit-Chatbot/database.py#L486-L545)
+
+---
+
+## 2. Pipeline Đăng Ký, Đăng Nhập & Băm Mật Khẩu An Toàn (Registration, Auth & Bcrypt)
 
 ```mermaid
 flowchart TD
@@ -757,7 +824,7 @@ flowchart TD
 
 ---
 
-## 2. Pipeline Xác Thực Phiên 3 Tầng & Phân Quyền Hội Thoại (Session Verification & Access Control)
+## 3. Pipeline Xác Thực Phiên 3 Tầng & Phân Quyền Hội Thoại (Session Verification & Access Control)
 
 ```mermaid
 flowchart TD
@@ -806,7 +873,7 @@ flowchart TD
 
 ---
 
-## 3. Pipeline Quản Lý Hồ Sơ & Cập Nhật Ảnh Đại Diện (Profile & Avatar Management)
+## 4. Pipeline Quản Lý Hồ Sơ & Cập Nhật Ảnh Đại Diện (Profile & Avatar Management)
 
 ```mermaid
 flowchart TD
@@ -842,7 +909,31 @@ flowchart TD
 
 ---
 
-## 4. Pipeline Lưu Trữ Bộ Nhớ Dài Hạn (Long-term Memory Persistence - `remember_this`)
+# PHẦN VIII: CƠ CHẾ BỘ NHỚ DÀI HẠN XUYÊN CUỘC TRÒ CHUYỆN (CROSS-CHAT LONG-TERM MEMORY)
+
+## 1. Sơ Đồ Thực Thể Bộ Nhớ Dài Hạn (Long-term Memory Entity Schema)
+
+```mermaid
+erDiagram
+    USERS ||--o{ LONG_TERM_MEMORY : "sở hữu bộ nhớ dài hạn (1:N xuyên suốt)"
+    CONVERSATIONS ||--o{ LONG_TERM_MEMORY : "luồng nguồn tạo ký ức ban đầu (1:N)"
+
+    LONG_TERM_MEMORY {
+        ObjectId id PK "_id duy nhất"
+        string user_id FK "Liên kết USERS._id (Phạm vi truy hồi Cross-chat)"
+        string thread_id FK "Liên kết CONVERSATIONS.thread_id (Nguồn gốc)"
+        string memory "Nội dung ký ức cần ghi nhớ (Text Index)"
+        datetime created_at "Thời điểm ghi nhớ (Index sắp xếp DESC)"
+    }
+```
+
+* **Vị trí code:**
+  * Thiết lập Index cho `long_term_memory` (thread_id index + full-text index trên trường `memory`): [`mongo_client.py` (Dòng 129–138)](file:///d:/Tit-Chatbot/mongo_client.py#L129-L138)
+  * Cấu trúc lưu trữ và truy vấn bộ nhớ dài hạn: [`database.py` (Dòng 552–665)](file:///d:/Tit-Chatbot/database.py#L552-L665)
+
+---
+
+## 2. Pipeline Lưu Trữ Bộ Nhớ Dài Hạn (Long-term Memory Persistence - `remember_this`)
 
 ```mermaid
 flowchart TD
@@ -877,7 +968,7 @@ flowchart TD
 
 ---
 
-## 5. Pipeline Truy Xuất & Tìm Kiếm Bộ Nhớ Xuyên Cuộc Trò Chuyện (Cross-Chat Memory Recall - `recall_memory`)
+## 3. Pipeline Truy Xuất & Tìm Kiếm Bộ Nhớ Xuyên Cuộc Trò Chuyện (Cross-Chat Memory Recall - `recall_memory`)
 
 ```mermaid
 flowchart TD
@@ -921,7 +1012,7 @@ flowchart TD
 
 ---
 
-## 6. Pipeline Đồng Bộ Luồng & Biên Giới Cách Ly Bộ Nhớ Đa Người Dùng (Per-Request Threading & Isolation)
+## 4. Pipeline Đồng Bộ Luồng & Biên Giới Cách Ly Bộ Nhớ Đa Người Dùng (Per-Request Threading & Isolation)
 
 ```mermaid
 flowchart TD
@@ -959,6 +1050,7 @@ flowchart TD
   * Ràng buộc cô lập dữ liệu theo `user_id` trong `save_memory`: [`database.py` (Dòng 566–579)](file:///d:/Tit-Chatbot/database.py#L566-L579)
   * Ràng buộc cô lập dữ liệu theo `user_id` trong `search_memory`: [`database.py` (Dòng 601–614)](file:///d:/Tit-Chatbot/database.py#L601-L614)
   * Xóa thác đổ an toàn có kiểm tra quyền sở hữu (`delete_conversation`): [`database.py` (Dòng 463–479)](file:///d:/Tit-Chatbot/database.py#L463-L479)
+
 
 
 
