@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 MAX_FOLLOWUP_USER_TOKENS = 150
 MAX_FOLLOWUP_ANSWER_TOKENS = 250
-FOLLOWUP_OUTPUT_TOKENS = 128
+FOLLOWUP_OUTPUT_TOKENS = 256
 
 
 def _clean_content_for_followup(text: str, max_tokens_limit: int) -> str:
@@ -56,6 +56,12 @@ def _clean_prompt_suggestion(text: str) -> str:
     # Loại bỏ bullet points, số thứ tự ở đầu
     s = re.sub(r"^\s*(?:[-*•]+\s*|\d+[.)、\s-]\s*)", "", text).strip()
     s = s.strip("`\"' “”‘’")
+
+    # Bỏ qua các dòng tiêu đề / mở đầu (preamble header)
+    if s.endswith(":") or s.endswith("："):
+        return ""
+    if re.match(r"^(?:dưới đây|here are|sau đây|các gợi ý|gợi ý|suggested|suggestions|prompts|lưu ý)\b", s, re.I):
+        return ""
 
     # Loại bỏ các mẫu câu hỏi/gợi ý từ góc nhìn trợ lý (Vietnamese)
     # Ví dụ: "Bạn có muốn mở rộng chương trình... không?" -> "Mở rộng chương trình..."
@@ -111,11 +117,11 @@ def _parse_questions(raw: str) -> list[str]:
         # Split by non-empty lines
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if len(lines) >= 2:
-            candidates = lines[:2]
+            candidates = lines
         elif len(lines) == 1:
             split_candidates = re.split(r"(?<=[?？.!\n])\s+", lines[0])
             if len(split_candidates) >= 2:
-                candidates = split_candidates[:2]
+                candidates = split_candidates
             else:
                 candidates = lines
 

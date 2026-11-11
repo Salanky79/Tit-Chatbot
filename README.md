@@ -1,4 +1,4 @@
-# Tit Chatbot — Agentic AI Chatbot with RAG & Context Optimization
+# Tit Chatbot 3.0 — Agentic AI Chatbot with RAG & Context Optimization
 
 Tit Chatbot là một hệ thống chatbot AI toàn diện, đa phương thức (Multimodal Agentic AI) được phát triển bằng **Python 3.11+**, **FastAPI**, **LangGraph**, **Groq LLM**, **ChromaDB**, và **MongoDB**. 
 

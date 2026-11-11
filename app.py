@@ -372,7 +372,7 @@ async def pin_conversation(thread_id: str, request: Request):
         "message": "Đã ghim cuộc trò chuyện." if new_pinned else "Đã bỏ ghim cuộc trò chuyện."
     }
 
-
+# phân quyền truy cập cuộc trò chuyện dựa trên user_id của người dùng và thread_id của cuộc trò chuyện. Nếu người dùng không phải là chủ sở hữu của cuộc trò chuyện, họ sẽ nhận được lỗi 403 (Forbidden).
 @app.get("/history/{thread_id}")
 async def history(thread_id: str, request: Request):
     user = get_current_user(request)
