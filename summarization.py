@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
 import re
 import time
@@ -13,7 +12,8 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
-from context_manager import validate_and_isolate_summarization_context, log_token_usage
+from token_utils import estimate_tokens
+from usage_logging import log_token_usage
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +22,30 @@ DEFAULT_INPUT_TOKEN_BUDGET = 3500
 SUMMARY_OUTPUT_TOKENS = 900
 
 
-def estimate_tokens(text: str) -> int:
-    """Conservative token estimate that also works for Vietnamese text.
+def validate_and_isolate_summarization_context(
+    documents: Sequence[Document],
+) -> list[Document]:
+    """Pass only readable document text and necessary source metadata to summarization."""
+    if not documents:
+        raise ValueError("The selected document has no content to summarize.")
 
-    Uses a character bound (2.5 chars/token for Vietnamese with diacritics).
-    """
-    if not text:
-        return 0
-    return max(1, math.ceil(len(text) / 2.5))
+    isolated: list[Document] = []
+    for document in documents:
+        content = getattr(document, "page_content", "")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        raw_metadata = getattr(document, "metadata", {}) or {}
+        metadata = {
+            "source": raw_metadata.get("source", "document"),
+            "page": raw_metadata.get("page"),
+            "chunk_index": raw_metadata.get("chunk_index"),
+            "start_index": raw_metadata.get("start_index"),
+        }
+        isolated.append(Document(page_content=content.strip(), metadata=metadata))
+
+    if not isolated:
+        raise ValueError("The selected document has no readable content to summarize.")
+    return isolated
 
 
 def _input_budget() -> int:

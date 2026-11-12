@@ -2857,8 +2857,70 @@
         return true;
     }
 
-    function buildFallbackFollowups(message) {
-        return [];
+    function detectLikelyTool(message) {
+        const text = message.toLowerCase();
+
+        const mathPattern = /(\d+\s*[\+\-\*\/]\s*\d+)|calculate|calculation|math|solve/;
+        const imagePattern = /image|photo|picture|chart|diagram|ảnh|hình/;
+        const ragPattern = /document|pdf|file|uploaded|summarize|summary|according to|based on/;
+        const memorySavePattern = /remember that|save this|store this|keep in memory|memorize|nhớ|ghi nhớ|lưu lại/;
+        const memoryRecallPattern = /what do you remember|recall|my memory|remember about me|nhớ gì|tôi là ai/;
+
+        const webSearchPattern =
+            /latest|current|today|now|recent|news|search web|web search|internet|online|price|version|update|2025|2026|who is|what is happening|trending|release|new model|current ceo|latest version/;
+
+        if (memorySavePattern.test(text)) {
+            return "Memory Save";
+        }
+
+        if (memoryRecallPattern.test(text)) {
+            return "Memory Recall";
+        }
+
+        if (imagePattern.test(text)) {
+            return "Image Analysis";
+        }
+
+        if (ragPattern.test(text)) {
+            return "Document Search";
+        }
+
+        if (webSearchPattern.test(text)) {
+            return "Web Search";
+        }
+
+        if (mathPattern.test(text)) {
+            return "Calculator";
+        }
+
+        return null;
+    }
+
+    function addToolProgress(toolName) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "tool-progress";
+
+        const box = document.createElement("div");
+        box.className = "tool-progress-box";
+
+        const icon = document.createElement("span");
+        icon.className = "tool-spinner";
+
+        const text = document.createElement("span");
+        text.textContent = `Using ${toolName}...`;
+
+        box.appendChild(icon);
+        box.appendChild(text);
+        wrapper.appendChild(box);
+
+        chatContainer.appendChild(wrapper);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        return {
+            wrapper,
+            icon,
+            text
+        };
     }
 
     function completeToolProgress(toolProgress, toolName) {
@@ -3272,8 +3334,6 @@
         const botElement = addMessage("assistant", "");
 
         let firstTokenReceived = false;
-        let followupSuggestionsShown = false;
-
         function handleStreamData(data) {
             if (!data) return;
 
@@ -3282,8 +3342,7 @@
             }
 
             if (Array.isArray(data.suggestions)) {
-                followupSuggestionsShown = addFollowupSuggestions(data.suggestions, botElement)
-                    || followupSuggestionsShown;
+                addFollowupSuggestions(data.suggestions, botElement);
             }
 
             if (data.token !== undefined && data.token !== null) {
@@ -3316,13 +3375,6 @@
             }
 
             if (data.done) {
-                if (!followupSuggestionsShown) {
-                    followupSuggestionsShown = addFollowupSuggestions(
-                        buildFallbackFollowups(submittedMessage),
-                        botElement
-                    );
-                }
-
                 if (likelyTool && toolProgress && !firstTokenReceived) {
                     completeToolProgress(toolProgress, likelyTool);
                 }
@@ -3355,19 +3407,11 @@
                 }
 
                 botElement.textContent = errorText;
-                followupSuggestionsShown = addFollowupSuggestions(
-                    buildFallbackFollowups(submittedMessage),
-                    botElement
-                );
                 return;
             }
 
             if (!response.body) {
                 botElement.textContent = "Streaming is not supported by this browser.";
-                followupSuggestionsShown = addFollowupSuggestions(
-                    buildFallbackFollowups(submittedMessage),
-                    botElement
-                );
                 return;
             }
 
@@ -3416,12 +3460,6 @@
 
             botElement.dataset.raw = "**Something went wrong:** " + error.message;
             renderMarkdown(botElement, botElement.dataset.raw);
-            if (!followupSuggestionsShown) {
-                followupSuggestionsShown = addFollowupSuggestions(
-                    buildFallbackFollowups(submittedMessage),
-                    botElement
-                );
-            }
 
         } finally {
             sendBtn.disabled = false;

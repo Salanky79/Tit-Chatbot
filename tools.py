@@ -273,13 +273,14 @@ def recall_memory(query: str = "") -> str:
 
     CRITICAL RULES FOR CALLING THIS TOOL:
     - If the user asks general questions about themselves or asks what you remember
-      (e.g., "Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "What do you remember about me?"):
-      --> ALWAYS pass query="" (empty string) to retrieve all recent memories.
+      (e.g., "Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "Tôi học ở đâu?", "What do you remember about me?"):
+      --> Pass query="" (empty string) to retrieve all recent profile memories.
     - If the user asks about a specific fact or topic
-      (e.g., "Tôi tên là gì?", "Tôi thích ăn món gì?", "Tôi học trường nào?", "Tôi đang làm nghề gì?"):
-      --> Extract and pass ONLY the specific core keyword into query
-          (e.g. query="tên", query="ăn", query="trường", query="nghề").
+      (e.g., "Tôi tên là gì?", "Tôi thích ăn món gì?", "Tôi học ở đâu / học trường nào?", "Tôi đang làm nghề gì?"):
+      --> Extract and pass a broad core root keyword (e.g. query="học", query="tên", query="việc", query="thích").
           DO NOT pass full conversational sentences like "bạn có nhớ tôi tên là gì".
+          DO NOT pass narrow synonyms that may not match literal text (e.g. prefer query="học" over "trường").
+      --> If unsure, pass query="" to load the user's profile memories.
 
     Returns a list of matching memory entries, or a message if none are found.
     """

@@ -627,9 +627,11 @@ def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -
 
     - Lọc **chỉ theo ``user_id``** và trạng thái ``is_deleted: False``.
     - Chỉ hoạt động khi đã đăng nhập (có user_id). Guest nhận thông báo yêu cầu đăng nhập.
-    - Nếu query rỗng (hoặc khoảng trắng): lấy danh sách các ký ức mới nhất của người dùng.
-    - Nếu có query: tìm kiếm chính xác theo từ khóa cốt lõi bằng regex an toàn (re.escape).
-    - Không hardcode stop-words hay generic markers — việc trích xuất từ khóa do LLM đảm nhận.
+    - Quy trình tìm kiếm linh hoạt (Tránh đứt gãy do từ đồng nghĩa như 'trường' vs 'Đại học'):
+      1. Khớp chính xác query bằng regex an toàn (re.escape).
+      2. Nếu query nhiều từ, thử khớp theo từng từ khóa độc lập (any word match).
+      3. Fallback: Nếu không tìm thấy hoặc query rỗng, trả về các ký ức gần nhất của người dùng
+         để LLM đối chiếu và nhận diện thông tin (ví dụ: 'học ở đâu' -> 'học tại Đại học UET').
 
     Args:
         thread_id: ID luồng chat hiện tại (không dùng để lọc, chỉ nhận để tương thích).
@@ -644,33 +646,46 @@ def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -
         return "Memory search is only available for signed-in users. Please sign in to recall memories."
 
     coll = get_collection("long_term_memory")
-
-    # Lọc duy nhất theo user_id (ObjectId) và chưa bị xóa
-    search_filter: dict[str, Any] = {"user_id": oid, "is_deleted": False}
-
     clean_query = (query or "").strip()
+
+    # 1. Thử tìm kiếm khớp cụm từ regex
     if clean_query:
-        search_filter["memory"] = {"$regex": re.escape(clean_query), "$options": "i"}
-
-    cursor = (
-        coll.find(
-            search_filter,
+        cursor = coll.find(
+            {"user_id": oid, "is_deleted": False, "memory": {"$regex": re.escape(clean_query), "$options": "i"}},
             {"_id": 0, "memory": 1},
-        )
-        .sort("created_at", -1)
-        .limit(20)
-    )
+        ).sort("created_at", -1).limit(20)
+        memories = [doc["memory"] for doc in cursor]
+        if memories:
+            return "\n".join(f"- {m}" for m in memories)
 
-    memories = [doc["memory"] for doc in cursor]
+        # 1b. Nếu query có nhiều từ (ví dụ 'học ở đâu', 'trường học'), tách từ để tìm khớp bất kỳ từ nào
+        words = [w for w in re.split(r"[\s,;?]+", clean_query) if len(w) >= 2]
+        if len(words) > 1:
+            pattern = "|".join(re.escape(w) for w in words)
+            cursor = coll.find(
+                {"user_id": oid, "is_deleted": False, "memory": {"$regex": pattern, "$options": "i"}},
+                {"_id": 0, "memory": 1},
+            ).sort("created_at", -1).limit(20)
+            memories = [doc["memory"] for doc in cursor]
+            if memories:
+                return "\n".join(f"- {m}" for m in memories)
 
-    if not memories:
+    # 2. Fallback: Nếu không khớp từ khóa (do từ đồng nghĩa hoặc query lệch) hoặc query rỗng:
+    # Lấy danh sách các ký ức gần nhất của người dùng để LLM tự đọc và suy luận thông tin
+    fallback_cursor = coll.find(
+        {"user_id": oid, "is_deleted": False},
+        {"_id": 0, "memory": 1},
+    ).sort("created_at", -1).limit(20)
+    recent_memories = [doc["memory"] for doc in fallback_cursor]
+
+    if not recent_memories:
         return "No saved memory found."
 
-    return "\n".join(f"- {m}" for m in memories)
+    return "\n".join(f"- {m}" for m in recent_memories)
 
 
 def find_memory_candidates(user_id: str | None = None, keyword: str = "") -> list[dict]:
-    """Bước 1 & 2: Tìm danh sách candidate memory theo từ khóa bằng regex escape.
+    """Bước 1 & 2: Tìm danh sách candidate memory theo từ khóa hoặc fallback danh sách gần nhất.
 
     Args:
         user_id: ID người dùng.
@@ -684,29 +699,46 @@ def find_memory_candidates(user_id: str | None = None, keyword: str = "") -> lis
         return []
 
     coll = get_collection("long_term_memory")
-    filter_q: dict[str, Any] = {
-        "user_id": oid,
-        "is_deleted": False,
-    }
-
     clean_keyword = (keyword or "").strip()
+
+    def _format_docs(cursor):
+        return [
+            {
+                "memory_id": str(doc["_id"]),
+                "memory": doc.get("memory", ""),
+                "version": int(doc.get("version", 1)),
+            }
+            for doc in cursor
+        ]
+
+    # 1. Khớp cụm từ regex
     if clean_keyword:
-        filter_q["memory"] = {"$regex": re.escape(clean_keyword), "$options": "i"}
+        cursor = coll.find(
+            {"user_id": oid, "is_deleted": False, "memory": {"$regex": re.escape(clean_keyword), "$options": "i"}},
+            {"_id": 1, "memory": 1, "version": 1, "updated_at": 1, "created_at": 1},
+        ).sort("updated_at", -1).limit(10)
+        candidates = _format_docs(cursor)
+        if candidates:
+            return candidates
 
-    cursor = (
-        coll.find(filter_q, {"_id": 1, "memory": 1, "version": 1, "updated_at": 1, "created_at": 1})
-        .sort("updated_at", -1)
-        .limit(10)
-    )
+        # 1b. Khớp bất kỳ từ nào nếu keyword có nhiều từ
+        words = [w for w in re.split(r"[\s,;?]+", clean_keyword) if len(w) >= 2]
+        if len(words) > 1:
+            pattern = "|".join(re.escape(w) for w in words)
+            cursor = coll.find(
+                {"user_id": oid, "is_deleted": False, "memory": {"$regex": pattern, "$options": "i"}},
+                {"_id": 1, "memory": 1, "version": 1, "updated_at": 1, "created_at": 1},
+            ).sort("updated_at", -1).limit(10)
+            candidates = _format_docs(cursor)
+            if candidates:
+                return candidates
 
-    candidates = []
-    for doc in cursor:
-        candidates.append({
-            "memory_id": str(doc["_id"]), # lấy id từ objectId để truyền vào update/delete
-            "memory": doc.get("memory", ""),
-            "version": int(doc.get("version", 1)),
-        })
-    return candidates
+    # 2. Fallback: Nếu không khớp hoặc keyword rỗng, trả về các ký ức gần nhất để người dùng lựa chọn
+    fallback_cursor = coll.find(
+        {"user_id": oid, "is_deleted": False},
+        {"_id": 1, "memory": 1, "version": 1, "updated_at": 1, "created_at": 1},
+    ).sort("updated_at", -1).limit(10)
+    return _format_docs(fallback_cursor)
 
 
 def update_memory_by_id(

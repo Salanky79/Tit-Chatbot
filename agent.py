@@ -23,24 +23,17 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from mongo_client import get_client
 from tools import tools, SUMMARY_RESULT_PREFIX
-from context_manager import (
-    prepare_context_for_llm,
-    log_token_usage,
-    get_model_token_budget,
-    DEFAULT_MAX_HISTORY_TURNS,
-    DEFAULT_MAX_CONTEXT_TOKENS,
-    DEFAULT_EXPECTED_OUTPUT_TOKENS,
-)
+from context_manager import prepare_context_for_llm
+from usage_logging import log_token_usage
 
 
 class AgentState(TypedDict, total=False):
     """Trạng thái hội thoại mở rộng cho Agentic Chatbot:
 
     - messages: Danh sách tin nhắn trò chuyện được cộng dồn (add_messages).
-    - conversation_summary: Bản tóm tắt các lượt hội thoại cũ đã được trim,
-      giúp duy trì ngữ cảnh dài hạn mà không làm tràn context window.
+    - conversation_summary: Ghi chú cũ trong checkpoint, được giữ để tương thích.
     """
-    # toàn bộ lịch sử phiên chat (HumanMessage, AIMessage, ToolMessage) được cộng dồn, có thể trim để giảm token
+    # Lịch sử được lưu đầy đủ; context_manager chọn lượt cần gửi ở mỗi lần gọi model.
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
 
@@ -105,8 +98,11 @@ General rules:
 - Cross-chat Long-term memory for each user:
   * To remember a new detail/preference (e.g. "Nhớ rằng tôi tên là...", "Lưu lại điều này...", "Remember that..."): call `remember_this`.
   * To recall personal details/preferences:
-    - If the user asks general questions ("Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "What do you remember about me?"): call `recall_memory(query="")` with an empty string to view all memories.
-    - If the user asks about a specific topic ("Tôi tên là gì?", "Tôi học trường nào?", "Tôi thích gì?"): extract and pass ONLY the specific core keyword, e.g. `recall_memory(query="tên")` or `recall_memory(query="trường")`. Never pass full conversational sentences.
+    - If the user asks general questions about themselves or asks what you remember ("Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "Tôi học ở đâu?", "What do you remember about me?"):
+      Call `recall_memory(query="")` with an empty string or use a broad root keyword (e.g. query="học", query="tên", query="việc", query="thích").
+    - If the user asks about a specific fact or topic:
+      Extract and pass ONLY a broad core root keyword (e.g. query="tên", query="học", query="việc", query="thích"). Never pass full sentences or narrow synonyms.
+    - If unsure of the exact wording saved, call `recall_memory(query="")` to inspect all stored facts.
   * To update or change an existing memory (e.g. "Tôi đổi tên thành...", "Tôi chuyển nghề sang..."):
     Step 1: ALWAYS call `search_memory_candidates` with the relevant keyword (e.g. "tên", "nghề nghiệp") to inspect candidate entries, their memory_id, and version.
     Step 2: If exactly 1 matching candidate is found, immediately call `update_memory_entry` with its memory_id, new statement, and version.
@@ -167,14 +163,10 @@ def build_agent(model_name: str):
 
     # Đảm bảo tên model luôn hợp lệ
     selected_model = normalize_model_name(model_name)
-    budget = get_model_token_budget(selected_model)
-    max_output = budget.get("expected_output_tokens", 800)
 
-    # Initialize ChatGroq với max_tokens khớp với budget (800 tokens) để bảo vệ ngưỡng 8.000 TPM
     llm = ChatGroq(
         model=selected_model,
         temperature=0.3,    # Giảm tính sáng tạo ngẫu nhiên, ưu tiên câu trả lời chính xác, bám sát sự thật
-        max_tokens=max_output, # Giới hạn token output dự kiến, ngăn Groq rate limiter reserve quá trần 8.000 TPM
         streaming=True       # Hỗ trợ stream phản hồi theo thời gian thực về giao diện
     )
 
@@ -183,14 +175,8 @@ def build_agent(model_name: str):
 
     def chatbot_node(state: AgentState):
         """
-        Node xử lý hội thoại của Chatbot:
-        Thực hiện tuần tự 4 bước tối ưu ngữ cảnh & token trước khi gọi LLM:
-        1. Trimming conversation history: Giới hạn số lượt chat đưa vào LLM, tóm tắt các lượt cũ.
-        2. Loại bỏ tool results cũ: Loại bỏ kết quả web search, RAG hoặc nội dung tool dài
-           không liên quan từ các lượt đã hoàn thành.
-        3. Tách context theo tác vụ: Đảm bảo prompt đưa vào LLM hoàn toàn tập trung vào hội thoại.
-        4. Giới hạn token trước mỗi lần gọi LLM: Tính cả system prompt, lịch sử, tool schemas,
-           tài liệu và output dự kiến; tự động trim / chia nhỏ nếu quá giới hạn.
+        Chọn các lượt hội thoại hoàn chỉnh cần thiết, bỏ tool results cũ,
+        rồi giới hạn prompt theo ngân sách cấu hình trước khi gọi LLM.
         """
         existing_summary = state.get("conversation_summary", "")
 

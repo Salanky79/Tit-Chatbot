@@ -1,253 +1,136 @@
-"""Generate two user-prompt follow-up suggestions for each chat turn."""
+"""Generate two concise, structured follow-up prompts for a completed answer."""
 
 from __future__ import annotations
 
-import json
 import logging
-import re
+import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
+from pydantic import BaseModel, Field
 
-from context_manager import estimate_tokens, log_token_usage
+from token_utils import estimate_tokens, truncate_text_to_tokens
+from usage_logging import log_token_usage
 
 
 logger = logging.getLogger(__name__)
 
-MAX_FOLLOWUP_USER_TOKENS = 150
-MAX_FOLLOWUP_ANSWER_TOKENS = 250
-FOLLOWUP_OUTPUT_TOKENS = 256
 
-
-def _clean_content_for_followup(text: str, max_tokens_limit: int) -> str:
-    """Loại bỏ code blocks dài, tool dumps thô và giới hạn token cho followup."""
-    if not text:
-        return ""
-    # Thay thế các khối code dài bằng placeholder ngắn gọn
-    cleaned = re.sub(r"```[\w]*\n[\s\S]{100,}?```", "[Code snippet omitted]", text)
-    # Loại bỏ các tag đính kèm file hoặc ảnh
-    cleaned = re.sub(r"\[\s*Attached\s+(?:file|image):[^\]]+\]", " ", cleaned, flags=re.I)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
-    if estimate_tokens(cleaned) > max_tokens_limit:
-        max_chars = max_tokens_limit * 3
-        cleaned = cleaned[:max_chars] + "..."
-    return cleaned
-
-
-def _response_text(response) -> str:
-    content = getattr(response, "content", response)
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        return "".join(
-            part if isinstance(part, str) else part.get("text", "")
-            for part in content
-            if isinstance(part, str) or (isinstance(part, dict) and part.get("type") == "text")
-        ).strip()
-    return ""
-
-
-def _clean_prompt_suggestion(text: str) -> str:
-    """Chuẩn hóa một gợi ý prompt từ góc nhìn người dùng, loại bỏ các từ mở đầu kiểu trợ lý hỏi người dùng."""
-    if not text:
-        return ""
-
-    # Loại bỏ bullet points, số thứ tự ở đầu
-    s = re.sub(r"^\s*(?:[-*•]+\s*|\d+[.)、\s-]\s*)", "", text).strip()
-    s = s.strip("`\"' “”‘’")
-
-    # Bỏ qua các dòng tiêu đề / mở đầu (preamble header)
-    if s.endswith(":") or s.endswith("："):
-        return ""
-    if re.match(r"^(?:dưới đây|here are|sau đây|các gợi ý|gợi ý|suggested|suggestions|prompts|lưu ý)\b", s, re.I):
-        return ""
-
-    # Loại bỏ các mẫu câu hỏi/gợi ý từ góc nhìn trợ lý (Vietnamese)
-    # Ví dụ: "Bạn có muốn mở rộng chương trình... không?" -> "Mở rộng chương trình..."
-    s = re.sub(
-        r"^(?:bạn có muốn|bạn có cần|bạn muốn|bạn có quan tâm (?:đến|tới)?|bạn có thích|bạn có tò mò|có muốn)\s+",
-        "",
-        s,
-        flags=re.I,
-    ).strip()
-    # Loại bỏ đuôi nghi vấn kiểu trợ lý hỏi ý người dùng ở cuối câu
-    s = re.sub(r"\s+(?:không|ko|chăng)\s*[?？]?$", "", s, flags=re.I).strip()
-
-    # Loại bỏ các mẫu trợ lý hỏi người dùng (English)
-    # Ví dụ: "Would you like to know how to..." -> "How to..."
-    s = re.sub(
-        r"^(?:would you like (?:to (?:know|learn|see|explore|find out))?|do you want (?:to (?:know|learn|see|explore|find out))?|are you interested in|would you prefer (?:to)?)\s+",
-        "",
-        s,
-        flags=re.I,
-    ).strip()
-
-    # Viết hoa chữ cái đầu nếu bị viết thường sau khi cắt bỏ tiền tố
-    if s and s[0].islower():
-        s = s[0].upper() + s[1:]
-
-    return s.strip()
-
-
-# Alias for backward compatibility
-_clean_question = _clean_prompt_suggestion
-
-
-def _parse_questions(raw: str) -> list[str]:
-    """Parse JSON or newline-separated suggested prompts from model output."""
-    text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", raw.strip(), flags=re.I)
-    candidates: list[str] = []
-
+def _int_setting(name: str, default: int, minimum: int = 1) -> int:
     try:
-        payload = json.loads(text)
-        if isinstance(payload, dict):
-            payload = (
-                payload.get("prompts")
-                or payload.get("suggestions")
-                or payload.get("questions")
-                or payload.get("followups", [])
-            )
-        if isinstance(payload, list):
-            candidates.extend(item for item in payload if isinstance(item, str))
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    if not candidates:
-        # Split by non-empty lines
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            candidates = lines
-        elif len(lines) == 1:
-            split_candidates = re.split(r"(?<=[?？.!\n])\s+", lines[0])
-            if len(split_candidates) >= 2:
-                candidates = split_candidates
-            else:
-                candidates = lines
-
-    suggestions = []
-    for candidate in candidates:
-        cleaned = _clean_prompt_suggestion(candidate)
-        if cleaned and cleaned.casefold() not in {s.casefold() for s in suggestions}:
-            suggestions.append(cleaned)
-        if len(suggestions) == 2:
-            break
-    return suggestions if len(suggestions) == 2 else []
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value >= minimum else default
 
 
-VIETNAMESE_ACCENTS = (
-    "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
-    "ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ"
-)
+def _float_setting(name: str, default: float, minimum: float = 0.1) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value >= minimum else default
 
 
-def fallback_followup_questions(user_message: str) -> list[str]:
-    """Return two local user prompt suggestions when the follow-up model is unavailable."""
-    text = re.sub(r"\[\s*Attached\s+(?:file|image):[^\]]+\]", " ", user_message or "", flags=re.I)
-    text = re.sub(r"\s+", " ", text).strip().rstrip("?？.!。 ")
+FOLLOWUPS_ENABLED = os.getenv("FOLLOWUPS_ENABLED", "true").strip().lower() not in {
+    "0", "false", "no", "off"
+}
+FOLLOWUP_MODEL = (os.getenv("FOLLOWUP_MODEL") or "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
+FOLLOWUP_TIMEOUT_SECONDS = _float_setting("FOLLOWUP_TIMEOUT_SECONDS", 3.0)
+FOLLOWUP_MAX_USER_TOKENS = _int_setting("FOLLOWUP_MAX_USER_TOKENS", 150)
+FOLLOWUP_MAX_ANSWER_TOKENS = _int_setting("FOLLOWUP_MAX_ANSWER_TOKENS", 300)
+FOLLOWUP_OUTPUT_TOKENS = _int_setting("FOLLOWUP_OUTPUT_TOKENS", 180)
+FOLLOWUP_MAX_PROMPT_CHARS = _int_setting("FOLLOWUP_MAX_PROMPT_CHARS", 180)
 
-    vietnamese = any(c in VIETNAMESE_ACCENTS for c in text) or bool(re.search(
-        r"\b(tôi|toi|bạn|ban|minh|cho tôi|cho toi|thời tiết|thoi tiet|như nào|nhu nao|làm sao|lam sao|giúp|giup|không|khong)\b",
-        text,
-        re.I,
-    ))
-    if vietnamese:
-        topic = re.sub(
-            r"^(?:cho (?:tôi|toi) (?:biết|biet|hỏi|hoi|xem)|(?:tôi|toi) muốn biết|giúp (?:tôi|toi)|giup (?:tôi|toi)|hãy|hay)\s+",
-            "",
-            text,
-            flags=re.I,
-        ).strip()
-        topic = topic[:70].rstrip(" ,;:")
-        if topic:
-            return [
-                f"Giải thích chi tiết hơn về {topic} kèm ví dụ minh họa cụ thể",
-                f"Các lưu ý quan trọng và cách xử lý lỗi thường gặp khi làm việc với {topic}",
-            ]
-        return [
-            "Giải thích chi tiết hơn về câu trả lời vừa rồi kèm ví dụ cụ thể",
-            "Hướng dẫn các bước triển khai chi tiết và những lưu ý quan trọng",
-        ]
 
-    topic = re.sub(
-        r"^(?:can you tell me|tell me|please explain|please|how do i|what is)\s+",
-        "",
-        text,
-        flags=re.I,
-    ).strip()[:70].rstrip(" ,;:")
-    if topic:
-        return [
-            f"How can I apply {topic} in a real-world scenario with an example?",
-            f"What are the best practices and common pitfalls for {topic}?",
-        ]
-    return [
-        "How can I apply this in a real-world scenario with an example?",
-        "What are the best practices and key considerations for this topic?",
-    ]
+class FollowupSuggestions(BaseModel):
+    """Structured model output; exact item count is validated after parsing."""
+
+    prompts: list[str] = Field(description="Exactly two distinct, concise follow-up prompts.")
+
+
+def _prepare_context(text: str, max_tokens: int) -> str:
+    text = (text or "").strip()
+    if estimate_tokens(text) <= max_tokens:
+        return text
+    return truncate_text_to_tokens(text, max_tokens)
+
+
+def _validated_prompts(parsed: object) -> list[str]:
+    if isinstance(parsed, FollowupSuggestions):
+        prompts = parsed.prompts
+    elif isinstance(parsed, dict):
+        prompts = parsed.get("prompts")
+    else:
+        return []
+
+    if not isinstance(prompts, list) or len(prompts) != 2:
+        return []
+    if any(not isinstance(prompt, str) for prompt in prompts):
+        return []
+
+    cleaned = [prompt.strip() for prompt in prompts]
+    if any(not prompt or len(prompt) > FOLLOWUP_MAX_PROMPT_CHARS for prompt in cleaned):
+        return []
+    if cleaned[0].casefold() == cleaned[1].casefold():
+        return []
+    return cleaned
 
 
 def generate_followup_questions(
     user_message: str,
     assistant_answer: str,
-    model_name: str,
+    model_name: str | None = None,
 ) -> list[str]:
-    """Generate exactly two actionable suggested user prompts.
-
-    Tách context & Kiểm soát token:
-    - Loại bỏ code blocks lớn, tool outputs thô, attachments không cần thiết.
-    - Giới hạn nghiêm ngặt token context (user ~250 tokens, assistant ~500 tokens).
-    - Viết theo góc nhìn của người dùng (User Prompt), tuyệt đối không dùng câu hỏi từ phía trợ lý.
-    - Nếu không đúng form hoặc xảy ra lỗi: trả về danh sách rỗng [] (không ép buộc fallback).
-    """
-    if not assistant_answer.strip():
+    """Return two validated user prompts, or an empty list if generation fails."""
+    if not FOLLOWUPS_ENABLED or not assistant_answer.strip():
         return []
 
-    clean_user = _clean_content_for_followup(user_message, MAX_FOLLOWUP_USER_TOKENS)
-    clean_assistant = _clean_content_for_followup(assistant_answer, MAX_FOLLOWUP_ANSWER_TOKENS)
+    clean_user = _prepare_context(user_message, FOLLOWUP_MAX_USER_TOKENS)
+    clean_answer = _prepare_context(assistant_answer, FOLLOWUP_MAX_ANSWER_TOKENS)
+    selected_model = (model_name or FOLLOWUP_MODEL).strip() or FOLLOWUP_MODEL
 
-    context = {
-        "user_message": clean_user,
-        "assistant_answer": clean_assistant,
-    }
     try:
-        llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=FOLLOWUP_OUTPUT_TOKENS, request_timeout=3.0)
-        response = llm.invoke([
+        model = ChatGroq(
+            model=selected_model,
+            temperature=0.2,
+            max_tokens=FOLLOWUP_OUTPUT_TOKENS,
+            request_timeout=FOLLOWUP_TIMEOUT_SECONDS,
+        )
+        structured_model = model.with_structured_output(
+            FollowupSuggestions,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = structured_model.invoke([
             SystemMessage(content=(
-                "You are an expert prompt engineer for an AI chat assistant interface.\n\n"
-                "Your task is to generate exactly two high-quality, actionable SUGGESTED USER PROMPTS "
-                "based on the latest conversation turn. These suggestions appear as clickable quick prompt "
-                "chips that the USER will send to the assistant as their next message.\n\n"
-                "CRITICAL PERSPECTIVE RULES:\n"
-                "- Write strictly from the USER'S POINT OF VIEW (prompts that the USER says TO the assistant).\n"
-                "- NEVER write from the assistant's perspective asking the user questions.\n"
-                "- ABSOLUTELY FORBIDDEN: Do not start with conversational fillers or chatbot inquiries directed at the user, such as:\n"
-                "  * 'Bạn có muốn...', 'Bạn có cần...', 'Bạn muốn...', 'Bạn có quan tâm đến/tới...'\n"
-                "  * 'Would you like...', 'Do you want...', 'Are you interested in...', 'Would you prefer...'\n"
-                "- Suggested prompts MUST be direct requests, commands, or user inquiries, for example:\n"
-                "  * 'Hướng dẫn cách mở rộng chương trình để nhận input từ người dùng'\n"
-                "  * 'Cách tạo file thực thi (.exe) độc lập từ script Python này'\n"
-                "  * 'Giải thích chi tiết hơn về các tham số và cú pháp ở trên'\n"
-                "  * 'So sánh ưu và nhược điểm của giải pháp này với các cách tiếp cận khác'\n\n"
-                "Guidelines:\n"
-                "- Use the same language as the conversation (e.g. Vietnamese for Vietnamese conversations).\n"
-                "- Make each prompt concise (under 16 words), natural, and immediately actionable as a prompt chip.\n"
-                "- Make the two prompts distinct and complementary.\n"
-                "- Do not repeat what has already been answered.\n\n"
-                "Output format:\n"
-                "- Return exactly two suggested prompts.\n"
-                "- Put each suggested prompt on a separate line.\n"
-                "- Do not include numbering, bullets, quotation marks, or explanations.\n"
-                "- Return only the two suggested prompts."
+                "Create exactly two concise, distinct follow-up prompts that a user could send next. "
+                "Use the same language as the supplied exchange. Write each as a direct request or "
+                "question from the user's perspective. Make them specific to the answer, useful, and "
+                "not repetitions of what was already answered. Return only the requested structured output."
             )),
-            HumanMessage(content=json.dumps(context, ensure_ascii=False)),
+            HumanMessage(content=(
+                f"Latest user message:\n{clean_user}\n\n"
+                f"Assistant answer:\n{clean_answer}"
+            )),
         ])
-        log_token_usage(model_name, "Follow-up Suggestions", response)
-        raw = _response_text(response)
-        questions = _parse_questions(raw)
-        if len(questions) == 2:
-            return questions
-        logger.warning("Follow-up model returned an unrecognized format; omitting suggestions.")
-        return []
+
+        if not isinstance(response, dict):
+            logger.warning("Follow-up model returned an unexpected structured-output value.")
+            return []
+
+        raw_response = response.get("raw")
+        if raw_response is not None:
+            log_token_usage(selected_model, "Follow-up Suggestions", raw_response)
+
+        if response.get("parsing_error"):
+            logger.warning("Could not parse follow-up structured output: %s", response["parsing_error"])
+            return []
+
+        prompts = _validated_prompts(response.get("parsed"))
+        if len(prompts) != 2:
+            logger.warning("Follow-up output did not contain two valid prompts.")
+        return prompts
     except Exception as exc:
-        logger.warning("Follow-up generation failed: %s; omitting suggestions.", exc)
+        logger.warning("Follow-up generation failed: %s", exc)
         return []

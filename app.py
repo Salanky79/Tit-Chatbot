@@ -26,8 +26,8 @@ from langchain_core.messages import (
     ToolMessage
 )
 
-from agent import get_agent, normalize_model_name
-from followups import generate_followup_questions
+from agent import get_agent
+from followups import FOLLOWUPS_ENABLED, generate_followup_questions
 from database import (
     init_db,
     save_chat_message,
@@ -611,13 +611,8 @@ async def chat_stream(request: Request):
             )
 
     agent = get_agent(selected_model)
-    followup_model = normalize_model_name(selected_model)
-
     create_or_update_conversation(thread_id, user_message, user_id=user_id)
     save_chat_message(thread_id, "user", user_message, user_id=user_id)
-
-    set_current_thread_id(thread_id)
-    set_current_user_id(user_id or "")
 
     config = {
         "configurable": {
@@ -686,22 +681,20 @@ async def chat_stream(request: Request):
                 logger.error(f"[ChatError] Error during chat streaming: {e}")
                 yield sse_data({"error": str(e)})
 
-        # Stream câu trả lời hoàn tất, gửi done: True ngay lập tức để mở khóa ô chat cho người dùng
-        yield sse_data({"done": True})
-
-        # Xử lý gợi ý follow-up: nếu không có lỗi và có câu trả lời, thử sinh gợi ý
-        # Bỏ hoàn toàn fallback: nếu không đúng form thì không cần followup
-        if not stream_error and final_answer.strip():
+        if FOLLOWUPS_ENABLED and not stream_error and final_answer.strip():
             try:
+                yield sse_data({"suggestions_pending": True})
                 questions = generate_followup_questions(
                     user_message=user_message,
                     assistant_answer=final_answer,
-                    model_name="openai/gpt-oss-20b",
                 )
                 if len(questions) == 2:
                     yield sse_data({"suggestions": questions})
             except Exception as e:
                 logger.warning(f"Follow-up generation skipped: {e}")
+
+        # done is the terminal event; optional suggestions are sent before it.
+        yield sse_data({"done": True})
 
     return StreamingResponse(
         event_generator(),
