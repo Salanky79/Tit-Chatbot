@@ -31,6 +31,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _to_object_id(val: Any) -> ObjectId | None:
+    """Chuyển đổi chuỗi 24 hex hoặc ObjectId thành ObjectId hợp lệ."""
+    if not val:
+        return None
+    if isinstance(val, ObjectId):
+        return val
+    if isinstance(val, str) and ObjectId.is_valid(val):
+        return ObjectId(val)
+    return None
+
+
 def hash_password(password: str) -> str:
     """Băm mật khẩu an toàn sử dụng bcrypt với salt 12 rounds."""
     if not password:
@@ -52,6 +63,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def _conv_to_obj(doc: dict) -> Any:
     """Chuyển dict MongoDB thành object-like để tương thích với code cũ dùng
     attribute access (``item.thread_id``, ``item.title``, …).
+    Tự động chuyển ObjectId thành string để tránh lỗi serialize JSON.
     """
     if doc is None:
         return None
@@ -61,6 +73,8 @@ def _conv_to_obj(doc: dict) -> Any:
 
     obj = _Row()
     for key, value in doc.items():
+        if isinstance(value, ObjectId):
+            value = str(value)
         setattr(obj, key, value)
     return obj
 
@@ -178,13 +192,13 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
     }
 
 
-def get_user_by_id(user_id: str) -> dict | None:
+def get_user_by_id(user_id: str | ObjectId) -> dict | None:
     """Lấy thông tin user theo ID."""
     if not user_id:
         return None
     users = get_collection("users")
     try:
-        query_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+        query_id = _to_object_id(user_id) or user_id
         user = users.find_one({"_id": query_id})
     except Exception:
         return None
@@ -225,7 +239,7 @@ def get_user_by_username(username: str) -> dict | None:
 
 
 def update_user_profile(
-    user_id: str,
+    user_id: str | ObjectId,
     *,
     full_name: str | None = None,
     avatar_url: str | None = None,
@@ -238,7 +252,7 @@ def update_user_profile(
         raise ValueError("ID người dùng không hợp lệ.")
 
     users = get_collection("users")
-    query_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+    query_id = _to_object_id(user_id) or user_id
     user = users.find_one({"_id": query_id})
     if not user:
         raise ValueError("Không tìm thấy thông tin người dùng.")
@@ -292,16 +306,17 @@ def update_user_profile(
 # Session Management APIs
 # ---------------------------------------------------------------------------
 
-def create_session(user_id: str, duration_days: int = 7) -> str:
+def create_session(user_id: str | ObjectId, duration_days: int = 7) -> str:
     """Tạo phiên đăng nhập an toàn mới lưu vào MongoDB."""
     session_id = secrets.token_urlsafe(32)
     now = _now()
     expires_at = now + timedelta(days=duration_days) # thời hạn mặc định 7 ngày
 
+    oid = _to_object_id(user_id)
     sessions = get_collection("sessions")
     sessions.insert_one({
         "session_id": session_id,
-        "user_id": str(user_id),
+        "user_id": oid or user_id,
         "created_at": now,
         "expires_at": expires_at,
     })
@@ -329,6 +344,8 @@ def get_session(session_id: str) -> dict | None:
 
     session["id"] = str(session["_id"])
     session.pop("_id", None)
+    if "user_id" in session and session["user_id"] is not None:
+        session["user_id"] = str(session["user_id"])
     return session
 
 
@@ -377,9 +394,10 @@ def create_or_update_conversation(
         "is_pinned": False,
     }
 
-    if user_id:
-        # Người dùng đã đăng nhập: gắn user_id, không có expires_at
-        set_fields["user_id"] = str(user_id)
+    oid = _to_object_id(user_id)
+    if oid:
+        # Người dùng đã đăng nhập: gắn user_id (ObjectId), không có expires_at
+        set_fields["user_id"] = oid
         set_on_insert["is_guest"] = False
     else:
         # Guest: đánh dấu và đặt TTL 24h để MongoDB tự dọn
@@ -404,7 +422,10 @@ def get_conversation(thread_id: str) -> dict | None:
     if not thread_id:
         return None
     coll = get_collection("conversations")
-    return coll.find_one({"thread_id": thread_id}, {"_id": 0})
+    doc = coll.find_one({"thread_id": thread_id}, {"_id": 0})
+    if doc and isinstance(doc.get("user_id"), ObjectId):
+        doc["user_id"] = str(doc["user_id"])
+    return doc
 
 
 def list_conversations(
@@ -416,11 +437,12 @@ def list_conversations(
     Chỉ trả về conversations của user đã đăng nhập.
     Guest (user_id=None) luôn nhận về [] — lịch sử không được lưu cho guest.
     """
-    if not user_id:
+    oid = _to_object_id(user_id)
+    if not oid:
         return []  # Guest không có lịch sử conversation
 
     coll = get_collection("conversations")
-    query = {"user_id": str(user_id), "is_guest": {"$ne": True}}
+    query = {"user_id": oid, "is_guest": {"$ne": True}}
 
     try:
         cursor = (
@@ -454,7 +476,9 @@ def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool 
     coll = get_collection("conversations")
     query: dict[str, Any] = {"thread_id": thread_id}
     if user_id is not None:
-        query["user_id"] = str(user_id)
+        oid = _to_object_id(user_id)
+        if oid:
+            query["user_id"] = oid
 
     doc = coll.find_one(query)
     if not doc:
@@ -478,7 +502,9 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     conv_coll = get_collection("conversations")
     query: dict[str, Any] = {"thread_id": thread_id}
     if user_id is not None:
-        query["user_id"] = str(user_id)
+        oid = _to_object_id(user_id)
+        if oid:
+            query["user_id"] = oid
 
     res = conv_coll.delete_one(query)
     if res.deleted_count > 0:
@@ -512,6 +538,7 @@ def save_chat_message(
         Object-like đại diện cho document vừa insert.
     """
     now = _now()
+    oid = _to_object_id(user_id)
 
     # Insert tin nhắn
     msg_coll = get_collection("chat_messages")
@@ -521,15 +548,15 @@ def save_chat_message(
         "content": content,
         "created_at": now,
     }
-    if user_id:
-        doc["user_id"] = str(user_id)
+    if oid:
+        doc["user_id"] = oid
     msg_coll.insert_one(doc)
 
     # Cập nhật updated_at của conversation
     conv_coll = get_collection("conversations")
     update_fields: dict[str, Any] = {"updated_at": now}
-    if user_id:
-        update_fields["user_id"] = str(user_id)
+    if oid:
+        update_fields["user_id"] = oid
     conv_coll.update_one(
         {"thread_id": thread_id},
         {"$set": update_fields},
@@ -574,12 +601,13 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     Returns:
         Chuỗi xác nhận thành công hoặc thông báo yêu cầu đăng nhập.
     """
-    if not user_id:
+    oid = _to_object_id(user_id)
+    if not oid:
         return "Memory is only available for signed-in users. Please sign in to save memories."
 
     coll = get_collection("long_term_memory")
     doc: dict[str, Any] = {
-        "user_id": str(user_id),
+        "user_id": oid,
         "memory": memory,
         "created_at": _now(),
     }
@@ -606,13 +634,14 @@ def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -
     Returns:
         Chuỗi kết quả, mỗi dòng là một mục nhớ, hoặc thông báo không tìm thấy.
     """
-    if not user_id:
+    oid = _to_object_id(user_id)
+    if not oid:
         return "Memory search is only available for signed-in users. Please sign in to recall memories."
 
     coll = get_collection("long_term_memory")
 
-    # Lọc duy nhất theo user_id — cô lập tuyệt đối
-    base_filter: dict[str, Any] = {"user_id": str(user_id)}
+    # Lọc duy nhất theo user_id (ObjectId) — cô lập tuyệt đối
+    base_filter: dict[str, Any] = {"user_id": oid}
 
     # Xử lý query tìm kiếm linh hoạt
     clean_query = (query or "").strip().lower()
