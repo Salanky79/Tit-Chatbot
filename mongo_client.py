@@ -95,9 +95,9 @@ def ensure_indexes() -> None:
 
     - ``users``:            ``username`` (unique) + ``email`` (unique)
     - ``sessions``:         ``session_id`` (unique) + TTL index trên ``expires_at``
-    - ``conversations``:    ``thread_id`` (unique) + ``[user_id, updated_at]``
+    - ``conversations``:    ``thread_id`` (unique) + ``[user_id, updated_at]`` + TTL cho guest
     - ``chat_messages``:    ``thread_id`` + ``created_at`` (asc)
-    - ``long_term_memory``: ``thread_id`` + text index trên ``memory``
+    - ``long_term_memory``: ``user_id`` (primary) + text index trên ``memory``
     """
     try:
         # users
@@ -118,6 +118,12 @@ def ensure_indexes() -> None:
             [("user_id", ASCENDING), ("updated_at", DESCENDING)],
             background=True
         )
+        # TTL index tự động xóa guest conversations sau 24h (expires_at được set khi tạo)
+        conv.create_index(
+            [("expires_at", ASCENDING)],
+            expireAfterSeconds=0,
+            background=True,
+        )
 
         # chat_messages
         msgs = get_collection("chat_messages")
@@ -126,8 +132,9 @@ def ensure_indexes() -> None:
             background=True
         )
 
-        # long_term_memory
+        # long_term_memory — lọc theo user_id là chính, thread_id chỉ để trace
         mem = get_collection("long_term_memory")
+        mem.create_index([("user_id", ASCENDING)], background=True)
         mem.create_index([("thread_id", ASCENDING)], background=True)
         # Text index để hỗ trợ tìm kiếm full-text
         try:

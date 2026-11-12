@@ -3524,7 +3524,14 @@
     async function newChat() {
         clearPendingAttachment();
         threadId = crypto.randomUUID();
-        localStorage.setItem("thread_id", threadId);
+
+        if (currentUser) {
+            // Đã đăng nhập: lưu thread_id để khôi phục khi reload
+            localStorage.setItem("thread_id", threadId);
+        } else {
+            // Guest: không lưu, mỗi phiên là tạm thời — thread cũ sẽ tự expire sau 24h
+            localStorage.removeItem("thread_id");
+        }
 
         if (isDictating) {
             stopDictation();
@@ -4332,13 +4339,16 @@
         }
     } catch (e) {}
 
-    checkAuthStatus();
-    renderWelcome();
-    loadConversations();
-
-    if (threadId) {
-        loadConversation(threadId);
-    }
+    // Kh?i d?ng: ki?m tra auth tru?c, sau d� load d�ng tr?ng th�i
+    // checkAuthStatus() c?n ho�n th�nh tru?c d? bi?t user d� dang nh?p chua
+    checkAuthStatus().then(() => {
+        renderWelcome();
+        loadConversations();
+        // Ch? restore thread cu n?u d� dang nh?p (guest kh�ng c� l?ch s?)
+        if (currentUser && threadId) {
+            loadConversation(threadId);
+        }
+    });
 </script>
 
 <!-- Auth Modal -->

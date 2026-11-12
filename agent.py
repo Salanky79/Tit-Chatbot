@@ -40,6 +40,7 @@ class AgentState(TypedDict, total=False):
     - conversation_summary: Bản tóm tắt các lượt hội thoại cũ đã được trim,
       giúp duy trì ngữ cảnh dài hạn mà không làm tràn context window.
     """
+    # toàn bộ lịch sử phiên chat (HumanMessage, AIMessage, ToolMessage) được cộng dồn, có thể trim để giảm token
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
 

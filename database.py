@@ -354,6 +354,7 @@ def create_or_update_conversation(
 
     - Nếu chưa tồn tại: insert với ``title`` lấy từ ``first_message`` (40 ký tự đầu).
     - Nếu đã tồn tại: cập nhật ``updated_at`` (và gắn ``user_id`` nếu chưa có).
+    - Guest (user_id=None): gắn ``is_guest=True`` và ``expires_at`` = 24h sau để TTL tự dọn.
 
     Returns:
         Object-like với các thuộc tính ``thread_id``, ``title``,
@@ -375,8 +376,15 @@ def create_or_update_conversation(
         "created_at": now,
         "is_pinned": False,
     }
+
     if user_id:
+        # Người dùng đã đăng nhập: gắn user_id, không có expires_at
         set_fields["user_id"] = str(user_id)
+        set_on_insert["is_guest"] = False
+    else:
+        # Guest: đánh dấu và đặt TTL 24h để MongoDB tự dọn
+        set_on_insert["is_guest"] = True
+        set_on_insert["expires_at"] = now + timedelta(hours=24)
 
     coll.update_one(
         {"thread_id": thread_id},
@@ -405,13 +413,14 @@ def list_conversations(
 ) -> list[Any]:
     """Lấy danh sách conversations theo user_id, ưu tiên các cuộc trò chuyện được ghim lên đầu.
 
-    Nếu user_id được chỉ định, chỉ lấy các cuộc trò chuyện của user đó.
-    Nếu user_id là None, trả về các conversation công khai/mặc định.
+    Chỉ trả về conversations của user đã đăng nhập.
+    Guest (user_id=None) luôn nhận về [] — lịch sử không được lưu cho guest.
     """
+    if not user_id:
+        return []  # Guest không có lịch sử conversation
+
     coll = get_collection("conversations")
-    query = {}
-    if user_id is not None:
-        query["user_id"] = str(user_id)
+    query = {"user_id": str(user_id), "is_guest": {"$ne": True}}
 
     try:
         cursor = (
@@ -474,7 +483,7 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     res = conv_coll.delete_one(query)
     if res.deleted_count > 0:
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
-        get_collection("long_term_memory").delete_many({"thread_id": thread_id})
+        # long_term_memory gắn với user_id, không xóa theo thread_id đơn lẻ
         return True
     return False
 
@@ -552,30 +561,30 @@ def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
 def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     """Lưu một đoạn bộ nhớ dài hạn vào collection ``long_term_memory``.
 
-    Bộ nhớ dài hạn được liên kết trực tiếp với ``user_id`` để dùng chung xuyên suốt
-    cho TẤT CẢ các cuộc trò chuyện của người dùng đó (Cross-chat memory).
+    Bộ nhớ dài hạn gắn với ``user_id`` và dùng chung xuyên suốt TẤT CẢ
+    các cuộc trò chuyện của người dùng đó (Cross-chat memory).
+
+    Chỉ lưu khi đã đăng nhập (có user_id). Guest không có long-term memory.
 
     Args:
-        thread_id: ID luồng chat.
+        thread_id: ID luồng chat hiện tại (chỉ lưu để trace, không dùng để query).
         memory: Nội dung cần ghi nhớ.
-        user_id: ID người dùng (nếu có) để gắn kết và cách ly bộ nhớ.
+        user_id: ID người dùng — bắt buộc để lưu.
 
     Returns:
-        Chuỗi xác nhận thành công.
+        Chuỗi xác nhận thành công hoặc thông báo yêu cầu đăng nhập.
     """
-    if not user_id and thread_id:
-        conv = get_conversation(thread_id)
-        if conv and conv.get("user_id"):
-            user_id = str(conv["user_id"])
+    if not user_id:
+        return "Memory is only available for signed-in users. Please sign in to save memories."
 
     coll = get_collection("long_term_memory")
     doc: dict[str, Any] = {
-        "thread_id": thread_id,
+        "user_id": str(user_id),
         "memory": memory,
         "created_at": _now(),
     }
-    if user_id:
-        doc["user_id"] = str(user_id)
+    if thread_id:
+        doc["thread_id"] = thread_id  # lưu để trace nguồn gốc, không dùng để query
     coll.insert_one(doc)
     return "Memory saved successfully."
 
@@ -583,36 +592,29 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
 def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -> str:
     """Tìm kiếm bộ nhớ dài hạn của người dùng trên TẤT CẢ các cuộc trò chuyện.
 
-    - Nếu user_id được xác định (trực tiếp hoặc qua thread_id), tìm kiếm trên TOÀN BỘ
-      các ký ức của user_id đó bất kể được lưu từ cuộc trò chuyện nào.
-    - Đảm bảo cô lập tuyệt đối: Chỉ lấy ký ức của đúng user đó, không lẫn sang user khác.
+    - Lọc **chỉ theo ``user_id``** — không fallback về ``thread_id``.
+    - Chỉ hoạt động khi đã đăng nhập (có user_id). Guest nhận thông báo yêu cầu đăng nhập.
     - Hỗ trợ câu hỏi tự nhiên và tìm kiếm từ khóa linh hoạt:
-      + Nếu query chung chung (ví dụ: 'tất cả', 'về tôi', 'nhớ gì', 'bạn nhớ gì về tôi', ''): lấy toàn bộ ký ức của user.
-      + Nếu query cụ thể (ví dụ: 'tôi tên là gì', 'sở thích'): trích xuất từ khóa chính để tìm kiếm chính xác.
+      + Nếu query chung chung (ví dụ: 'tất cả', 'về tôi', 'nhớ gì', ''): lấy toàn bộ ký ức.
+      + Nếu query cụ thể (ví dụ: 'tên', 'sở thích'): trích xuất từ khóa để tìm kiếm chính xác.
 
     Args:
-        thread_id: ID luồng chat hiện tại.
+        thread_id: ID luồng chat hiện tại (không dùng để lọc, chỉ nhận để tương thích).
         query: Từ khóa hoặc câu hỏi tìm kiếm.
-        user_id: ID người dùng để lọc đúng bộ nhớ của user.
+        user_id: ID người dùng — bắt buộc để tìm kiếm.
 
     Returns:
         Chuỗi kết quả, mỗi dòng là một mục nhớ, hoặc thông báo không tìm thấy.
     """
-    if not user_id and thread_id:
-        conv = get_conversation(thread_id)
-        if conv and conv.get("user_id"):
-            user_id = str(conv["user_id"])
+    if not user_id:
+        return "Memory search is only available for signed-in users. Please sign in to recall memories."
 
     coll = get_collection("long_term_memory")
 
-    # 1. Điều kiện cô lập theo user_id hoặc fallback thread_id
-    base_filter: dict[str, Any] = {}
-    if user_id:
-        base_filter["user_id"] = str(user_id)
-    else:
-        base_filter["thread_id"] = thread_id
+    # Lọc duy nhất theo user_id — cô lập tuyệt đối
+    base_filter: dict[str, Any] = {"user_id": str(user_id)}
 
-    # 2. Xử lý query tìm kiếm linh hoạt
+    # Xử lý query tìm kiếm linh hoạt
     clean_query = (query or "").strip().lower()
     generic_markers = {
         "", "all", "everything", "any", "me", "about me", "my profile",
