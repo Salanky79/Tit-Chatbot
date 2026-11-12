@@ -36,10 +36,12 @@ FOLLOWUPS_ENABLED = os.getenv("FOLLOWUPS_ENABLED", "true").strip().lower() not i
     "0", "false", "no", "off"
 }
 FOLLOWUP_MODEL = (os.getenv("FOLLOWUP_MODEL") or "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
-FOLLOWUP_TIMEOUT_SECONDS = _float_setting("FOLLOWUP_TIMEOUT_SECONDS", 3.0)
+FOLLOWUP_TIMEOUT_SECONDS = _float_setting("FOLLOWUP_TIMEOUT_SECONDS", 5.0)
 FOLLOWUP_MAX_USER_TOKENS = _int_setting("FOLLOWUP_MAX_USER_TOKENS", 150)
 FOLLOWUP_MAX_ANSWER_TOKENS = _int_setting("FOLLOWUP_MAX_ANSWER_TOKENS", 300)
-FOLLOWUP_OUTPUT_TOKENS = _int_setting("FOLLOWUP_OUTPUT_TOKENS", 180)
+# openai/gpt-oss-20b là mô hình suy luận (reasoning model) sinh ra ~150-200 reasoning tokens
+# trước khi sinh JSON. Cần ít nhất 500 tokens để không bị cắt cụt JSON giữa chừng.
+FOLLOWUP_OUTPUT_TOKENS = _int_setting("FOLLOWUP_OUTPUT_TOKENS", 500)
 FOLLOWUP_MAX_PROMPT_CHARS = _int_setting("FOLLOWUP_MAX_PROMPT_CHARS", 180)
 
 
@@ -99,20 +101,18 @@ def generate_followup_questions(
         )
         structured_model = model.with_structured_output(
             FollowupSuggestions,
-            method="function_calling",
+            method="json_schema",
             include_raw=True,
         )
+        prompt = (
+            "Create exactly two concise, distinct follow-up prompts that a user could send next based on this exchange.\n"
+            "Use the same language as the conversation (e.g. Vietnamese). Write each prompt from the user's perspective.\n"
+            "Make them specific, useful, and not repetitions of what was already answered.\n\n"
+            f"User message:\n{clean_user}\n\n"
+            f"Assistant answer:\n{clean_answer}"
+        )
         response = structured_model.invoke([
-            SystemMessage(content=(
-                "Create exactly two concise, distinct follow-up prompts that a user could send next. "
-                "Use the same language as the supplied exchange. Write each as a direct request or "
-                "question from the user's perspective. Make them specific to the answer, useful, and "
-                "not repetitions of what was already answered. Return only the requested structured output."
-            )),
-            HumanMessage(content=(
-                f"Latest user message:\n{clean_user}\n\n"
-                f"Assistant answer:\n{clean_answer}"
-            )),
+            HumanMessage(content=prompt)
         ])
 
         if not isinstance(response, dict):
