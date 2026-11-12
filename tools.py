@@ -1,9 +1,16 @@
+from contextvars import ContextVar
 import math
 import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
-from database import save_memory, search_memory
+from database import (
+    save_memory,
+    search_memory,
+    find_memory_candidates,
+    update_memory_by_id,
+    delete_memory_by_id,
+)
 from rag import (
     get_document_chunks,
     list_document_sources,
@@ -17,8 +24,9 @@ from summarization import summarize_documents
 load_dotenv()
 
 
-CURRENT_THREAD_ID = "default"
-CURRENT_USER_ID = ""
+# Ngữ cảnh theo từng request (ContextVar) — an toàn tuyệt đối khi nhiều người dùng chat đồng thời
+_current_thread_id: ContextVar[str] = ContextVar("current_thread_id", default="default")
+_current_user_id: ContextVar[str] = ContextVar("current_user_id", default="")
 
 # Tiền tố của kết quả tóm tắt THÀNH CÔNG. agent.py dựa vào đây để trả thẳng bản tóm tắt
 # cho người dùng mà không gọi LLM lần nữa (lỗi / câu hỏi làm rõ không có tiền tố này).
@@ -26,13 +34,19 @@ SUMMARY_RESULT_PREFIX = "Summary of "
 
 
 def set_current_thread_id(thread_id: str):
-    global CURRENT_THREAD_ID
-    CURRENT_THREAD_ID = thread_id
+    _current_thread_id.set(thread_id)
 
 
 def set_current_user_id(user_id: str):
-    global CURRENT_USER_ID
-    CURRENT_USER_ID = user_id or ""
+    _current_user_id.set(user_id or "")
+
+
+def get_current_thread_id() -> str:
+    return _current_thread_id.get()
+
+
+def get_current_user_id() -> str:
+    return _current_user_id.get()
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +118,8 @@ def search_uploaded_documents(query: str) -> str:
     """
     return retrieve_from_rag(
         query=query,
-        thread_id=CURRENT_THREAD_ID,
-        user_id=CURRENT_USER_ID or None
+        thread_id=get_current_thread_id(),
+        user_id=get_current_user_id() or None
     )
 
 
@@ -134,8 +148,8 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     - 'Vietnamese': If the user explicitly requested Vietnamese for an English document.
     - 'English': If the user explicitly requested English.
     """
-    user_id = CURRENT_USER_ID or None
-    sources = list_document_sources(CURRENT_THREAD_ID, user_id=user_id)
+    user_id = get_current_user_id() or None
+    sources = list_document_sources(get_current_thread_id(), user_id=user_id)
     if not sources:
         return "No uploaded documents were found in this conversation."
 
@@ -170,7 +184,7 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
                     return f'No uploaded file named "{requested}" was found. Available files: {names}.'
 
     try:
-        chunks = get_document_chunks(selected, CURRENT_THREAD_ID, user_id=user_id)
+        chunks = get_document_chunks(selected, get_current_thread_id(), user_id=user_id)
         summary = summarize_documents(chunks, target_language=target_language)
     except Exception as exc:
         return f'Could not summarize "{selected}": {exc}'
@@ -186,8 +200,8 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     identified. An empty filename selects the only uploaded image; when several
     images exist, ask which one instead of combining or guessing.
     """
-    user_id = CURRENT_USER_ID or None
-    images = list_uploaded_images(CURRENT_THREAD_ID, user_id=user_id)
+    user_id = get_current_user_id() or None
+    images = list_uploaded_images(get_current_thread_id(), user_id=user_id)
     if not images:
         return "No uploaded images were found in this conversation. Upload a JPG, PNG, or WEBP image first."
 
@@ -246,8 +260,8 @@ def remember_this(memory: str) -> str:
     capturing the key fact (e.g. "Tên người dùng là Sơn.").
     Returns a confirmation message on success.
     """
-    user_id = CURRENT_USER_ID or None
-    return save_memory(thread_id=CURRENT_THREAD_ID, memory=memory, user_id=user_id)
+    user_id = get_current_user_id() or None
+    return save_memory(thread_id=get_current_thread_id(), memory=memory, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -257,20 +271,85 @@ def remember_this(memory: str) -> str:
 def recall_memory(query: str = "") -> str:
     """Recall and search the current user's long-term memories across ALL chats.
 
-    CRITICAL: Use this tool to recall facts, personal information, identity, background,
-    preferences, or previous statements that the user asked you to remember in ANY chat.
-    This tool searches across all conversations of the current user.
-
-    Use this tool whenever the user:
-    - Asks personal questions: "Tôi tên là gì?", "Bạn nhớ gì về tôi?", "Tôi học trường nào?", "What is my name?"
-    - Asks about their saved preferences, personal details, interests, or background.
-    - Uses phrases like "recall", "do you remember", "bạn có nhớ tôi là ai không".
-    - Pass key terms (e.g. 'tên', 'name', 'trường') or an empty query to retrieve memories.
+    CRITICAL RULES FOR CALLING THIS TOOL:
+    - If the user asks general questions about themselves or asks what you remember
+      (e.g., "Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "What do you remember about me?"):
+      --> ALWAYS pass query="" (empty string) to retrieve all recent memories.
+    - If the user asks about a specific fact or topic
+      (e.g., "Tôi tên là gì?", "Tôi thích ăn món gì?", "Tôi học trường nào?", "Tôi đang làm nghề gì?"):
+      --> Extract and pass ONLY the specific core keyword into query
+          (e.g. query="tên", query="ăn", query="trường", query="nghề").
+          DO NOT pass full conversational sentences like "bạn có nhớ tôi tên là gì".
 
     Returns a list of matching memory entries, or a message if none are found.
     """
-    user_id = CURRENT_USER_ID or None
-    return search_memory(thread_id=CURRENT_THREAD_ID, query=query, user_id=user_id)
+    user_id = get_current_user_id() or None
+    return search_memory(thread_id=get_current_thread_id(), query=query, user_id=user_id)
+
+
+# ---------------------------------------------------------------------------
+# Long-term memory - Candidate Search (Bước 1 & 2)
+# ---------------------------------------------------------------------------
+@tool
+def search_memory_candidates(keyword: str = "") -> str:
+    """Search for existing memory candidates by keyword to inspect their memory_id, version, and content.
+
+    CRITICAL WORKFLOW RULES (Bước 1 & 2):
+    1. ALWAYS call this tool FIRST before updating (update_memory_entry) or deleting (forget_memory_entry) any memory.
+    2. Inspect the candidate list returned:
+       - If exactly 1 matching candidate is found: Proceed immediately to call update_memory_entry or forget_memory_entry.
+       - If multiple candidates are found: Present the choices naturally to the user and ask them which one they want to modify.
+       - If no candidates are found: Inform the user that no matching memory was found.
+    """
+    user_id = get_current_user_id() or None
+    candidates = find_memory_candidates(user_id=user_id, keyword=keyword)
+    if not candidates:
+        return f"Không tìm thấy ký ức nào liên quan đến từ khóa '{keyword}'."
+
+    lines = [f"Tìm thấy {len(candidates)} ký ức ứng viên:"]
+    for c in candidates:
+        lines.append(f"- [ID: {c['memory_id']}] (Version: {c['version']}): \"{c['memory']}\"")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Long-term memory - Update by ID (Bước 4)
+# ---------------------------------------------------------------------------
+@tool
+def update_memory_entry(memory_id: str, new_memory: str, version: int) -> str:
+    """Update an existing long-term memory entry using its exact memory_id and current version.
+
+    CRITICAL RULES (Bước 4):
+    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from search_memory_candidates first.
+    2. Pass the exact memory_id and version received.
+    3. Pass the full, updated statement in new_memory (e.g. 'Tên người dùng là Nam.').
+    """
+    user_id = get_current_user_id() or None
+    return update_memory_by_id(
+        user_id=user_id,
+        memory_id=memory_id,
+        new_memory=new_memory,
+        version=version,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Long-term memory - Forget / Soft-Delete by ID (Bước 4)
+# ---------------------------------------------------------------------------
+@tool
+def forget_memory_entry(memory_id: str, version: int) -> str:
+    """Soft-delete an existing long-term memory entry using its exact memory_id and current version.
+
+    CRITICAL RULES (Bước 4):
+    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from search_memory_candidates first.
+    2. Pass the exact memory_id and version received.
+    """
+    user_id = get_current_user_id() or None
+    return delete_memory_by_id(
+        user_id=user_id,
+        memory_id=memory_id,
+        version=version,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,5 +362,8 @@ tools = [
     analyze_uploaded_image,
     remember_this,
     recall_memory,
+    search_memory_candidates,
+    update_memory_entry,
+    forget_memory_entry,
     web_search,
 ]

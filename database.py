@@ -606,10 +606,15 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
         return "Memory is only available for signed-in users. Please sign in to save memories."
 
     coll = get_collection("long_term_memory")
+    now = _now()
     doc: dict[str, Any] = {
         "user_id": oid,
-        "memory": memory,
-        "created_at": _now(),
+        "memory": memory.strip(),
+        "is_deleted": False,
+        "version": 1,
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
     }
     if thread_id:
         doc["thread_id"] = thread_id  # lưu để trace nguồn gốc, không dùng để query
@@ -620,15 +625,15 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
 def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -> str:
     """Tìm kiếm bộ nhớ dài hạn của người dùng trên TẤT CẢ các cuộc trò chuyện.
 
-    - Lọc **chỉ theo ``user_id``** — không fallback về ``thread_id``.
+    - Lọc **chỉ theo ``user_id``** và trạng thái ``is_deleted: False``.
     - Chỉ hoạt động khi đã đăng nhập (có user_id). Guest nhận thông báo yêu cầu đăng nhập.
-    - Hỗ trợ câu hỏi tự nhiên và tìm kiếm từ khóa linh hoạt:
-      + Nếu query chung chung (ví dụ: 'tất cả', 'về tôi', 'nhớ gì', ''): lấy toàn bộ ký ức.
-      + Nếu query cụ thể (ví dụ: 'tên', 'sở thích'): trích xuất từ khóa để tìm kiếm chính xác.
+    - Nếu query rỗng (hoặc khoảng trắng): lấy danh sách các ký ức mới nhất của người dùng.
+    - Nếu có query: tìm kiếm chính xác theo từ khóa cốt lõi bằng regex an toàn (re.escape).
+    - Không hardcode stop-words hay generic markers — việc trích xuất từ khóa do LLM đảm nhận.
 
     Args:
         thread_id: ID luồng chat hiện tại (không dùng để lọc, chỉ nhận để tương thích).
-        query: Từ khóa hoặc câu hỏi tìm kiếm.
+        query: Từ khóa tìm kiếm cốt lõi do Agent trích xuất (hoặc "" nếu hỏi chung).
         user_id: ID người dùng — bắt buộc để tìm kiếm.
 
     Returns:
@@ -640,44 +645,12 @@ def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -
 
     coll = get_collection("long_term_memory")
 
-    # Lọc duy nhất theo user_id (ObjectId) — cô lập tuyệt đối
-    base_filter: dict[str, Any] = {"user_id": oid}
+    # Lọc duy nhất theo user_id (ObjectId) và chưa bị xóa
+    search_filter: dict[str, Any] = {"user_id": oid, "is_deleted": False}
 
-    # Xử lý query tìm kiếm linh hoạt
-    clean_query = (query or "").strip().lower()
-    generic_markers = {
-        "", "all", "everything", "any", "me", "about me", "my profile",
-        "tất cả", "tat ca", "về tôi", "ve toi", "thông tin", "thong tin",
-        "nhớ gì", "nho gi", "bạn nhớ gì", "ban nho gi", "thông tin về tôi",
-        "thong tin ve toi", "nhớ", "nho", "gì về tôi", "gi ve toi"
-    }
-
-    if not clean_query or clean_query in generic_markers:
-        search_filter = base_filter
-    else:
-        # Tách các từ khóa có nghĩa để tìm kiếm linh hoạt hơn
-        stop_words = {
-            "là", "gì", "của", "tôi", "cho", "biết", "what", "is", "my",
-            "the", "a", "an", "do", "you", "remember", "about", "bạn",
-            "có", "nhớ", "nào", "không", "ko"
-        }
-        words = [
-            w for w in re.split(r"[\s,;?!\.]+", clean_query)
-            if len(w) > 1 and w not in stop_words
-        ]
-        if words:
-            # Khớp câu gốc HOẶC khớp bất kỳ từ khóa chính nào
-            patterns = [re.escape(clean_query)] + [re.escape(w) for w in words]
-            combined = "|".join(patterns)
-            search_filter = {
-                **base_filter,
-                "memory": {"$regex": combined, "$options": "i"},
-            }
-        else:
-            search_filter = {
-                **base_filter,
-                "memory": {"$regex": re.escape(clean_query), "$options": "i"},
-            }
+    clean_query = (query or "").strip()
+    if clean_query:
+        search_filter["memory"] = {"$regex": re.escape(clean_query), "$options": "i"}
 
     cursor = (
         coll.find(
@@ -694,3 +667,138 @@ def search_memory(thread_id: str, query: str = "", user_id: str | None = None) -
         return "No saved memory found."
 
     return "\n".join(f"- {m}" for m in memories)
+
+
+def find_memory_candidates(user_id: str | None = None, keyword: str = "") -> list[dict]:
+    """Bước 1 & 2: Tìm danh sách candidate memory theo từ khóa bằng regex escape.
+
+    Args:
+        user_id: ID người dùng.
+        keyword: Từ khóa tìm kiếm.
+
+    Returns:
+        Danh sách các candidate: [{"memory_id": str, "memory": str, "version": int}].
+    """
+    oid = _to_object_id(user_id)
+    if not oid:
+        return []
+
+    coll = get_collection("long_term_memory")
+    filter_q: dict[str, Any] = {
+        "user_id": oid,
+        "is_deleted": False,
+    }
+
+    clean_keyword = (keyword or "").strip()
+    if clean_keyword:
+        filter_q["memory"] = {"$regex": re.escape(clean_keyword), "$options": "i"}
+
+    cursor = (
+        coll.find(filter_q, {"_id": 1, "memory": 1, "version": 1, "updated_at": 1, "created_at": 1})
+        .sort("updated_at", -1)
+        .limit(10)
+    )
+
+    candidates = []
+    for doc in cursor:
+        candidates.append({
+            "memory_id": str(doc["_id"]), # lấy id từ objectId để truyền vào update/delete
+            "memory": doc.get("memory", ""),
+            "version": int(doc.get("version", 1)),
+        })
+    return candidates
+
+
+def update_memory_by_id(
+    user_id: str | None,
+    memory_id: str,
+    new_memory: str,
+    version: int
+) -> str:
+    """Bước 4: Sửa memory bằng ID + user_id + is_deleted + version."""
+    oid = _to_object_id(user_id)
+    mem_oid = _to_object_id(memory_id)
+    if not oid:
+        return "Vui lòng đăng nhập để cập nhật bộ nhớ."
+    if not mem_oid:
+        return "Mã memory_id không hợp lệ."
+
+    coll = get_collection("long_term_memory")
+    now = _now()
+
+    filter_q = {
+        "_id": mem_oid,
+        "user_id": oid,
+        "is_deleted": False,
+        "version": int(version),
+    }
+    update_q = {
+        "$set": {
+            "memory": new_memory.strip(),
+            "updated_at": now,
+        },
+        "$inc": {"version": 1},
+    }
+
+    res = coll.update_one(filter_q, update_q)
+    if res.matched_count == 1:
+        return f"Đã cập nhật thành công memory [{memory_id}] thành: '{new_memory.strip()}' (version mới: {int(version) + 1})."
+
+    # Kiểm tra nguyên nhân không khớp
+    existing = coll.find_one({"_id": mem_oid, "user_id": oid})
+    if not existing:
+        return f"Lỗi: Không tìm thấy memory với ID [{memory_id}]."
+    if existing.get("is_deleted", False):
+        return f"Lỗi: Memory [{memory_id}] đã bị xóa trước đó."
+    current_ver = existing.get("version", 1)
+    if current_ver != int(version):
+        return f"Lỗi xung đột phiên bản: Memory [{memory_id}] hiện là version {current_ver}, khác với version {version} bạn cung cấp."
+
+    return f"Lỗi: Không thể cập nhật memory [{memory_id}]."
+
+
+def delete_memory_by_id(
+    user_id: str | None,
+    memory_id: str,
+    version: int
+) -> str:
+    """Bước 4: Xóa mềm (soft-delete) memory bằng ID + user_id + is_deleted + version."""
+    oid = _to_object_id(user_id)
+    mem_oid = _to_object_id(memory_id)
+    if not oid:
+        return "Vui lòng đăng nhập để xóa bộ nhớ."
+    if not mem_oid:
+        return "Mã memory_id không hợp lệ."
+
+    coll = get_collection("long_term_memory")
+    now = _now()
+
+    filter_q = {
+        "_id": mem_oid,
+        "user_id": oid,
+        "is_deleted": False,
+        "version": int(version),
+    }
+    update_q = {
+        "$set": {
+            "is_deleted": True,
+            "deleted_at": now,
+            "updated_at": now,
+        },
+        "$inc": {"version": 1},
+    }
+
+    res = coll.update_one(filter_q, update_q)
+    if res.matched_count == 1:
+        return f"Đã xóa thành công memory [{memory_id}]."
+
+    existing = coll.find_one({"_id": mem_oid, "user_id": oid})
+    if not existing:
+        return f"Lỗi: Không tìm thấy memory với ID [{memory_id}]."
+    if existing.get("is_deleted", False):
+        return f"Memory [{memory_id}] đã được xóa từ trước."
+    current_ver = existing.get("version", 1)
+    if current_ver != int(version):
+        return f"Lỗi xung đột phiên bản: Memory [{memory_id}] hiện là version {current_ver}, khác với version {version} bạn cung cấp."
+
+    return f"Lỗi: Không thể xóa memory [{memory_id}]."

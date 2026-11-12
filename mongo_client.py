@@ -132,9 +132,12 @@ def ensure_indexes() -> None:
             background=True
         )
 
-        # long_term_memory — lọc theo user_id là chính, thread_id chỉ để trace
+        # long_term_memory — compound index: user_id + is_deleted + created_at
         mem = get_collection("long_term_memory")
-        mem.create_index([("user_id", ASCENDING)], background=True)
+        mem.create_index(
+            [("user_id", ASCENDING), ("is_deleted", ASCENDING), ("created_at", DESCENDING)],
+            background=True
+        )
         mem.create_index([("thread_id", ASCENDING)], background=True)
         # Text index để hỗ trợ tìm kiếm full-text
         try:

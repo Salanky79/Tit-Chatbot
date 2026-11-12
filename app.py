@@ -626,6 +626,10 @@ async def chat_stream(request: Request):
     }
 
     def event_generator():
+        # Thiết lập ContextVar đảm bảo an toàn đa luồng xuyên suốt generator
+        set_current_thread_id(thread_id)
+        set_current_user_id(user_id or "")
+
         final_answer = ""
         stream_error = None
 
