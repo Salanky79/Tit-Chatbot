@@ -29,6 +29,7 @@ from langchain_core.messages import (
 
 from agent import get_agent
 from followups import FOLLOWUPS_ENABLED, generate_followup_questions
+from token_limit_handler import is_daily_token_limit, handle_partial_stream
 from database import (
     init_db,
     save_chat_message,
@@ -654,33 +655,61 @@ async def chat_stream(request: Request):
                 save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
         except Exception as e:
             err_str = str(e)
-            is_rate_limit = (
-                "429" in err_str
-                or "rate_limit_exceeded" in err_str.lower()
-                or "rate limit" in err_str.lower()
-                or "tokens per minute" in err_str.lower()
-                or "tokens per day" in err_str.lower()
-            )
-            is_model_unavailable = (
-                "model_terms_required" in err_str
-                or "model_not_found" in err_str
-                or "does not exist or you do not have access to it" in err_str
-            )
             stream_error = e
 
-            if is_rate_limit:
-                logger.error(f"[RateLimit] Model '{selected_model}' hit Groq rate limit: {e}")
-                yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' đã đạt giới hạn tốc độ / hạn mức token (Rate Limit) của Groq API. Vui lòng thử lại sau hoặc chọn mô hình khác."
-                })
-            elif is_model_unavailable:
-                logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
-                yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
-                })
+            # =========================================================================
+            # XỬ LÝ CHẠM TRẦN TOKEN NGÀY (TPD): KHÔNG VỨT LỖI ĐỎ RA MÀN HÌNH
+            # In kết quả đang làm dở + gắn thông báo nhẹ nhàng + lưu vào DB
+            # =========================================================================
+            if is_daily_token_limit(e):
+                logger.warning(
+                    f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
+                    f"Recovering partial answer (length: {len(final_answer)} chars)."
+                )
+                full_message = handle_partial_stream(final_answer, selected_model, language="vi")
+
+                # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
+                if final_answer.strip():
+                    notice_suffix = full_message[len(final_answer):]
+                    if notice_suffix:
+                        yield sse_data({"token": notice_suffix})
+                else:
+                    # Nếu chưa sinh được chữ nào -> stream toàn bộ câu thông báo lịch sự
+                    yield sse_data({"token": full_message})
+
+                # Lưu toàn bộ tin nhắn đã cứu hộ vào DB để người dùng không bị mất nội dung
+                try:
+                    save_chat_message(thread_id, "assistant", full_message, user_id=user_id)
+                except Exception as save_err:
+                    logger.error(f"Failed to save partial message: {save_err}")
+
             else:
-                logger.error(f"[ChatError] Error during chat streaming: {e}")
-                yield sse_data({"error": str(e)})
+                is_rate_limit = (
+                    "429" in err_str
+                    or "rate_limit_exceeded" in err_str.lower()
+                    or "rate limit" in err_str.lower()
+                    or "tokens per minute" in err_str.lower()
+                    or "tpm" in err_str.lower()
+                )
+                is_model_unavailable = (
+                    "model_terms_required" in err_str
+                    or "model_not_found" in err_str
+                    or "does not exist or you do not have access to it" in err_str
+                )
+
+                if is_rate_limit:
+                    logger.error(f"[RateLimit-TPM] Model '{selected_model}' hit Groq rate limit: {e}")
+                    yield sse_data({
+                        "error": f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
+                    })
+                elif is_model_unavailable:
+                    logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
+                    yield sse_data({
+                        "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
+                    })
+                else:
+                    logger.error(f"[ChatError] Error during chat streaming: {e}")
+                    yield sse_data({"error": str(e)})
 
         # Kết thúc stream ngay lập tức khi chatbot trả lời xong (0ms delay cho người dùng)
         yield sse_data({"done": True})

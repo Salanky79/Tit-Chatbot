@@ -11,6 +11,7 @@ from langchain_groq import ChatGroq
 
 from token_utils import estimate_tokens
 from usage_logging import log_token_usage
+from token_limit_handler import is_daily_token_limit, format_tool_limit_notice
 
 
 SUPPORTED_IMAGE_TYPES = {
@@ -76,6 +77,8 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         vision_model = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-Vision")
         log_token_usage(str(vision_model), "Image Analysis", response)
     except Exception as exc:
+        if is_daily_token_limit(exc):
+            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
         raise RuntimeError(f"Vision model could not analyze the image: {exc}") from exc
 
     content = getattr(response, "content", response)

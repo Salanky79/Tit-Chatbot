@@ -15,6 +15,11 @@ from langchain_groq import ChatGroq
 
 from token_utils import estimate_tokens
 from usage_logging import log_token_usage
+from token_limit_handler import (
+    is_daily_token_limit,
+    assemble_partial_summary,
+    DailyTokenLimitInterrupted,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -283,11 +288,26 @@ def _invoke_groups_parallel(
                 time.sleep(stagger)
 
         # as_completed: Lấy kết quả ngay khi bất kỳ worker nào hoàn thành trước
+        daily_limit_exc = None
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
-            # future.result() sẽ tự động ném ra exception nếu worker đó gặp lỗi
-            # và lưu kết quả đúng vào vị trí idx ban đầu để tài liệu không bị đảo lộn thứ tự
-            results[idx] = future.result()
+            try:
+                # Lưu kết quả đúng vào vị trí idx ban đầu để tài liệu không bị đảo lộn thứ tự
+                results[idx] = future.result()
+            except Exception as exc:
+                if is_daily_token_limit(exc):
+                    daily_limit_exc = exc
+                    logger.warning(
+                        f"[DailyLimit] Stage '{stage}', group {idx+1} hit daily token limit: {exc}"
+                    )
+                else:
+                    # Lỗi khác (không phải daily token limit) thì re-raise ngay
+                    raise
+
+        # Nếu có bất kỳ worker nào chạm giới hạn ngày (TPD):
+        if daily_limit_exc is not None:
+            completed_groups = [(i + 1, r) for i, r in enumerate(results) if r is not None]
+            raise DailyTokenLimitInterrupted(completed_groups, len(prompts), daily_limit_exc)
 
     return results  # type: ignore[return-value]
 
@@ -321,6 +341,10 @@ def _execute_map_reduce(
         map_llm = getattr(llm, "bind", lambda **kw: llm)(max_tokens=MAP_SUMMARY_OUTPUT_TOKENS)
         final_llm = getattr(llm, "bind", lambda **kw: llm)(max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
 
+    source_name = "tài liệu"
+    if clean_documents and hasattr(clean_documents[0], "metadata"):
+        source_name = clean_documents[0].metadata.get("source") or "tài liệu"
+
     # =========================================================================
     # TRƯỜNG HỢP 1: TÀI LIỆU NGẮN (vừa vặn trong 1 nhóm <= ngân sách token)
     # Gọi LLM đúng 1 lần duy nhất để tóm tắt hoàn chỉnh và trả về luôn!
@@ -331,7 +355,13 @@ def _execute_map_reduce(
             "Preserve important claims, key definitions, figures, conditions, and conclusions in a well-structured summary.\n\n"
             + "\n\n".join(map_groups[0])
         )
-        return _invoke(final_llm, prompt, "map (single)", 1, target_language=target_language)
+        try:
+            return _invoke(final_llm, prompt, "map (single)", 1, target_language=target_language)
+        except Exception as exc:
+            if is_daily_token_limit(exc):
+                logger.warning(f"[DailyLimit] Single map hit daily limit: {exc}")
+                return assemble_partial_summary([], 1, filename=source_name, language=target_language)
+            raise
 
     # =========================================================================
     # TRƯỜNG HỢP 2: TÀI LIỆU DÀI (nhiều hơn 1 nhóm > ngân sách token)
@@ -346,9 +376,19 @@ def _execute_map_reduce(
         for group in map_groups
     ]
     logger.info(f"[MapReduce] Map phase: {len(map_prompts)} groups → running in parallel with max_workers={SUMMARIZATION_MAX_WORKERS}")
-    summaries: list[str] = _invoke_groups_parallel(
-        map_prompts, "map", map_llm, target_language
-    )
+
+    try:
+        summaries: list[str] = _invoke_groups_parallel(
+            map_prompts, "map", map_llm, target_language
+        )
+    except DailyTokenLimitInterrupted as e:
+        logger.warning(
+            f"[DailyLimit] Map phase interrupted: completed {len(e.completed_groups)}/{e.total_groups} groups"
+        )
+        # Cứu hộ dữ liệu: Trả về bản tóm tắt bán phần (Partial Summary) của các nhóm đã xong!
+        return assemble_partial_summary(
+            e.completed_groups, e.total_groups, filename=source_name, language=target_language
+        )
 
     # Pha 2 (Reduce): Gộp các bản tóm tắt trung gian
     # Sử dụng ngân sách gom nhóm lớn (5.500 token) để gộp được nhiều bản tóm tắt cùng lúc
@@ -384,9 +424,19 @@ def _execute_map_reduce(
             ]
 
         logger.info(f"[MapReduce] Reduce level {level}: {len(reduce_prompts)} groups (is_final_step={is_final_step})")
-        reduced: list[str] = _invoke_groups_parallel(
-            reduce_prompts, f"reduce level {level}", active_reduce_llm, target_language
-        )
+        try:
+            reduced: list[str] = _invoke_groups_parallel(
+                reduce_prompts, f"reduce level {level}", active_reduce_llm, target_language
+            )
+        except DailyTokenLimitInterrupted as e:
+            logger.warning(
+                f"[DailyLimit] Reduce level {level} interrupted. Fallback to Map summaries as partial result."
+            )
+            # Nếu đụng trần TPD ở Reduce, ta đã có toàn bộ summaries từ Pha Map!
+            map_completed = [(i + 1, s) for i, s in enumerate(summaries)]
+            return assemble_partial_summary(
+                map_completed, len(summaries), filename=source_name, language=target_language
+            )
 
         if len(reduced) >= len(summaries):
             # Cưỡng bức kết hợp nếu không thể giảm thêm
@@ -396,9 +446,15 @@ def _execute_map_reduce(
                 f"Combine these summaries into one final summary{lang_phrase}:\n\n" + "\n\n".join(g)
                 for g in emergency_groups
             ]
-            reduced = _invoke_groups_parallel(
-                emergency_prompts, f"reduce level {level} (converge)", final_llm, target_language
-            )
+            try:
+                reduced = _invoke_groups_parallel(
+                    emergency_prompts, f"reduce level {level} (converge)", final_llm, target_language
+                )
+            except DailyTokenLimitInterrupted:
+                map_completed = [(i + 1, s) for i, s in enumerate(summaries)]
+                return assemble_partial_summary(
+                    map_completed, len(summaries), filename=source_name, language=target_language
+                )
 
         summaries = reduced
         level += 1

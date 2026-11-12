@@ -19,6 +19,11 @@ from rag import (
 )
 from image_analysis import analyze_image
 from summarization import summarize_documents
+from token_limit_handler import (
+    is_daily_token_limit,
+    assemble_partial_summary,
+    format_tool_limit_notice,
+)
 
 
 load_dotenv()
@@ -187,8 +192,19 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
         chunks = get_document_chunks(selected, get_current_thread_id(), user_id=user_id)
         summary = summarize_documents(chunks, target_language=target_language)
     except Exception as exc:
+        if is_daily_token_limit(exc):
+            return assemble_partial_summary([], 1, filename=selected, language=target_language)
         return f'Could not summarize "{selected}": {exc}'
-    return f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n{summary}'
+
+    # Nếu bản tóm tắt đã có tiền tố (ví dụ bản tóm tắt bán phần cứu hộ), trả về luôn
+    if summary.startswith(SUMMARY_RESULT_PREFIX) or summary.startswith(SUMMARY_RESULT_PREFIX_VI):
+        return summary
+
+    if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
+        prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}" (toàn bộ {len(chunks)} phần nội dung):\n\n'
+    else:
+        prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n'
+    return f'{prefix}{summary}'
 
 
 @tool
@@ -234,6 +250,8 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     try:
         answer = analyze_image(selected["image_path"], question)
     except Exception as exc:
+        if is_daily_token_limit(exc):
+            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
         return f'Could not analyze "{selected["source"]}": {exc}'
     return f'Image analysis of "{selected["source"]}":\n\n{answer}'
 
