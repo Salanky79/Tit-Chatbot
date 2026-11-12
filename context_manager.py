@@ -248,62 +248,18 @@ def summarize_old_messages(
     existing_summary: str = "",
     model_name: Optional[str] = None,
 ) -> str:
-    """Tóm tắt các lượt trò chuyện cũ để bảo toàn ngữ cảnh cốt lõi.
+    """Tóm tắt các lượt trò chuyện cũ bằng Extractive Trimming siêu tốc (Python thuần, 0.0001s).
 
-    - Luôn dùng mô hình gọn nhẹ (gpt-oss-20b) để không tiêu tốn token TPM của mô hình chính (như 120b).
-    - Chỉ lưu thông tin người dùng, sở thích lâu dài và chủ đề chính.
-    - Tuyệt đối không lưu mô tả ảnh tạm thời hoặc trích xuất OCR chi tiết.
+    - Hoàn toàn KHÔNG gọi request LLM lên Groq: loại bỏ độ trễ 4 giây và bảo toàn quota TPM.
+    - Trích xuất ngắn gọn ý chính của User và câu trả lời của Assistant trong các lượt cũ.
     - Tự động khử trùng lặp (deduplicate) để không bị tích lũy nhân bản qua nhiều lượt.
     """
-    dialogue = _extract_dialogue_text(old_turns)
-    if not dialogue.strip():
-        return _deduplicate_summary_lines(existing_summary)
-
-    # Prompt tóm tắt chặt chẽ, chống ô nhiễm ngữ cảnh
-    prompt_content = (
-        "You are updating a compact conversation memory.\n"
-        "Instructions:\n"
-        "- Extract ONLY user identity, permanent preferences, and high-level conversational topics.\n"
-        "- DO NOT summarize descriptions of images, photos, OCR dumps, or temporary uploaded files.\n"
-        "- Output 2-3 concise, non-redundant bullet points.\n"
-        "- Do NOT repeat any points already present in the existing summary.\n\n"
-    )
-    if existing_summary:
-        prompt_content += f"Existing conversation summary:\n{existing_summary.strip()}\n\n"
-    prompt_content += f"New dialogue turns to incorporate:\n{dialogue.strip()}"
-
-    try:
-        # Luôn ưu tiên dùng model 20b với timeout ngắn để không làm nghẽn TPM hoặc treo ứng dụng
-        summary_model = SUMMARY_BACKGROUND_MODEL
-        llm = ChatGroq(
-            model=summary_model,
-            temperature=0.1,
-            max_tokens=250,
-            request_timeout=4.0,
-        )
-        response = llm.invoke([
-            SystemMessage(content=(
-                "You are a concise conversation summarizer. Output only 2-3 key bullet points. "
-                "Never describe temporary images or repeat existing bullet points."
-            )),
-            HumanMessage(content=prompt_content),
-        ])
-        log_token_usage(summary_model, "Conversation Trimming Summary", response)
-        content = getattr(response, "content", "")
-        if isinstance(content, str) and content.strip():
-            text = content.strip()
-            text = re.sub(r"[,;:\s]+(?:and|in|or|và|là|của|trong)[\s,.:;]*$", ".", text, flags=re.I)
-            combined = f"{existing_summary.strip()}\n{text}" if existing_summary.strip() else text
-            return _deduplicate_summary_lines(combined)
-    except Exception as exc:
-        logger.warning("LLM conversation summarization failed: %s; using local extractive fallback.", exc)
-
-    # Fallback trích xuất cục bộ an toàn, loại bỏ nội dung media/file tạm
     extracted_lines = []
     if existing_summary:
         for line in existing_summary.split("\n"):
             if line.strip():
                 extracted_lines.append(line.strip())
+
     for turn in old_turns:
         for msg in turn:
             if isinstance(msg, HumanMessage):
@@ -315,6 +271,7 @@ def summarize_old_messages(
                 text = str(getattr(msg, "content", ""))[:140]
                 if text.strip() and not text.startswith("Image analysis of") and not text.startswith("Summary of"):
                     extracted_lines.append(f"- Assistant answered: {text}")
+
     return _deduplicate_summary_lines("\n".join(extracted_lines[-6:]))
 
 
@@ -323,26 +280,37 @@ def trim_conversation_history(
     max_turns: int = DEFAULT_MAX_HISTORY_TURNS,
     existing_summary: str = "",
     model_name: Optional[str] = None,
+    max_tokens_threshold: int = 2500,
 ) -> Tuple[list[BaseMessage], str]:
     """1. Trimming conversation history: Giới hạn số lượt chat đưa vào LLM.
 
-    - Gom tin nhắn thành các turn.
-    - Giữ lại tối đa `max_turns` lượt gần nhất.
-    - Các lượt cũ hơn được tóm tắt súc tích và cập nhật vào `existing_summary`.
-    - Trả về (recent_messages, updated_summary).
+    Tối ưu hiệu năng:
+    - Ngăn chặn tóm tắt lần 2: Nếu lượt hiện tại đang xử lý kết quả tool (ToolMessage), giữ nguyên context.
+    - Bỏ tóm tắt khi không cần thiết: Nếu tổng token của messages <= 2500, giữ nguyên toàn bộ tin nhắn.
+    - Khi vượt quá 2500 token: Dùng Extractive Trimming siêu tốc (0.0001s, 0 token LLM).
     """
-    turns = group_messages_into_turns(messages)
+    if not messages:
+        return [], existing_summary
 
+    # Ngăn chặn tóm tắt lần 2 khi LangGraph vừa chạy xong node tools quay lại chatbot
+    if isinstance(messages[-1], ToolMessage) or any(isinstance(m, ToolMessage) for m in messages[-2:]):
+        return list(messages), existing_summary
+
+    # Kiểm tra tổng token thực tế: nếu chưa vượt quá 2500 token, không cần tóm tắt
+    total_tokens = sum(estimate_message_tokens(m) for m in messages)
+    if total_tokens <= max_tokens_threshold:
+        return list(messages), existing_summary
+
+    turns = group_messages_into_turns(messages)
     if len(turns) <= max_turns:
-        # Số lượt chưa vượt quá giới hạn, giữ nguyên toàn bộ tin nhắn
         return list(messages), existing_summary
 
     # Tách các turn cũ cần tóm tắt và các turn gần đây cần giữ lại
-    split_index = len(turns) - max_turns
+    split_index = max(1, len(turns) - max_turns)
     old_turns = turns[:split_index]
     recent_turns = turns[split_index:]
 
-    # Tóm tắt các turn cũ
+    # Tóm tắt các turn cũ bằng Extractive Trimming
     updated_summary = summarize_old_messages(
         old_turns,
         existing_summary=existing_summary,

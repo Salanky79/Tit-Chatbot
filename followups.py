@@ -191,15 +191,16 @@ def generate_followup_questions(
     assistant_answer: str,
     model_name: str,
 ) -> list[str]:
-    """Generate exactly two actionable suggested user prompts, with a local fallback.
+    """Generate exactly two actionable suggested user prompts.
 
     Tách context & Kiểm soát token:
     - Loại bỏ code blocks lớn, tool outputs thô, attachments không cần thiết.
     - Giới hạn nghiêm ngặt token context (user ~250 tokens, assistant ~500 tokens).
     - Viết theo góc nhìn của người dùng (User Prompt), tuyệt đối không dùng câu hỏi từ phía trợ lý.
+    - Nếu không đúng form hoặc xảy ra lỗi: trả về danh sách rỗng [] (không ép buộc fallback).
     """
     if not assistant_answer.strip():
-        return fallback_followup_questions(user_message)
+        return []
 
     clean_user = _clean_content_for_followup(user_message, MAX_FOLLOWUP_USER_TOKENS)
     clean_assistant = _clean_content_for_followup(assistant_answer, MAX_FOLLOWUP_ANSWER_TOKENS)
@@ -209,7 +210,7 @@ def generate_followup_questions(
         "assistant_answer": clean_assistant,
     }
     try:
-        llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=FOLLOWUP_OUTPUT_TOKENS)
+        llm = ChatGroq(model=model_name, temperature=0.2, max_tokens=FOLLOWUP_OUTPUT_TOKENS, request_timeout=3.0)
         response = llm.invoke([
             SystemMessage(content=(
                 "You are an expert prompt engineer for an AI chat assistant interface.\n\n"
@@ -245,7 +246,8 @@ def generate_followup_questions(
         questions = _parse_questions(raw)
         if len(questions) == 2:
             return questions
-        logger.warning("Follow-up model returned an unrecognized format; using fallback.")
+        logger.warning("Follow-up model returned an unrecognized format; omitting suggestions.")
+        return []
     except Exception as exc:
-        logger.warning("Follow-up generation failed: %s", exc)
-    return fallback_followup_questions(user_message)
+        logger.warning("Follow-up generation failed: %s; omitting suggestions.", exc)
+        return []

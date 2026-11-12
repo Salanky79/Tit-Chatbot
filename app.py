@@ -27,7 +27,7 @@ from langchain_core.messages import (
 )
 
 from agent import get_agent, normalize_model_name
-from followups import generate_followup_questions, fallback_followup_questions
+from followups import generate_followup_questions
 from database import (
     init_db,
     save_chat_message,
@@ -686,25 +686,22 @@ async def chat_stream(request: Request):
                 logger.error(f"[ChatError] Error during chat streaming: {e}")
                 yield sse_data({"error": str(e)})
 
-        # Mỗi lượt chat hợp lệ luôn kết thúc bằng đúng hai gợi ý.
-        # Luôn dùng gpt-oss-20b cho câu hỏi gợi ý để bảo tồn ngân sách token TPM.
-        yield sse_data({"suggestions_pending": True})
-        if stream_error:
-            questions = fallback_followup_questions(user_message)
-        else:
+        # Stream câu trả lời hoàn tất, gửi done: True ngay lập tức để mở khóa ô chat cho người dùng
+        yield sse_data({"done": True})
+
+        # Xử lý gợi ý follow-up: nếu không có lỗi và có câu trả lời, thử sinh gợi ý
+        # Bỏ hoàn toàn fallback: nếu không đúng form thì không cần followup
+        if not stream_error and final_answer.strip():
             try:
                 questions = generate_followup_questions(
                     user_message=user_message,
                     assistant_answer=final_answer,
                     model_name="openai/gpt-oss-20b",
                 )
-            except Exception:
-                questions = fallback_followup_questions(user_message)
-
-        if len(questions) != 2:
-            questions = fallback_followup_questions(user_message)
-        yield sse_data({"suggestions": questions})
-        yield sse_data({"done": True})
+                if len(questions) == 2:
+                    yield sse_data({"suggestions": questions})
+            except Exception as e:
+                logger.warning(f"Follow-up generation skipped: {e}")
 
     return StreamingResponse(
         event_generator(),
