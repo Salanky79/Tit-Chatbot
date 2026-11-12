@@ -700,8 +700,8 @@ async def chat_stream(request: Request):
 async def chat_followups(request: Request):
     """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions) bất đồng bộ, chạy song song ngầm.
 
-    - Không chặn luồng trả lời chính (/chat/stream).
-    - Chạy trong thread pool qua asyncio.to_thread để giữ FastAPI hoàn toàn non-blocking.
+    - Không chặn luồng trả lời chính (/chat/stream), giúp giảm thời gian chờ của người dùng về 0ms.
+    - Chạy trong thread pool qua asyncio.to_thread để giữ FastAPI Event Loop hoàn toàn non-blocking.
     """
     if not FOLLOWUPS_ENABLED:
         return {"success": True, "suggestions": []}
@@ -715,10 +715,13 @@ async def chat_followups(request: Request):
     assistant_answer = (data.get("assistant_answer") or "").strip()
     selected_model = data.get("model", "openai/gpt-oss-20b")
 
+    # Kiểm tra ngữ cảnh: nếu thiếu câu hỏi hoặc câu trả lời thì không sinh gợi ý
     if not user_message or not assistant_answer:
         return {"success": True, "suggestions": []}
 
     try:
+        # Sử dụng asyncio.to_thread để chạy hàm đồng bộ gọi LLM trên worker thread riêng biệt,
+        # giải phóng Main Thread của FastAPI để tiếp tục phục vụ các request khác
         questions = await asyncio.to_thread(
             generate_followup_questions,
             user_message=user_message,

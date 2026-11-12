@@ -2857,9 +2857,13 @@
         return true;
     }
 
+    // Controller quản lý việc hủy request gợi ý cũ khi người dùng gửi tin nhắn mới
     let followupAbortController = null;
 
+    // Gửi yêu cầu sinh gợi ý câu hỏi tiếp theo (Follow-up) chạy ngầm song song với UI
+    // Không làm trễ hoặc chặn tương tác của người dùng sau khi chatbot trả lời xong
     async function fetchParallelFollowups(userMessage, assistantAnswer, botElement, model) {
+        // Hủy request gợi ý đang chờ (nếu có) trước khi tạo request mới
         if (followupAbortController) {
             followupAbortController.abort();
         }
@@ -2878,10 +2882,12 @@
             });
             if (!res.ok) return;
             const data = await res.json();
+            // Chỉ hiển thị khi có đúng 2 gợi ý hợp lệ để đảm bảo chất lượng UI
             if (data.success && Array.isArray(data.suggestions) && data.suggestions.length === 2) {
                 addFollowupSuggestions(data.suggestions, botElement);
             }
         } catch (err) {
+            // Bỏ qua lỗi AbortError khi người dùng chủ động gửi tin nhắn mới
             if (err.name !== "AbortError") {
                 console.warn("Follow-up suggestions skipped or failed:", err);
             }

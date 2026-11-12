@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Sequence
 
 from langchain_core.documents import Document
@@ -18,8 +19,16 @@ from usage_logging import log_token_usage
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_INPUT_TOKEN_BUDGET = 3500
-SUMMARY_OUTPUT_TOKENS = 900
+DEFAULT_INPUT_TOKEN_BUDGET = 3200
+REDUCE_INPUT_TOKEN_BUDGET = 5500
+MAP_SUMMARY_OUTPUT_TOKENS = 350
+FINAL_SUMMARY_OUTPUT_TOKENS = 900
+SUMMARY_OUTPUT_TOKENS = FINAL_SUMMARY_OUTPUT_TOKENS  # tương thích ngược
+
+# Giới hạn số worker chạy song song khi tóm tắt các nhóm (2 workers là ngưỡng vàng an toàn với 8.000 TPM của Groq)
+SUMMARIZATION_MAX_WORKERS = int(os.getenv("SUMMARIZATION_MAX_WORKERS", "2"))
+# Thời gian chờ nhẹ giữa các lần submit task vào ThreadPool để tránh burst request cùng mili-giây
+SUMMARIZATION_SUBMIT_STAGGER_S = float(os.getenv("SUMMARIZATION_SUBMIT_STAGGER_S", "0.3"))
 
 
 def validate_and_isolate_summarization_context(
@@ -223,13 +232,65 @@ def _invoke(
             time.sleep(wait_seconds)
 
 
-def _build_groq_llm(model_name: str | None = None) -> ChatGroq:
+def _build_groq_llm(model_name: str | None = None, max_tokens: int = FINAL_SUMMARY_OUTPUT_TOKENS) -> ChatGroq:
     model = model_name or os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-20b")
     return ChatGroq(
         model=model,
         temperature=0.1,
-        max_tokens=SUMMARY_OUTPUT_TOKENS,
+        max_tokens=max_tokens,
     )
+
+
+def _invoke_groups_parallel(
+    prompts: list[str],
+    stage: str,
+    llm,
+    target_language: str,
+    max_workers: int = SUMMARIZATION_MAX_WORKERS,
+) -> list[str]:
+    """Invoke _invoke() cho nhiều prompts song song bằng ThreadPoolExecutor.
+
+    - Giữ nguyên thứ tự kết quả (index-based mapping).
+    - Micro-stagger 0.1s giữa các submit để tránh burst TPM.
+    - Nếu chỉ có 1 prompt → gọi _invoke() trực tiếp (không overhead thread).
+    - Nếu bất kỳ worker nào raise → re-raise ngay lập tức.
+    """
+    # Trường hợp biên: Nếu chỉ có đúng 1 nhóm prompt, gọi thẳng _invoke trên luồng hiện tại
+    # để tránh lãng phí chi phí khởi tạo ThreadPoolExecutor
+    if len(prompts) == 1:
+        return [_invoke(llm, prompts[0], stage, 1, target_language=target_language)]
+
+    stagger = float(os.getenv("SUMMARIZATION_SUBMIT_STAGGER_S", str(SUMMARIZATION_SUBMIT_STAGGER_S)))
+    # Mảng kết quả khởi tạo sẵn với độ dài cố định để gán kết quả theo đúng index gốc
+    results: list[str | None] = [None] * len(prompts)
+
+    logger.info(f"[Parallel] Submitting {len(prompts)} groups for stage '{stage}' with max_workers={max_workers}")
+
+    # Sử dụng ThreadPoolExecutor để chạy các lời gọi LLM I/O-bound song song
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Dictionary ánh xạ từng future về vị trí ban đầu (original index) của prompt
+        future_to_idx: dict = {}
+        for idx, prompt in enumerate(prompts):
+            # Submit tác vụ tóm tắt nhóm idx + 1 vào thread pool
+            future = executor.submit(
+                _invoke, llm, prompt, stage, idx + 1, None, target_language
+            )
+            future_to_idx[future] = idx
+
+            # Micro-stagger: Giãn cách 0.1s giữa các lần gửi request liên tiếp
+            # để tránh 3-5 request đập vào API Groq tại cùng 1 mili-giây gây nghẽn burst rate
+            if idx < len(prompts) - 1:
+                time.sleep(stagger)
+
+        # as_completed: Lấy kết quả ngay khi bất kỳ worker nào hoàn thành trước
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            # future.result() sẽ tự động ném ra exception nếu worker đó gặp lỗi
+            # và lưu kết quả đúng vào vị trí idx ban đầu để tài liệu không bị đảo lộn thứ tự
+            results[idx] = future.result()
+
+    return results  # type: ignore[return-value]
+
 
 
 def _execute_map_reduce(
@@ -242,57 +303,103 @@ def _execute_map_reduce(
     map_groups = _groups_by_budget(units, effective_chunk_budget)
 
     lang_phrase = ""
-    if target_language and target_language.lower() not in ("auto", "original", "default", "ngôn ngữ gốc"):
+    if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
+        lang_phrase = " in Vietnamese"
+    elif target_language and target_language.lower() in ("english", "tiếng anh", "tieng anh"):
+        lang_phrase = " in English"
+    elif target_language and target_language.lower() not in ("auto", "original", "default", "ngôn ngữ gốc"):
         lang_phrase = f" in {target_language}"
+
+    # Chuẩn bị model riêng cho từng pha:
+    # - map_llm: output gọn (~350 tokens) để trích xuất ý chính, không phình to context
+    # - final_llm: output đầy đủ (~900 tokens) để viết bản tóm tắt hoàn chỉnh cuối cùng
+    model_name = getattr(llm, "model_name", None) or getattr(llm, "model", None)
+    if isinstance(llm, ChatGroq):
+        map_llm = _build_groq_llm(model_name, max_tokens=MAP_SUMMARY_OUTPUT_TOKENS)
+        final_llm = _build_groq_llm(model_name, max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
+    else:
+        map_llm = getattr(llm, "bind", lambda **kw: llm)(max_tokens=MAP_SUMMARY_OUTPUT_TOKENS)
+        final_llm = getattr(llm, "bind", lambda **kw: llm)(max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
 
     # =========================================================================
     # TRƯỜNG HỢP 1: TÀI LIỆU NGẮN (vừa vặn trong 1 nhóm <= ngân sách token)
-    # Gọi LLM đúng 1 lần duy nhất để tóm tắt và trả về luôn, KHÔNG cần Map-Reduce!
+    # Gọi LLM đúng 1 lần duy nhất để tóm tắt hoàn chỉnh và trả về luôn!
     # =========================================================================
     if len(map_groups) == 1:
         prompt = (
-            f"Summarize this part of the document{lang_phrase}. Keep specific facts and caveats.\n\n"
+            f"Summarize this document faithfully and comprehensively{lang_phrase}. "
+            "Preserve important claims, key definitions, figures, conditions, and conclusions in a well-structured summary.\n\n"
             + "\n\n".join(map_groups[0])
         )
-        return _invoke(llm, prompt, "map", 1, target_language=target_language)
+        return _invoke(final_llm, prompt, "map (single)", 1, target_language=target_language)
 
     # =========================================================================
     # TRƯỜNG HỢP 2: TÀI LIỆU DÀI (nhiều hơn 1 nhóm > ngân sách token)
     # Bắt buộc phải thực hiện quy trình MAP - REDUCE đệ quy nhiều tầng
     # =========================================================================
-    # Pha 1 (Map): Chạy tuần tự từng nhóm để tránh nghẽn trần Rate Limit (8.000 TPM)
-    summaries: list[str] = []
-    for group_number, group in enumerate(map_groups, start=1):
-        prompt = (
-            f"Summarize this part of the document{lang_phrase}. Keep specific facts and caveats.\n\n"
-            + "\n\n".join(group)
-        )
-        summaries.append(_invoke(llm, prompt, "map", group_number, target_language=target_language))
+    # Pha 1 (Map): Trích xuất ý chính súc tích (bullet points, số liệu, luận điểm)
+    # Giới hạn output ~350 token giúp KHÔNG BAO GIỜ bị phình to context hay tràn TPM Groq
+    map_prompts = [
+        f"Extract key claims, essential definitions, figures, numbers, and core takeaways from this section{lang_phrase}. "
+        "Write concisely in structured bullet points (under 250 words) without repetition.\n\n"
+        + "\n\n".join(group)
+        for group in map_groups
+    ]
+    logger.info(f"[MapReduce] Map phase: {len(map_prompts)} groups → running in parallel with max_workers={SUMMARIZATION_MAX_WORKERS}")
+    summaries: list[str] = _invoke_groups_parallel(
+        map_prompts, "map", map_llm, target_language
+    )
 
-    # Pha 2 (Reduce): Tóm tắt đệ quy các bản tóm tắt trung gian cho đến khi còn đúng 1 bản
+    # Pha 2 (Reduce): Gộp các bản tóm tắt trung gian
+    # Sử dụng ngân sách gom nhóm lớn (5.500 token) để gộp được nhiều bản tóm tắt cùng lúc
+    reduce_budget = int(os.getenv("SUMMARIZATION_REDUCE_INPUT_TOKENS", str(REDUCE_INPUT_TOKEN_BUDGET)))
     level = 1
-    while len(summaries) > 1:
-        reduced = []
-        groups = _groups_by_budget(summaries, effective_chunk_budget)
-        if len(groups) >= len(summaries):
-            smaller_budget = max(256, effective_chunk_budget // 2)
-            groups = _groups_by_budget(summaries, smaller_budget)
-            if len(groups) >= len(summaries) and smaller_budget == 256:
-                raise RuntimeError("Document summaries are too large to reduce safely.")
 
-        for group_number, group in enumerate(groups, start=1):
-            prompt = (
-                f"Combine these summaries into one faithful summary{lang_phrase}. Preserve key "
-                "claims, definitions, numbers, conditions, and conclusions; remove "
-                "repetition and do not add facts.\n\n"
+    while len(summaries) > 1:
+        groups = _groups_by_budget(summaries, reduce_budget)
+
+        # Đảm bảo toán học: mỗi tầng Reduce luôn giảm đáng kể số lượng (ít nhất giảm 50%)
+        if len(groups) >= len(summaries):
+            step = 3
+            groups = [summaries[i:i + step] for i in range(0, len(summaries), step)]
+
+        # Nếu chỉ còn đúng 1 nhóm: Đây là bước Reduce CUỐI CÙNG để tạo bản tóm tắt hoàn chỉnh
+        is_final_step = (len(groups) == 1)
+        active_reduce_llm = final_llm if is_final_step else map_llm
+
+        if is_final_step:
+            reduce_prompts = [
+                f"Synthesize and combine these summaries into one comprehensive, well-structured, faithful final summary{lang_phrase}. "
+                "Organize clearly with an overview, key sections/findings, definitions, figures, and conclusions. "
+                "Remove all repetition and do not add outside facts.\n\n"
                 + "\n\n".join(group)
-            )
-            reduced.append(
-                _invoke(llm, prompt, f"reduce level {level}", group_number, target_language=target_language)
-            )
+                for group in groups
+            ]
+        else:
+            reduce_prompts = [
+                f"Combine and consolidate these intermediate summaries into a concise structured summary{lang_phrase}. "
+                "Preserve all key facts, numbers, and definitions; eliminate duplication.\n\n"
+                + "\n\n".join(group)
+                for group in groups
+            ]
+
+        logger.info(f"[MapReduce] Reduce level {level}: {len(reduce_prompts)} groups (is_final_step={is_final_step})")
+        reduced: list[str] = _invoke_groups_parallel(
+            reduce_prompts, f"reduce level {level}", active_reduce_llm, target_language
+        )
 
         if len(reduced) >= len(summaries):
-            raise RuntimeError("Document summarization could not make progress reducing intermediate summaries.")
+            # Cưỡng bức kết hợp nếu không thể giảm thêm
+            step = 2
+            emergency_groups = [reduced[i:i + step] for i in range(0, len(reduced), step)]
+            emergency_prompts = [
+                f"Combine these summaries into one final summary{lang_phrase}:\n\n" + "\n\n".join(g)
+                for g in emergency_groups
+            ]
+            reduced = _invoke_groups_parallel(
+                emergency_prompts, f"reduce level {level} (converge)", final_llm, target_language
+            )
+
         summaries = reduced
         level += 1
 
@@ -316,12 +423,12 @@ def summarize_documents(
     clean_documents = validate_and_isolate_summarization_context(documents)
 
     budget = input_token_budget or _input_budget()
-    prompt_overhead = 150 + SUMMARY_OUTPUT_TOKENS
+    prompt_overhead = 150 + MAP_SUMMARY_OUTPUT_TOKENS
     effective_chunk_budget = max(256, budget - prompt_overhead) if budget > prompt_overhead else budget
 
     if llm is not None:
         return _execute_map_reduce(clean_documents, llm, effective_chunk_budget, target_language=target_language)
 
     primary_model = os.getenv("SUMMARIZATION_MODEL", "openai/gpt-oss-120b")
-    active_llm = _build_groq_llm(primary_model)
+    active_llm = _build_groq_llm(primary_model, max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
     return _execute_map_reduce(clean_documents, active_llm, effective_chunk_budget, target_language=target_language)
