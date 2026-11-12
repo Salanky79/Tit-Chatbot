@@ -2857,6 +2857,37 @@
         return true;
     }
 
+    let followupAbortController = null;
+
+    async function fetchParallelFollowups(userMessage, assistantAnswer, botElement, model) {
+        if (followupAbortController) {
+            followupAbortController.abort();
+        }
+        followupAbortController = new AbortController();
+
+        try {
+            const res = await fetch("/chat/followups", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    user_message: userMessage,
+                    assistant_answer: assistantAnswer,
+                    model: model
+                }),
+                signal: followupAbortController.signal
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.success && Array.isArray(data.suggestions) && data.suggestions.length === 2) {
+                addFollowupSuggestions(data.suggestions, botElement);
+            }
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.warn("Follow-up suggestions skipped or failed:", err);
+            }
+        }
+    }
+
     function detectLikelyTool(message) {
         const text = message.toLowerCase();
 
@@ -3337,10 +3368,6 @@
         function handleStreamData(data) {
             if (!data) return;
 
-            if (data.suggestions_pending) {
-                statusText.textContent = "Creating follow-up suggestions...";
-            }
-
             if (Array.isArray(data.suggestions)) {
                 addFollowupSuggestions(data.suggestions, botElement);
             }
@@ -3467,6 +3494,12 @@
             messageInput.focus();
 
             await loadConversations();
+
+            // Kích hoạt luồng Follow-up chạy song song ngầm (người dùng không phải chờ đợi)
+            const finalAnswer = (botElement.dataset.raw || "").trim();
+            if (finalAnswer && !finalAnswer.startsWith("**Something went wrong:**")) {
+                fetchParallelFollowups(submittedMessage, finalAnswer, botElement, selectedModel);
+            }
         }
     }
 

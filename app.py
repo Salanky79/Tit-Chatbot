@@ -7,6 +7,7 @@ load_dotenv()
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
+import asyncio
 import json
 import logging
 import uuid
@@ -681,19 +682,7 @@ async def chat_stream(request: Request):
                 logger.error(f"[ChatError] Error during chat streaming: {e}")
                 yield sse_data({"error": str(e)})
 
-        if FOLLOWUPS_ENABLED and not stream_error and final_answer.strip():
-            try:
-                yield sse_data({"suggestions_pending": True})
-                questions = generate_followup_questions(
-                    user_message=user_message,
-                    assistant_answer=final_answer,
-                )
-                if len(questions) == 2:
-                    yield sse_data({"suggestions": questions})
-            except Exception as e:
-                logger.warning(f"Follow-up generation skipped: {e}")
-
-        # done is the terminal event; optional suggestions are sent before it.
+        # Kết thúc stream ngay lập tức khi chatbot trả lời xong (0ms delay cho người dùng)
         yield sse_data({"done": True})
 
     return StreamingResponse(
@@ -705,6 +694,44 @@ async def chat_stream(request: Request):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+@app.post("/chat/followups")
+async def chat_followups(request: Request):
+    """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions) bất đồng bộ, chạy song song ngầm.
+
+    - Không chặn luồng trả lời chính (/chat/stream).
+    - Chạy trong thread pool qua asyncio.to_thread để giữ FastAPI hoàn toàn non-blocking.
+    """
+    if not FOLLOWUPS_ENABLED:
+        return {"success": True, "suggestions": []}
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body."}, status_code=400)
+
+    user_message = (data.get("user_message") or "").strip()
+    assistant_answer = (data.get("assistant_answer") or "").strip()
+    selected_model = data.get("model", "openai/gpt-oss-20b")
+
+    if not user_message or not assistant_answer:
+        return {"success": True, "suggestions": []}
+
+    try:
+        questions = await asyncio.to_thread(
+            generate_followup_questions,
+            user_message=user_message,
+            assistant_answer=assistant_answer,
+            model_name=selected_model,
+        )
+        return {
+            "success": True,
+            "suggestions": questions if len(questions) == 2 else []
+        }
+    except Exception as exc:
+        logger.warning(f"Parallel follow-up generation failed: {exc}")
+        return {"success": False, "suggestions": []}
 
 
 
