@@ -173,7 +173,7 @@ async def auth_signin(request: Request):
         "success": True,
         "message": "Đăng nhập thành công!",
         "user": _serialize_user(user),
-        "token": session_id,
+        "token": session_id, # dự phòng cho các client không hỗ trợ cookie, có thể dùng token này để gửi trong header Authorization: Bearer <token>
     })
     response.set_cookie(
         key="tit_session",
