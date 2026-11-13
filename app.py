@@ -29,7 +29,7 @@ from langchain_core.messages import (
     ToolMessage
 )
 
-from agent import get_agent
+from agent import get_agent, delete_user_checkpoints
 from services.followups import FOLLOWUPS_ENABLED, generate_followup_questions
 from services.token_limit_handler import (
     handle_partial_stream,
@@ -52,6 +52,8 @@ from storage.database import (
     list_users,
     list_admin_conversations,
     get_admin_conversation_messages,
+    list_user_thread_ids,
+    delete_user,
     set_user_active,
     update_user_profile,
     create_session,
@@ -64,6 +66,7 @@ from services.rag import (
     add_image_to_rag,
     list_admin_documents,
     delete_admin_document,
+    delete_user_documents,
 )
 from services.image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
 from tools import set_current_thread_id, set_current_user_id
@@ -108,6 +111,18 @@ def _serialize_conversation(conversation: dict[str, Any]) -> dict[str, Any]:
         if hasattr(value, "isoformat"):
             result[field] = value.isoformat()
     return result
+
+
+def _delete_user_avatars(user_id: str) -> None:
+    """Remove locally stored avatar files whose names are owned by this user."""
+    avatar_root = Path("uploads/avatars").resolve()
+    for avatar_path in avatar_root.glob(f"{user_id}_*"):
+        candidate = avatar_path.resolve()
+        if candidate.is_relative_to(avatar_root) and candidate.is_file():
+            try:
+                candidate.unlink()
+            except OSError as exc:
+                logger.warning("Could not remove avatar file %s: %s", candidate, exc)
 
 
 def _session_id_from_request(
@@ -424,6 +439,59 @@ async def admin_set_user_status(user_id: str, request: Request):
         return {"success": True, "user": _serialize_user(user)}
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+
+@app.delete("/admin/api/users/{user_id}")
+async def admin_delete_user(user_id: str, request: Request):
+    """Disable and permanently remove a user and their associated data."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+
+    admin = get_current_user(request)
+    if user_id.lower() == str(admin["id"]).lower():
+        return JSONResponse(
+            {"success": False, "error": "Bạn không thể xóa tài khoản Admin đang đăng nhập."},
+            status_code=400,
+        )
+
+    try:
+        # Khóa tài khoản và thu hồi session trước để có thể thử lại nếu dọn dữ liệu lỗi.
+        set_user_active(user_id, False)
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    except Exception:
+        logger.exception("Could not disable user %s before deletion", user_id)
+        return JSONResponse(
+            {"success": False, "error": "Không thể khóa tài khoản trước khi xóa."},
+            status_code=500,
+        )
+
+    try:
+        thread_ids = list_user_thread_ids(user_id)
+        checkpoints_deleted = delete_user_checkpoints(thread_ids)
+        cleanup = delete_user_documents(user_id)
+        _delete_user_avatars(user_id)
+        deleted_user = delete_user(user_id)
+    except Exception:
+        logger.exception("Could not complete deletion for user %s", user_id)
+        return JSONResponse(
+            {
+                "success": False,
+                "error": (
+                    "Chưa thể hoàn tất xóa tài khoản. Tài khoản đã bị khóa; "
+                    "hãy thử lại để tiếp tục dọn dữ liệu."
+                ),
+            },
+            status_code=500,
+        )
+
+    cleanup["checkpoints_deleted"] = checkpoints_deleted
+    return {
+        "success": True,
+        "message": f"Đã xóa tài khoản @{deleted_user['username']} và dữ liệu liên quan.",
+        "cleanup": cleanup,
+    }
 
 
 @app.get("/admin/api/users/{user_id}/conversations")

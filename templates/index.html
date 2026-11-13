@@ -13,6 +13,9 @@
 
     <!-- Marked.js: Markdown → HTML -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+    <!-- KaTeX: LaTeX Math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <!-- highlight.js: syntax highlighting for code blocks -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css">
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/highlight.min.js"></script>
@@ -1054,6 +1057,18 @@
         .message-content hr { border: 0; height: 1px; background: var(--border-color); margin: 22px 0; }
 
         .message-content img { max-width: 100%; border-radius: 12px; }
+
+        .message-content .katex-display {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 6px 0;
+            margin: 10px 0;
+        }
+
+        .message-content .katex {
+            font-size: 1.08em;
+            color: var(--text-main);
+        }
 
         .copy-btn {
             position: absolute;
@@ -2461,12 +2476,68 @@
         }
     });
 
-    /** Render Markdown string to sanitized HTML and apply to an element. */
+    /** Render Markdown string to sanitized HTML and apply to an element with KaTeX math support. */
     function renderMarkdown(el, text) {
-        // Parse markdown → HTML
+        if (!text) {
+            el.innerHTML = "";
+            return;
+        }
+
         try {
-            el.innerHTML = marked.parse(text || "");
+            let content = String(text);
+
+            // 1. Chuẩn hóa các dạng công thức lỏng lẻo từ LLM hoặc copy-paste:
+            // Khối [ \n ... \n ] chứa từ khóa LaTeX (bị rụng dấu gạch chéo ngược)
+            content = content.replace(/(?:^|\n)\[\s*\n([\s\S]*?\\[a-zA-Z]+[\s\S]*?)\n\s*\](?:\n|$)/g, '\n\n$$\n$1\n$$\n\n');
+            // Chuẩn hóa \[ ... \] -> $$ ... $$
+            content = content.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
+            // Chuẩn hóa \( ... \) -> $ ... $
+            content = content.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+            // Chuẩn hóa ( \frac... ) hoặc ( \binom... ) -> $ ... $
+            content = content.replace(/\((\s*\\[a-zA-Z]+(?:\{[^{}]*\}|[^\)\n])*)\)/g, '$$$1$$');
+
+            // 2. Bảo vệ các khối công thức khỏi marked.js (tránh bị parse nhầm _ thành <em>, \n thành <br>)
+            const mathItems = [];
+            // Khối công thức Display Math ($$ ... $$)
+            content = content.replace(/\$\$([\s\S]*?)\$\$/g, function(match, formula) {
+                const token = `@@MATH_BLOCK_${mathItems.length}@@`;
+                mathItems.push({ token, formula: formula.trim(), display: true });
+                return token;
+            });
+            // Công thức nội dòng Inline Math ($ ... $)
+            content = content.replace(/\$([^\$\n\r]+?)\$/g, function(match, formula) {
+                // Bỏ qua giá tiền tệ như $100 hoặc $50.5
+                if (/^\s*\d+([.,]\d+)?\s*$/.test(formula)) return match;
+                const token = `@@MATH_INLINE_${mathItems.length}@@`;
+                mathItems.push({ token, formula: formula.trim(), display: false });
+                return token;
+            });
+
+            // 3. Parse Markdown sang HTML
+            let html = marked.parse(content);
+
+            // 4. Thay thế các placeholder bằng HTML do KaTeX render
+            for (const item of mathItems) {
+                let rendered = "";
+                if (typeof katex !== "undefined" && katex.renderToString) {
+                    try {
+                        rendered = katex.renderToString(item.formula, {
+                            displayMode: item.display,
+                            throwOnError: false,
+                            output: "htmlAndMathml"
+                        });
+                    } catch (err) {
+                        rendered = item.display ? `$$${item.formula}$$` : `$${item.formula}$`;
+                    }
+                } else {
+                    rendered = item.display ? `$$${item.formula}$$` : `$${item.formula}$`;
+                }
+                html = html.replace(item.token, rendered);
+            }
+
+            el.innerHTML = html;
         } catch (e) {
+            console.warn("renderMarkdown error:", e);
             el.textContent = text || "";
             return;
         }

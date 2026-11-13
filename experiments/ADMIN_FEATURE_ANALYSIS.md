@@ -88,6 +88,15 @@ Tài liệu này tổng hợp toàn bộ phân tích hiện trạng, kiến trú
 - Các truy vấn có phân trang ở MongoDB: 20 hội thoại/trang, 50 tin nhắn/trang. Tin nhắn sắp xếp thời gian tăng dần.
 - Hai API mới đều gọi `_admin_api_error()`; API lịch sử người dùng `/history/{thread_id}` không bị nới quyền.
 
+### 2.5. Xóa tài khoản và dữ liệu liên quan
+
+- Admin xác nhận trong `confirmDialog()` trước khi giao diện gọi `DELETE /admin/api/users/{user_id}`. Hủy xác nhận không gửi request.
+- API dùng `_admin_api_error()`, chặn Admin tự xóa tài khoản đang đăng nhập và gọi `set_user_active(..., False)` trước để thu hồi session.
+- Lấy `thread_id` từ các hội thoại của user và gọi `MongoDBSaver.delete_thread()` để xóa checkpoint cùng writes trong database LangGraph riêng.
+- `delete_user_documents()` chỉ truy vấn Chroma theo `user_id`; file chỉ bị xóa sau khi resolve xác nhận vẫn nằm dưới `uploads/`. Nếu xóa file thất bại, metadata Chroma được giữ lại để có thể thử lại.
+- `delete_user()` xác thực ObjectId, bảo vệ Admin cuối cùng đang hoạt động, sau đó xóa sessions, conversations, chat messages và long-term memory theo user ID. Bản ghi user bị xóa cuối cùng.
+- Nếu checkpoint, Chroma hoặc file system lỗi, API giữ tài khoản ở trạng thái khóa và trả lỗi để Admin thử lại. MongoDB, database checkpoint, Chroma và file system không có transaction chung.
+
 ---
 
 ## 3. Cấu trúc cây thư mục sau khi hoàn thiện
@@ -295,6 +304,47 @@ Giao diện căn bubble theo vai trò và giữ nguyên xuống dòng trong nộ
 .chat-bubble.assistant { align-self: flex-start; }
 ```
 
+### 5.6. Xác nhận và cascade khi xóa user
+
+Giao diện yêu cầu xác nhận trước khi gửi yêu cầu xóa; request HTTP `DELETE` chỉ chạy sau khi Admin chọn nút xác nhận:
+
+```javascript
+const ok = await confirmDialog({
+    title: "Xóa vĩnh viễn tài khoản?",
+    text: `Bạn có chắc muốn xóa @${username} (${fullName})? ...`,
+    okLabel: "Xóa tài khoản",
+    danger: true,
+});
+if (!ok) return;
+
+await requestJson(`/admin/api/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+});
+```
+
+Backend vô hiệu hóa tài khoản và thu hồi session trước, xóa checkpoint LangGraph theo thread, dọn Chroma/file/avatar, rồi xóa dữ liệu Mongo và bản ghi user:
+
+```python
+set_user_active(user_id, False)
+thread_ids = list_user_thread_ids(user_id)
+checkpoints_deleted = delete_user_checkpoints(thread_ids)
+cleanup = delete_user_documents(user_id)
+_delete_user_avatars(user_id)
+deleted_user = delete_user(user_id)
+```
+
+`delete_user()` chỉ xóa dữ liệu có `user_id` khớp và xóa bản ghi user sau các collection phụ:
+
+```python
+owner_filter = {"user_id": {"$in": [query_id, str(query_id)]}}
+for collection_name in (
+    "sessions", "conversations", "chat_messages", "long_term_memory"
+):
+    get_collection(collection_name).delete_many(owner_filter)
+
+users.delete_one({"_id": query_id})
+```
+
 ## 6. Đánh giá chất lượng và kiểm thử (Verification & Testing)
 
 1. **Kiểm thử phân quyền**:
@@ -316,3 +366,8 @@ Giao diện căn bubble theo vai trò và giữ nguyên xuống dòng trong nộ
 6. **Kiểm thử xem lịch sử chat**:
    - User ID không hợp lệ không gọi MongoDB; hội thoại phân trang và tin nhắn được trả theo thời gian tăng dần.
    - Thread không thuộc user được chọn trả `404`; request không phải Admin bị chặn ở API guard.
+7. **Kiểm thử xóa user**:
+   - API Admin chặn request không được phép và chặn Admin tự xóa; Admin cuối cùng đang hoạt động không thể bị xóa.
+   - MongoDB chỉ xóa session, conversations, messages và memory của user đích; bản ghi user bị xóa cuối.
+   - Checkpoint LangGraph được xóa theo thread ID; lỗi khi dọn external data giữ tài khoản ở trạng thái khóa để thử lại.
+   - Chroma query được lọc theo `user_id`; ID không hợp lệ không gọi MongoDB hoặc Chroma.

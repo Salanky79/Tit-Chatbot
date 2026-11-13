@@ -561,6 +561,7 @@
                 <td><div class="user-actions">
                     <button class="action" data-action="view-user-conversations" data-user-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}" data-full-name="${escapeHtml(user.full_name || user.username)}">Lịch sử chat</button>
                     <button class="action ${user.is_active ? "danger" : "ok"}" data-action="user-status" data-id="${escapeHtml(user.id)}" data-active="${!user.is_active}">${user.is_active ? "Khóa" : "Mở khóa"}</button>
+                    <button class="action danger" data-action="delete-user" data-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}" data-full-name="${escapeHtml(user.full_name || user.username)}">Xóa</button>
                 </div></td></tr>`;
             }).join("") : emptyRow(6, "Không có người dùng phù hợp.");
             document.getElementById("usersPage").textContent = `${userPage} / ${userTotalPages} · ${data.total} tài khoản`;
@@ -680,6 +681,27 @@
         } catch (error) { showMessage(error.message); }
     }
 
+    async function deleteUser(userId, username, fullName) {
+        const ok = await confirmDialog({
+            title: "Xóa vĩnh viễn tài khoản?",
+            text: `Bạn có chắc muốn xóa @${username} (${fullName})? Lịch sử chat, bộ nhớ, tài liệu và file tải lên của tài khoản này cũng sẽ bị xóa.`,
+            okLabel: "Xóa tài khoản",
+            danger: true,
+        });
+        if (!ok) return;
+
+        const visibleUserCount = document.querySelectorAll("#usersBody tr.row-in").length;
+        const refreshPage = userPage > 1 && visibleUserCount === 1 ? userPage - 1 : userPage;
+        try {
+            await requestJson(`/admin/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+            if (selectedUser?.id === userId) closeUserHistory();
+            showMessage(`Đã xóa tài khoản @${username} và dữ liệu liên quan.`);
+            await loadUsers(refreshPage);
+        } catch (error) {
+            showMessage(error.message);
+        }
+    }
+
     async function loadDocuments(page = 1) {
         if (page < 1) return;
         if (documentTotalPages > 0 && page > documentTotalPages && page !== 1) return;
@@ -732,6 +754,12 @@
         if (!button) return;
         if (button.dataset.action === "user-status") {
             setUserStatus(button.dataset.id, button.dataset.active === "true");
+        } else if (button.dataset.action === "delete-user") {
+            deleteUser(
+                button.dataset.id,
+                button.dataset.username,
+                button.dataset.fullName,
+            );
         } else if (button.dataset.action === "view-user-conversations") {
             openUserHistory({
                 id: button.dataset.userId,

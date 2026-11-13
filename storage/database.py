@@ -289,6 +289,59 @@ def set_user_active(user_id: str | ObjectId, is_active: bool) -> dict:
     return _public_user(updated_user)
 
 
+def delete_user(user_id: str | ObjectId) -> dict:
+    """Xóa user và dữ liệu MongoDB của họ, xóa bản ghi user sau cùng."""
+    query_id = _to_object_id(user_id)
+    if query_id is None:
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    users = get_collection("users")
+    user = users.find_one({"_id": query_id})
+    if not user:
+        raise ValueError("Không tìm thấy người dùng.")
+
+    if user.get("role", "user") == "admin":
+        active_admins = users.count_documents(
+            {"role": "admin", "is_active": {"$ne": False}}
+        )
+        minimum_remaining = 1 if user.get("is_active", True) else 0
+        if active_admins <= minimum_remaining:
+            raise ValueError(
+                "Không thể xóa tài khoản khiến hệ thống không còn Admin hoạt động."
+            )
+
+    # Tài khoản có thể dùng ObjectId hoặc chuỗi ID trong dữ liệu cũ.
+    owner_filter = {"user_id": {"$in": [query_id, str(query_id)]}}
+    for collection_name in (
+        "sessions",
+        "conversations",
+        "chat_messages",
+        "long_term_memory",
+    ):
+        get_collection(collection_name).delete_many(owner_filter)
+
+    users.delete_one({"_id": query_id})
+    return _public_user(user)
+
+
+def list_user_thread_ids(user_id: str | ObjectId) -> list[str]:
+    """Lấy danh sách thread ID thuộc về một user hợp lệ."""
+    query_id = _to_object_id(user_id)
+    if query_id is None:
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    conversations = get_collection("conversations")
+    cursor = conversations.find(
+        {"user_id": {"$in": [query_id, str(query_id)]}},
+        {"_id": 0, "thread_id": 1},
+    )
+    return list(dict.fromkeys(
+        str(conversation["thread_id"])
+        for conversation in cursor
+        if conversation.get("thread_id")
+    ))
+
+
 def update_user_profile(
     user_id: str | ObjectId,
     *,

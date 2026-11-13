@@ -1,4 +1,5 @@
 import os
+from collections.abc import Iterable
 from typing import Annotated, Any
 from typing_extensions import TypedDict
 
@@ -36,6 +37,21 @@ class AgentState(TypedDict, total=False):
     # Lịch sử được lưu đầy đủ; context_manager chọn lượt cần gửi ở mỗi lần gọi model.
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
+
+
+def delete_user_checkpoints(thread_ids: Iterable[str]) -> int:
+    """Xóa checkpoint LangGraph thuộc danh sách thread của user."""
+    unique_thread_ids = dict.fromkeys(thread_id for thread_id in thread_ids if thread_id)
+    if not unique_thread_ids:
+        return 0
+
+    checkpointer = MongoDBSaver(
+        client=get_client(),
+        db_name=os.getenv("MONGODB_CHECKPOINT_DB", "tit_chatbot_checkpoints"),
+    )
+    for thread_id in unique_thread_ids:
+        checkpointer.delete_thread(thread_id)
+    return len(unique_thread_ids)
 
 
 # Trả thẳng bản tóm tắt tài liệu cho người dùng, bỏ lượt gọi LLM thứ 2 (vốn chỉ để chép lại

@@ -8,12 +8,15 @@ from bson import ObjectId
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
-from agent import route_after_tools
-from app import _can_access_conversation, _chat_event_generator
+from agent import delete_user_checkpoints, route_after_tools
+from app import _can_access_conversation, _chat_event_generator, admin_delete_user
 from services.context_manager import prepare_context_for_llm, prune_old_tool_results
+from services.rag import delete_user_documents
 from storage.database import (
     _conv_to_obj,
     _public_user,
+    delete_user,
+    list_user_thread_ids,
     list_admin_conversations,
     get_admin_conversation_messages,
 )
@@ -257,6 +260,233 @@ class AdminConversationTests(unittest.TestCase):
         cursor.sort.assert_called_once_with("created_at", 1)
         cursor.skip.assert_called_once_with(50)
         cursor.limit.assert_called_once_with(50)
+
+
+class UserDeletionTests(unittest.TestCase):
+    def test_invalid_user_id_does_not_query_mongo(self) -> None:
+        with patch("storage.database.get_collection") as get_collection:
+            with self.assertRaises(ValueError):
+                delete_user("invalid-id")
+
+        get_collection.assert_not_called()
+
+    def test_cannot_delete_last_active_admin(self) -> None:
+        user_id = ObjectId()
+        users = MagicMock()
+        users.find_one.return_value = {
+            "_id": user_id,
+            "username": "admin",
+            "email": "admin@example.com",
+            "role": "admin",
+            "is_active": True,
+        }
+        users.count_documents.return_value = 1
+
+        with patch("storage.database.get_collection", return_value=users):
+            with self.assertRaisesRegex(ValueError, "Admin hoạt động"):
+                delete_user(str(user_id))
+
+        self.assertEqual(users.delete_many.call_count, 0)
+        users.delete_one.assert_not_called()
+
+    def test_deletes_only_target_users_mongo_records_then_user(self) -> None:
+        user_id = ObjectId()
+        events: list[str] = []
+        user = {
+            "_id": user_id,
+            "username": "tit",
+            "email": "tit@example.com",
+            "role": "user",
+            "is_active": False,
+        }
+        users = MagicMock()
+        users.find_one.return_value = user
+        users.delete_one.side_effect = lambda query: events.append("users")
+        collections = {
+            name: MagicMock()
+            for name in (
+                "sessions",
+                "conversations",
+                "chat_messages",
+                "long_term_memory",
+            )
+        }
+        for name, collection in collections.items():
+            collection.delete_many.side_effect = (
+                lambda query, collection_name=name: events.append(collection_name)
+            )
+
+        def get_collection(name: str):
+            return users if name == "users" else collections[name]
+
+        with patch("storage.database.get_collection", side_effect=get_collection):
+            deleted = delete_user(str(user_id))
+
+        self.assertEqual(
+            events,
+            ["sessions", "conversations", "chat_messages", "long_term_memory", "users"],
+        )
+        expected_owner_filter = {"user_id": {"$in": [user_id, str(user_id)]}}
+        for collection in collections.values():
+            collection.delete_many.assert_called_once_with(expected_owner_filter)
+        self.assertEqual(deleted["id"], str(user_id))
+
+    def test_chroma_cleanup_filters_by_user_id(self) -> None:
+        user_id = ObjectId()
+        collection = MagicMock()
+        collection.get.return_value = {
+            "ids": ["chunk-1"],
+            "metadatas": [{"source": "notes.pdf"}],
+        }
+        vectorstore = MagicMock(_collection=collection)
+
+        with patch("services.rag.get_vectorstore", return_value=vectorstore):
+            result = delete_user_documents(str(user_id))
+
+        user_filter = {"user_id": str(user_id)}
+        collection.get.assert_called_once_with(where=user_filter, include=["metadatas"])
+        collection.delete.assert_called_once_with(where=user_filter)
+        self.assertEqual(result, {"chunks_deleted": 1, "files_deleted": 0})
+
+    def test_invalid_user_id_does_not_query_chroma(self) -> None:
+        with patch("services.rag.get_vectorstore") as get_vectorstore:
+            with self.assertRaises(ValueError):
+                delete_user_documents("invalid-id")
+
+        get_vectorstore.assert_not_called()
+
+    def test_lists_only_thread_ids_for_valid_user(self) -> None:
+        user_id = ObjectId()
+        conversations = MagicMock()
+        conversations.find.return_value = iter([
+            {"thread_id": "thread-1"},
+            {"thread_id": "thread-2"},
+            {"thread_id": "thread-1"},
+        ])
+
+        with patch("storage.database.get_collection", return_value=conversations):
+            thread_ids = list_user_thread_ids(str(user_id))
+
+        self.assertEqual(thread_ids, ["thread-1", "thread-2"])
+        query = conversations.find.call_args.args[0]
+        self.assertEqual(query["user_id"]["$in"], [user_id, str(user_id)])
+
+    def test_deletes_unique_langgraph_threads_with_current_saver(self) -> None:
+        with (
+            patch("agent.get_client") as get_client,
+            patch("agent.MongoDBSaver") as saver_factory,
+        ):
+            deleted = delete_user_checkpoints(["thread-1", "thread-1", "thread-2"])
+
+        get_client.assert_called_once()
+        saver = saver_factory.return_value
+        self.assertEqual(deleted, 2)
+        self.assertEqual(
+            [call.args[0] for call in saver.delete_thread.call_args_list],
+            ["thread-1", "thread-2"],
+        )
+
+
+def _run_coroutine(coro):
+    """Run a coroutine to completion synchronously without requiring an asyncio event loop."""
+    try:
+        coro.send(None)
+    except StopIteration as exc:
+        return exc.value
+    raise RuntimeError("Coroutine did not resolve synchronously")
+
+
+class AdminDeleteRouteTests(unittest.TestCase):
+    def test_delete_route_uses_admin_guard(self) -> None:
+        from fastapi.responses import JSONResponse
+
+        blocked = JSONResponse({"success": False}, status_code=403)
+        with (
+            patch("app._admin_api_error", return_value=blocked),
+            patch("app.set_user_active") as set_user_active,
+        ):
+            result = _run_coroutine(admin_delete_user("user-id", MagicMock()))
+
+        self.assertIs(result, blocked)
+        set_user_active.assert_not_called()
+
+    def test_admin_cannot_delete_their_own_account(self) -> None:
+        from fastapi.responses import JSONResponse
+
+        user_id = str(ObjectId())
+        with (
+            patch("app._admin_api_error", return_value=None),
+            patch("app.get_current_user", return_value={"id": user_id}),
+            patch("app.set_user_active") as set_user_active,
+        ):
+            result = _run_coroutine(admin_delete_user(user_id, MagicMock()))
+
+        self.assertIsInstance(result, JSONResponse)
+        self.assertEqual(result.status_code, 400)
+        set_user_active.assert_not_called()
+
+    def test_delete_route_disables_then_cleans_then_deletes(self) -> None:
+        user_id = str(ObjectId())
+        events: list[str] = []
+        inactive_user = {"id": user_id, "username": "tit", "avatar_url": ""}
+        deleted_user = {"id": user_id, "username": "tit"}
+
+        def disable_user(*args):
+            events.append("disable")
+            return inactive_user
+
+        def cleanup_documents(*args):
+            events.append("documents")
+            return {"chunks_deleted": 2, "files_deleted": 1}
+
+        def delete_from_mongo(*args):
+            events.append("mongo")
+            return deleted_user
+
+        with (
+            patch("app._admin_api_error", return_value=None),
+            patch("app.get_current_user", return_value={"id": "another-admin"}),
+            patch("app.set_user_active", side_effect=disable_user),
+            patch(
+                "app.list_user_thread_ids",
+                side_effect=lambda *_: events.append("threads") or ["thread-1"],
+            ),
+            patch(
+                "app.delete_user_checkpoints",
+                side_effect=lambda *_: events.append("checkpoints") or 1,
+            ),
+            patch("app.delete_user_documents", side_effect=cleanup_documents),
+            patch("app._delete_user_avatars", side_effect=lambda *_: events.append("avatars")),
+            patch("app.delete_user", side_effect=delete_from_mongo),
+        ):
+            result = _run_coroutine(admin_delete_user(user_id, MagicMock()))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            events,
+            ["disable", "threads", "checkpoints", "documents", "avatars", "mongo"],
+        )
+        self.assertEqual(result["cleanup"]["checkpoints_deleted"], 1)
+
+    def test_external_cleanup_failure_keeps_user_record_for_retry(self) -> None:
+        from fastapi.responses import JSONResponse
+
+        with (
+            patch("app._admin_api_error", return_value=None),
+            patch("app.get_current_user", return_value={"id": "another-admin"}),
+            patch("app.set_user_active", return_value={"id": "target-user"}) as disable_user,
+            patch("app.list_user_thread_ids", return_value=[]),
+            patch("app.delete_user_checkpoints", return_value=0),
+            patch("app.delete_user_documents", side_effect=RuntimeError("Chroma offline")),
+            patch("app.delete_user") as delete_user_record,
+            patch("app.logger.exception"),
+        ):
+            result = _run_coroutine(admin_delete_user(str(ObjectId()), MagicMock()))
+
+        self.assertIsInstance(result, JSONResponse)
+        self.assertEqual(result.status_code, 500)
+        disable_user.assert_called_once()
+        delete_user_record.assert_not_called()
 
 
 if __name__ == "__main__":

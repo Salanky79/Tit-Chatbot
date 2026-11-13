@@ -13,6 +13,8 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 logger = logging.getLogger(__name__)
 
+from bson import ObjectId
+
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -518,6 +520,57 @@ def list_admin_documents() -> list[dict[str, Any]]:
         key=lambda item: (item.get("uploaded_at") or "", item["source"].casefold()),
         reverse=True,
     )
+
+
+def delete_user_documents(user_id: str) -> dict[str, int]:
+    """Xóa chunks Chroma và file tải lên thuộc về một user.
+
+    Xóa file trước metadata Chroma để nếu file system lỗi, Admin còn metadata
+    làm căn cứ thử dọn lại.
+    """
+    if not ObjectId.is_valid(user_id):
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    user_filter = {"user_id": str(ObjectId(user_id))}
+    collection = get_vectorstore()._collection
+    result = collection.get(where=user_filter, include=["metadatas"])
+    metadatas = result.get("metadatas") or []
+    file_paths = set()
+    for metadata in metadatas:
+        metadata = metadata or {}
+        file_path = metadata.get("file_path") or metadata.get("image_path")
+        if file_path:
+            file_paths.add(str(file_path))
+
+    upload_root = Path("uploads").resolve()
+    deleted_files = 0
+    failed_paths: list[str] = []
+    for file_path in file_paths:
+        candidate = Path(file_path).resolve()
+        if not candidate.is_relative_to(upload_root) or not candidate.is_file():
+            continue
+        try:
+            candidate.unlink()
+            deleted_files += 1
+        except OSError as exc:
+            import gc
+            gc.collect()
+            try:
+                candidate.unlink()
+                deleted_files += 1
+            except OSError as retry_exc:
+                logger.warning("Could not remove uploaded file %s: %s", candidate, retry_exc)
+                failed_paths.append(str(candidate))
+
+    if failed_paths:
+        raise RuntimeError(
+            "Không thể xóa một số file tải lên; dữ liệu Chroma được giữ lại để thử lại."
+        )
+
+    chunk_count = len(result.get("ids") or [])
+    if chunk_count:
+        collection.delete(where=user_filter)
+    return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
 
 
 def delete_admin_document(document_key: str) -> bool:
