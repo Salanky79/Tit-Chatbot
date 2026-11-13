@@ -14,6 +14,12 @@ from typing import Sequence
 
 logger = logging.getLogger(__name__)
 
+_VIETNAMESE_LANGUAGES = {"vi", "vietnamese", "tiếng việt", "tieng viet"}
+
+
+def _is_vietnamese(language: str) -> bool:
+    return language.lower() in _VIETNAMESE_LANGUAGES
+
 
 class DailyTokenLimitInterrupted(Exception):
     """Exception mang theo kết quả của các nhóm đã hoàn thành trước khi chạm trần token ngày."""
@@ -23,7 +29,7 @@ class DailyTokenLimitInterrupted(Exception):
         completed_groups: list[tuple[int, str]],
         total_groups: int,
         original_error: Exception | None = None,
-    ):
+    ) -> None:
         super().__init__(str(original_error or "Daily token limit reached"))
         self.completed_groups = completed_groups
         self.total_groups = total_groups
@@ -90,7 +96,7 @@ def handle_partial_stream(
     - Nếu đã có accumulated_text -> giữ nguyên và gắn thông báo đuôi.
     - Nếu accumulated_text rỗng -> trả về câu thông báo lịch sự hướng dẫn chọn model khác.
     """
-    is_vi = language.lower() in ("vi", "vietnamese", "tiếng việt", "tieng viet")
+    is_vi = _is_vietnamese(language)
     clean_accumulated = (accumulated_text or "").strip()
 
     if clean_accumulated:
@@ -136,7 +142,7 @@ def assemble_partial_summary(
 
     Bắt đầu bằng tiền tố hợp lệ để agent.py trả thẳng kết quả cho người dùng qua emit_summary.
     """
-    is_vi = language.lower() in ("vi", "vietnamese", "tiếng việt", "tieng viet", "auto")
+    is_vi = _is_vietnamese(language) or language.lower() == "auto"
     safe_filename = filename.strip() or "tài liệu"
 
     # Sắp xếp theo đúng thứ tự nhóm ban đầu (1-based index)
@@ -181,7 +187,7 @@ def format_tool_limit_notice(
     language: str = "vi",
 ) -> str:
     """Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày."""
-    is_vi = language.lower() in ("vi", "vietnamese", "tiếng việt", "tieng viet")
+    is_vi = _is_vietnamese(language)
     clean_partial = partial_info.strip()
 
     if is_vi:

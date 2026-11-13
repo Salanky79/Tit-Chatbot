@@ -9,9 +9,9 @@ Chatbot Evaluation Runner - Chạy đánh giá cho Tit Chatbot.
 
 import time
 from langsmith import Client
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
-from eval_config import CHATBOT_MODELS, JUDGE_MODEL
+from eval_config import CHATBOT_MODELS
 from eval_datasets import (
     CHATBOT_DATASET_NAME, CHATBOT_EXAMPLES,
     TOOL_SELECTION_DATASET_NAME, TOOL_SELECTION_EXAMPLES,

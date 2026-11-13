@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import Any
 from dotenv import load_dotenv
 import os
 import certifi
@@ -24,7 +24,7 @@ _embeddings = None
 _vectorstore = None
 
 
-def get_embeddings():
+def get_embeddings() -> Any:
     """Lazy loader for HuggingFace embeddings model on CPU."""
     global _embeddings
     if _embeddings is None:
@@ -42,7 +42,7 @@ def get_embeddings():
     return _embeddings
 
 
-def get_vectorstore():
+def get_vectorstore() -> Any:
     """Lazy loader for Chroma vector database."""
     global _vectorstore
     if _vectorstore is None:
@@ -55,7 +55,7 @@ def get_vectorstore():
     return _vectorstore
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Module-level attribute fallback for backward compatibility (PEP 562)."""
     if name == "vectorstore":
         return get_vectorstore()
@@ -68,10 +68,10 @@ def __getattr__(name: str):
 # File readers – trả về List[Document] với metadata đầy đủ (source, page)
 # ---------------------------------------------------------------------------
 
-def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
+def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Extract each PDF page, falling back to OCR for scanned/sparse pages."""
     reader = PdfReader(file_path)
-    docs = []
+    docs: list[Document] = []
     ocr_pdf = None
 
     try:
@@ -153,7 +153,7 @@ def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None
     return docs
 
 
-def _read_docx(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
+def _read_docx(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Đọc DOCX – docx2txt không có thông tin trang nên dùng page=1."""
     text = docx2txt.process(file_path) or ""
     if not text.strip():
@@ -170,7 +170,7 @@ def _read_docx(file_path: str, filename: str, thread_id: str, user_id: str | Non
     )]
 
 
-def _read_text(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> List[Document]:
+def _read_text(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Đọc TXT / MD / PY / CSV – page=1 (file text thuần)."""
     text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
     if not text.strip():
@@ -187,7 +187,7 @@ def _read_text(file_path: str, filename: str, thread_id: str, user_id: str | Non
     )]
 
 
-def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) -> List[Document]:
+def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Dispatcher – chọn reader đúng theo đuôi file."""
     path = Path(file_path)
     suffix = path.suffix.lower()
@@ -207,7 +207,7 @@ def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) 
 # Chunking – giữ nguyên metadata (page, source, …) trên từng chunk
 # ---------------------------------------------------------------------------
 
-def _split_documents(docs: List[Document]) -> List[Document]:
+def _split_documents(docs: list[Document]) -> list[Document]:
     """Chia mỗi Document thành nhiều chunk nhỏ hơn.
 
     Metadata (thread_id, source, page, file_type) được sao chép nguyên vẹn
@@ -219,7 +219,7 @@ def _split_documents(docs: List[Document]) -> List[Document]:
         add_start_index=True,  # thêm 'start_index' vào metadata
     )
 
-    chunks: List[Document] = []
+    chunks: list[Document] = []
     for doc in docs:
         page_chunks = splitter.split_documents([doc])
         for idx, chunk in enumerate(page_chunks):
@@ -312,7 +312,7 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
     return "\n\n".join(results)
 
 
-def get_document_chunks(source: str, thread_id: str, user_id: str | None = None) -> List[Document]:
+def get_document_chunks(source: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Return every stored chunk for one uploaded file in one conversation.
 
     This deliberately reads the Chroma collection directly instead of using
@@ -359,14 +359,14 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
     return docs
 
 
-def _sort_number(value):
+def _sort_number(value: Any) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return 0
 
 
-def list_document_sources(thread_id: str, user_id: str | None = None) -> List[str]:
+def list_document_sources(thread_id: str, user_id: str | None = None) -> list[str]:
     """List distinct filenames uploaded in a conversation."""
     where_filter = {"thread_id": thread_id}
     if user_id:

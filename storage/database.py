@@ -14,12 +14,13 @@ Collections:
 from datetime import datetime, timezone, timedelta
 import re
 import secrets
+from types import SimpleNamespace
 from typing import Any
 
 import bcrypt
 from bson import ObjectId
 
-from mongo_client import get_collection, ensure_indexes
+from storage.mongo_client import get_collection, ensure_indexes
 
 
 # ---------------------------------------------------------------------------
@@ -60,23 +61,34 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def _conv_to_obj(doc: dict) -> Any:
+def _conv_to_obj(doc: dict[str, Any] | None) -> SimpleNamespace | None:
     """Chuyển dict MongoDB thành object-like để tương thích với code cũ dùng
     attribute access (``item.thread_id``, ``item.title``, …).
     Tự động chuyển ObjectId thành string để tránh lỗi serialize JSON.
     """
     if doc is None:
         return None
+    converted = {
+        key: str(value) if isinstance(value, ObjectId) else value
+        for key, value in doc.items()
+    }
+    return SimpleNamespace(**converted)
 
-    class _Row:
-        pass
 
-    obj = _Row()
-    for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            value = str(value)
-        setattr(obj, key, value)
-    return obj
+def _public_user(
+    user: dict[str, Any], user_id: str | ObjectId | None = None
+) -> dict[str, Any]:
+    """Return the public user fields without exposing stored credentials."""
+    username = user["username"]
+    return {
+        "id": str(user_id if user_id is not None else user["_id"]),
+        "username": username,
+        "email": user["email"],
+        "full_name": user.get("full_name", username),
+        "avatar_url": user.get("avatar_url", ""),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -147,15 +159,7 @@ def create_user(
     result = users.insert_one(user_doc)
     user_id = str(result.inserted_id)
 
-    return {
-        "id": user_id,
-        "username": username,
-        "email": email,
-        "full_name": user_doc["full_name"],
-        "avatar_url": "",
-        "created_at": now,
-        "updated_at": now,
-    }
+    return _public_user(user_doc, user_id)
 
 
 def authenticate_user(username_or_email: str, password: str) -> dict | None:
@@ -181,15 +185,7 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
     if not verify_password(password, user.get("hashed_password", "")):
         return None
 
-    return {
-        "id": str(user["_id"]),
-        "username": user["username"],
-        "email": user["email"],
-        "full_name": user.get("full_name", user["username"]),
-        "avatar_url": user.get("avatar_url", ""),
-        "created_at": user.get("created_at"),
-        "updated_at": user.get("updated_at"),
-    }
+    return _public_user(user)
 
 
 def get_user_by_id(user_id: str | ObjectId) -> dict | None:
@@ -206,15 +202,7 @@ def get_user_by_id(user_id: str | ObjectId) -> dict | None:
     if not user:
         return None
 
-    return {
-        "id": str(user["_id"]),
-        "username": user["username"],
-        "email": user["email"],
-        "full_name": user.get("full_name", user["username"]),
-        "avatar_url": user.get("avatar_url", ""),
-        "created_at": user.get("created_at"),
-        "updated_at": user.get("updated_at"),
-    }
+    return _public_user(user)
 
 
 def get_user_by_username(username: str) -> dict | None:
@@ -227,15 +215,7 @@ def get_user_by_username(username: str) -> dict | None:
     if not user:
         return None
 
-    return {
-        "id": str(user["_id"]),
-        "username": user["username"],
-        "email": user["email"],
-        "full_name": user.get("full_name", user["username"]),
-        "avatar_url": user.get("avatar_url", ""),
-        "created_at": user.get("created_at"),
-        "updated_at": user.get("updated_at"),
-    }
+    return _public_user(user)
 
 
 def update_user_profile(
@@ -291,15 +271,7 @@ def update_user_profile(
         users.update_one({"_id": query_id}, {"$set": set_fields})
         user = users.find_one({"_id": query_id})
 
-    return {
-        "id": str(user["_id"]),
-        "username": user["username"],
-        "email": user["email"],
-        "full_name": user.get("full_name", user["username"]),
-        "avatar_url": user.get("avatar_url", ""),
-        "created_at": user.get("created_at"),
-        "updated_at": user.get("updated_at"),
-    }
+    return _public_user(user)
 
 
 # ---------------------------------------------------------------------------

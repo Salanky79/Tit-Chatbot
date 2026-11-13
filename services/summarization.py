@@ -4,19 +4,31 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Sequence
+from typing import Any, Sequence
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
-from token_utils import estimate_tokens
-from usage_logging import log_token_usage
-from token_limit_handler import (
+from prompts.summarization import (
+    CUSTOM_LANGUAGE_RULE,
+    EMERGENCY_REDUCE_PROMPT,
+    FINAL_REDUCE_PROMPT,
+    MAP_GROUP_PROMPT,
+    ORIGINAL_LANGUAGE_RULE,
+    REDUCE_PROMPT,
+    SINGLE_SUMMARY_PROMPT,
+    SUMMARY_SYSTEM_PROMPT,
+    VIETNAMESE_LANGUAGE_RULE,
+)
+from utils.token_utils import estimate_tokens
+from utils.usage_logging import log_token_usage
+from services.token_limit_handler import (
     is_daily_token_limit,
+    is_rate_limit as is_rate_limit_error,
+    parse_wait_time,
     assemble_partial_summary,
     DailyTokenLimitInterrupted,
 )
@@ -123,17 +135,8 @@ def _content_text(response) -> str:
     return ""
 
 
-def _parse_wait_time(err_msg: str) -> float | None:
-    match = re.search(r"try again in (?:(\d+)\s*m\s*)?([\d\.]+)\s*s", err_msg, re.IGNORECASE)
-    if match:
-        minutes = float(match.group(1)) if match.group(1) else 0.0
-        seconds = float(match.group(2))
-        return minutes * 60.0 + seconds
-    return None
-
-
 def _invoke(
-    llm,
+    llm: Any,
     prompt: str,
     stage: str,
     group_number: int,
@@ -153,26 +156,14 @@ def _invoke(
         try:
             lang_rule = ""
             if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
-                lang_rule = (
-                    "\n\nCRITICAL LANGUAGE REQUIREMENT: You MUST write the entire summary in fluent, natural Vietnamese (Tiếng Việt). "
-                    "Translate and explain all section titles, roles, project descriptions, and key takeaways into Vietnamese. "
-                    "Preserve proper nouns, names of people, universities, programming languages, and technical libraries intact."
-                )
+                lang_rule = VIETNAMESE_LANGUAGE_RULE
             elif target_language and target_language.lower() in ("auto", "original", "default", "ngôn ngữ gốc"):
-                lang_rule = (
-                    "\n\nCRITICAL LANGUAGE REQUIREMENT: Write the summary in the same primary language as the source document "
-                    "(e.g., if the document is in English, write the summary in English; if in Vietnamese, write in Vietnamese)."
-                )
+                lang_rule = ORIGINAL_LANGUAGE_RULE
             elif target_language:
-                lang_rule = f"\n\nCRITICAL LANGUAGE REQUIREMENT: You MUST write the entire summary in {target_language}."
+                lang_rule = CUSTOM_LANGUAGE_RULE.format(language=target_language)
 
             response = llm.invoke([
-                SystemMessage(content=(
-                    "You summarize source material faithfully. Preserve the important "
-                    "claims, definitions, figures, conditions, and conclusions. Avoid "
-                    "repetition. Do not add facts or imply coverage beyond the supplied text."
-                    + lang_rule
-                )),
+                SystemMessage(content=SUMMARY_SYSTEM_PROMPT + lang_rule),
                 HumanMessage(content=prompt),
             ])
             model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-LLM")
@@ -185,18 +176,7 @@ def _invoke(
             return result
         except Exception as exc:
             err_str = str(exc).lower()
-            is_rate_limit = (
-                "429" in err_str
-                or "rate_limit_exceeded" in err_str
-                or "tokens per minute" in err_str
-                or "tokens per day" in err_str
-                or "tpm" in err_str
-                or "tpd" in err_str
-                or "rate limit" in err_str
-                or "ratelimit" in err_str
-            )
-
-            if not is_rate_limit:
+            if not is_rate_limit_error(exc):
                 logger.error(f"[SummarizationError] Failed during {stage}, group {group_number}: {exc}")
                 raise RuntimeError(
                     f"Document summarization failed during {stage}, group {group_number}: {exc}"
@@ -210,7 +190,7 @@ def _invoke(
                 or "per day" in err_str
             )
 
-            parsed_wait = _parse_wait_time(str(exc))
+            parsed_wait = parse_wait_time(str(exc))
 
             # Nếu là giới hạn ngày (TPD) hoặc thời gian chờ quá lớn (> 3 phút - biểu hiện của quota ngày/giờ):
             if is_daily_limit or (parsed_wait is not None and parsed_wait > 180):
@@ -315,7 +295,7 @@ def _invoke_groups_parallel(
 
 def _execute_map_reduce(
     clean_documents: Sequence[Document],
-    llm,
+    llm: Any,
     effective_chunk_budget: int,
     target_language: str = "auto",
 ) -> str:
@@ -350,10 +330,8 @@ def _execute_map_reduce(
     # Gọi LLM đúng 1 lần duy nhất để tóm tắt hoàn chỉnh và trả về luôn!
     # =========================================================================
     if len(map_groups) == 1:
-        prompt = (
-            f"Summarize this document faithfully and comprehensively{lang_phrase}. "
-            "Preserve important claims, key definitions, figures, conditions, and conclusions in a well-structured summary.\n\n"
-            + "\n\n".join(map_groups[0])
+        prompt = SINGLE_SUMMARY_PROMPT.format(
+            language=lang_phrase, documents="\n\n".join(map_groups[0])
         )
         try:
             return _invoke(final_llm, prompt, "map (single)", 1, target_language=target_language)
@@ -370,9 +348,7 @@ def _execute_map_reduce(
     # Pha 1 (Map): Trích xuất ý chính súc tích (bullet points, số liệu, luận điểm)
     # Giới hạn output ~350 token giúp KHÔNG BAO GIỜ bị phình to context hay tràn TPM Groq
     map_prompts = [
-        f"Extract key claims, essential definitions, figures, numbers, and core takeaways from this section{lang_phrase}. "
-        "Write concisely in structured bullet points (under 250 words) without repetition.\n\n"
-        + "\n\n".join(group)
+        MAP_GROUP_PROMPT.format(language=lang_phrase, documents="\n\n".join(group))
         for group in map_groups
     ]
     logger.info(f"[MapReduce] Map phase: {len(map_prompts)} groups → running in parallel with max_workers={SUMMARIZATION_MAX_WORKERS}")
@@ -409,17 +385,12 @@ def _execute_map_reduce(
 
         if is_final_step:
             reduce_prompts = [
-                f"Synthesize and combine these summaries into one comprehensive, well-structured, faithful final summary{lang_phrase}. "
-                "Organize clearly with an overview, key sections/findings, definitions, figures, and conclusions. "
-                "Remove all repetition and do not add outside facts.\n\n"
-                + "\n\n".join(group)
+                FINAL_REDUCE_PROMPT.format(language=lang_phrase, documents="\n\n".join(group))
                 for group in groups
             ]
         else:
             reduce_prompts = [
-                f"Combine and consolidate these intermediate summaries into a concise structured summary{lang_phrase}. "
-                "Preserve all key facts, numbers, and definitions; eliminate duplication.\n\n"
-                + "\n\n".join(group)
+                REDUCE_PROMPT.format(language=lang_phrase, documents="\n\n".join(group))
                 for group in groups
             ]
 
@@ -443,7 +414,7 @@ def _execute_map_reduce(
             step = 2
             emergency_groups = [reduced[i:i + step] for i in range(0, len(reduced), step)]
             emergency_prompts = [
-                f"Combine these summaries into one final summary{lang_phrase}:\n\n" + "\n\n".join(g)
+                EMERGENCY_REDUCE_PROMPT.format(language=lang_phrase, documents="\n\n".join(g))
                 for g in emergency_groups
             ]
             try:
@@ -464,7 +435,7 @@ def _execute_map_reduce(
 
 def summarize_documents(
     documents: Sequence[Document],
-    llm=None,
+    llm: Any | None = None,
     *,
     input_token_budget: int | None = None,
     target_language: str = "auto",

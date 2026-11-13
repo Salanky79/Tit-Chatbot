@@ -17,7 +17,6 @@ from pathlib import Path
 # Ensure evaluations directory is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from eval_config import CHATBOT_MODELS, THRESHOLDS
 from eval_chatbot import (
     create_chatbot_dataset,
     create_tool_selection_dataset,

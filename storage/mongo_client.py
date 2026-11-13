@@ -1,7 +1,7 @@
 """mongo_client.py – Singleton MongoDB client dùng chung cho toàn bộ Tit‑Chatbot.
 
 Cách dùng:
-    from mongo_client import get_collection, get_db
+    from storage.mongo_client import get_collection, get_db
 
     coll = get_collection("conversations")
     db   = get_db()
@@ -22,7 +22,7 @@ from pymongo.database import Database
 logger = logging.getLogger(__name__)
 
 # Đọc .env từ thư mục gốc của project
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_DIR / ".env")
 
 # Dùng file chứng chỉ SSL hợp lệ

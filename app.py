@@ -11,7 +11,9 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +30,13 @@ from langchain_core.messages import (
 )
 
 from agent import get_agent
-from followups import FOLLOWUPS_ENABLED, generate_followup_questions
-from token_limit_handler import is_daily_token_limit, handle_partial_stream
-from database import (
+from services.followups import FOLLOWUPS_ENABLED, generate_followup_questions
+from services.token_limit_handler import (
+    handle_partial_stream,
+    is_daily_token_limit,
+    is_rate_limit,
+)
+from storage.database import (
     init_db,
     save_chat_message,
     get_chat_history,
@@ -48,8 +54,8 @@ from database import (
     delete_session,
 )
 
-from rag import add_document_to_rag, add_image_to_rag
-from image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
+from services.rag import add_document_to_rag, add_image_to_rag
+from services.image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
 from tools import set_current_thread_id, set_current_user_id
 
 
@@ -63,7 +69,7 @@ Path("data").mkdir(exist_ok=True)
 
 
 @app.on_event("startup")
-def startup_event():
+def startup_event() -> None:
     if os.getenv("TESTING", "").lower() in ("1", "true"):
         return
     try:
@@ -72,7 +78,7 @@ def startup_event():
         logger.warning("Could not initialize MongoDB indexes on startup: %s", exc)
 
 
-def _serialize_user(user: dict | None) -> dict | None:
+def _serialize_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     """Chuyển đổi các trường datetime của user sang định dạng ISO string để serialize JSON an toàn."""
     if not user:
         return None
@@ -84,15 +90,41 @@ def _serialize_user(user: dict | None) -> dict | None:
     return d
 
 
-def get_current_user(request: Request) -> dict | None:
-    """Trích xuất thông tin người dùng từ Cookie, Header Authorization hoặc Query Param."""
+def _session_id_from_request(
+    request: Request, *, include_query: bool = False
+) -> str | None:
+    """Read the session token from the request's supported authentication sources."""
     session_id = request.cookies.get("tit_session")
     if not session_id:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             session_id = auth_header[7:].strip()
-    if not session_id:
+    if not session_id and include_query:
         session_id = request.query_params.get("session_id")
+    return session_id or None
+
+
+def _conversation_owner_id(conversation: Any) -> str | None:
+    """Return a conversation's owner ID when the conversation has one."""
+    if not conversation:
+        return None
+    owner_id = (
+        conversation.get("user_id")
+        if isinstance(conversation, dict)
+        else getattr(conversation, "user_id", None)
+    )
+    return str(owner_id) if owner_id else None
+
+
+def _can_access_conversation(conversation: Any, user: dict | None) -> bool:
+    """Allow unowned conversations and require matching users for owned ones."""
+    owner_id = _conversation_owner_id(conversation)
+    return owner_id is None or bool(user and str(user["id"]) == owner_id)
+
+
+def get_current_user(request: Request) -> dict | None:
+    """Extract the current user from a cookie, bearer token, or query parameter."""
+    session_id = _session_id_from_request(request, include_query=True)
     if not session_id:
         return None
 
@@ -189,11 +221,7 @@ async def auth_signin(request: Request):
 @app.post("/auth/signout")
 async def auth_signout(request: Request):
     """Đăng xuất và hủy bỏ phiên làm việc."""
-    session_id = request.cookies.get("tit_session")
-    if not session_id:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            session_id = auth_header[7:].strip()
+    session_id = _session_id_from_request(request)
     if session_id:
         delete_session(session_id)
 
@@ -352,8 +380,7 @@ async def pin_conversation(thread_id: str, request: Request):
             status_code=404
         )
 
-    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
-    if conv_user_id and (not user or str(conv_user_id) != str(user["id"])):
+    if not _can_access_conversation(conv, user):
         return JSONResponse(
             {"success": False, "error": "Bạn không có quyền ghim cuộc trò chuyện này."},
             status_code=403
@@ -379,13 +406,11 @@ async def pin_conversation(thread_id: str, request: Request):
 async def history(thread_id: str, request: Request):
     user = get_current_user(request)
     conv = get_conversation(thread_id)
-    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
-    if conv and conv_user_id:
-        if not user or str(user["id"]) != str(conv_user_id):
-            return JSONResponse(
-                {"error": "Bạn không có quyền truy cập cuộc trò chuyện này."},
-                status_code=403
-            )
+    if not _can_access_conversation(conv, user):
+        return JSONResponse(
+            {"error": "Bạn không có quyền truy cập cuộc trò chuyện này."},
+            status_code=403
+        )
 
     messages = get_chat_history(thread_id)
 
@@ -404,13 +429,11 @@ async def history(thread_id: str, request: Request):
 async def remove_conversation(thread_id: str, request: Request):
     user = get_current_user(request)
     conv = get_conversation(thread_id)
-    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
-    if conv and conv_user_id:
-        if not user or str(user["id"]) != str(conv_user_id):
-            return JSONResponse(
-                {"error": "Bạn không có quyền xóa cuộc trò chuyện này."},
-                status_code=403
-            )
+    if not _can_access_conversation(conv, user):
+        return JSONResponse(
+            {"error": "Bạn không có quyền xóa cuộc trò chuyện này."},
+            status_code=403
+        )
 
     user_id = user["id"] if user else None
     success = delete_conversation(thread_id, user_id=user_id)
@@ -506,11 +529,11 @@ def _looks_like_image(contents: bytes, suffix: str) -> bool:
 
 
 
-def sse_data(payload: dict) -> str:
+def sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def should_stream_chunk(chunk, metadata) -> bool:
+def should_stream_chunk(chunk: Any, metadata: dict[str, Any] | None) -> bool:
     """
     This prevents raw tool/search/RAG JSON from appearing in the frontend.
 
@@ -549,7 +572,7 @@ def should_stream_chunk(chunk, metadata) -> bool:
     return True
 
 
-def extract_text_from_chunk(chunk) -> str:
+def extract_text_from_chunk(chunk: Any) -> str:
     content = getattr(chunk, "content", "")
 
     if not content:
@@ -579,6 +602,96 @@ def extract_text_from_chunk(chunk) -> str:
 
 
 
+def _chat_event_generator(
+    agent: Any,
+    thread_id: str,
+    user_id: str | None,
+    user_message: str,
+    selected_model: str,
+    config: dict[str, Any],
+) -> Iterator[str]:
+    set_current_thread_id(thread_id)
+    set_current_user_id(user_id or "")
+
+    final_answer = ""
+
+    try:
+        inputs = {
+            "messages": [
+                HumanMessage(content=user_message)
+            ]
+        }
+
+        for chunk, metadata in agent.stream(
+            inputs,
+            config=config,
+            stream_mode="messages"
+        ):
+            if not should_stream_chunk(chunk, metadata):
+                continue
+
+            token = extract_text_from_chunk(chunk)
+
+            if token:
+                final_answer += token
+                yield sse_data({"token": token})
+
+        if final_answer.strip():
+            save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
+    except Exception as e:
+        err_str = str(e)
+
+        # =========================================================================
+        # XỬ LÝ CHẠM TRẦN TOKEN NGÀY (TPD): KHÔNG VỨT LỖI ĐỎ RA MÀN HÌNH
+        # In kết quả đang làm dở + gắn thông báo nhẹ nhàng + lưu vào DB
+        # =========================================================================
+        if is_daily_token_limit(e):
+            logger.warning(
+                f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
+                f"Recovering partial answer (length: {len(final_answer)} chars)."
+            )
+            full_message = handle_partial_stream(final_answer, selected_model, language="vi")
+
+            # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
+            if final_answer.strip():
+                notice_suffix = full_message[len(final_answer):]
+                if notice_suffix:
+                    yield sse_data({"token": notice_suffix})
+            else:
+                # Nếu chưa sinh được chữ nào -> stream toàn bộ câu thông báo lịch sự
+                yield sse_data({"token": full_message})
+
+            # Lưu toàn bộ tin nhắn đã cứu hộ vào DB để người dùng không bị mất nội dung
+            try:
+                save_chat_message(thread_id, "assistant", full_message, user_id=user_id)
+            except Exception as save_err:
+                logger.error(f"Failed to save partial message: {save_err}")
+
+        else:
+            is_model_unavailable = (
+                "model_terms_required" in err_str
+                or "model_not_found" in err_str
+                or "does not exist or you do not have access to it" in err_str
+            )
+
+            if is_rate_limit(e):
+                logger.error(f"[RateLimit-TPM] Model '{selected_model}' hit Groq rate limit: {e}")
+                yield sse_data({
+                    "error": f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
+                })
+            elif is_model_unavailable:
+                logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
+                yield sse_data({
+                    "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
+                })
+            else:
+                logger.error(f"[ChatError] Error during chat streaming: {e}")
+                yield sse_data({"error": str(e)})
+
+    # Kết thúc stream ngay lập tức khi chatbot trả lời xong (0ms delay cho người dùng)
+    yield sse_data({"done": True})
+
+
 @app.post("/chat/stream")
 async def chat_stream(request: Request):
     try:
@@ -604,13 +717,11 @@ async def chat_stream(request: Request):
 
     # Kiểm tra quyền sở hữu cuộc trò chuyện nếu thread_id đã tồn tại
     conv = get_conversation(thread_id)
-    conv_user_id = conv.get("user_id") if isinstance(conv, dict) else getattr(conv, "user_id", None)
-    if conv and conv_user_id:
-        if not user or str(user["id"]) != str(conv_user_id):
-            return JSONResponse(
-                {"error": "Bạn không có quyền gửi tin nhắn trong cuộc trò chuyện này."},
-                status_code=403
-            )
+    if not _can_access_conversation(conv, user):
+        return JSONResponse(
+            {"error": "Bạn không có quyền gửi tin nhắn trong cuộc trò chuyện này."},
+            status_code=403
+        )
 
     agent = get_agent(selected_model)
     create_or_update_conversation(thread_id, user_message, user_id=user_id)
@@ -622,100 +733,15 @@ async def chat_stream(request: Request):
         }
     }
 
-    def event_generator():
-        # Thiết lập ContextVar đảm bảo an toàn đa luồng xuyên suốt generator
-        set_current_thread_id(thread_id)
-        set_current_user_id(user_id or "")
-
-        final_answer = ""
-        stream_error = None
-
-        try:
-            inputs = {
-                "messages": [
-                    HumanMessage(content=user_message)
-                ]
-            }
-
-            for chunk, metadata in agent.stream(
-                inputs,
-                config=config,
-                stream_mode="messages"
-            ):
-                if not should_stream_chunk(chunk, metadata):
-                    continue
-
-                token = extract_text_from_chunk(chunk)
-
-                if token:
-                    final_answer += token
-                    yield sse_data({"token": token})
-
-            if final_answer.strip():
-                save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)
-        except Exception as e:
-            err_str = str(e)
-            stream_error = e
-
-            # =========================================================================
-            # XỬ LÝ CHẠM TRẦN TOKEN NGÀY (TPD): KHÔNG VỨT LỖI ĐỎ RA MÀN HÌNH
-            # In kết quả đang làm dở + gắn thông báo nhẹ nhàng + lưu vào DB
-            # =========================================================================
-            if is_daily_token_limit(e):
-                logger.warning(
-                    f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
-                    f"Recovering partial answer (length: {len(final_answer)} chars)."
-                )
-                full_message = handle_partial_stream(final_answer, selected_model, language="vi")
-
-                # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
-                if final_answer.strip():
-                    notice_suffix = full_message[len(final_answer):]
-                    if notice_suffix:
-                        yield sse_data({"token": notice_suffix})
-                else:
-                    # Nếu chưa sinh được chữ nào -> stream toàn bộ câu thông báo lịch sự
-                    yield sse_data({"token": full_message})
-
-                # Lưu toàn bộ tin nhắn đã cứu hộ vào DB để người dùng không bị mất nội dung
-                try:
-                    save_chat_message(thread_id, "assistant", full_message, user_id=user_id)
-                except Exception as save_err:
-                    logger.error(f"Failed to save partial message: {save_err}")
-
-            else:
-                is_rate_limit = (
-                    "429" in err_str
-                    or "rate_limit_exceeded" in err_str.lower()
-                    or "rate limit" in err_str.lower()
-                    or "tokens per minute" in err_str.lower()
-                    or "tpm" in err_str.lower()
-                )
-                is_model_unavailable = (
-                    "model_terms_required" in err_str
-                    or "model_not_found" in err_str
-                    or "does not exist or you do not have access to it" in err_str
-                )
-
-                if is_rate_limit:
-                    logger.error(f"[RateLimit-TPM] Model '{selected_model}' hit Groq rate limit: {e}")
-                    yield sse_data({
-                        "error": f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
-                    })
-                elif is_model_unavailable:
-                    logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
-                    yield sse_data({
-                        "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
-                    })
-                else:
-                    logger.error(f"[ChatError] Error during chat streaming: {e}")
-                    yield sse_data({"error": str(e)})
-
-        # Kết thúc stream ngay lập tức khi chatbot trả lời xong (0ms delay cho người dùng)
-        yield sse_data({"done": True})
-
     return StreamingResponse(
-        event_generator(),
+        _chat_event_generator(
+            agent=agent,
+            thread_id=thread_id,
+            user_id=user_id,
+            user_message=user_message,
+            selected_model=selected_model,
+            config=config,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

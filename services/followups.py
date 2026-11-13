@@ -9,8 +9,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
-from token_utils import estimate_tokens, truncate_text_to_tokens
-from usage_logging import log_token_usage
+from prompts.followups import FOLLOWUP_PROMPT
+from utils.token_utils import estimate_tokens, truncate_text_to_tokens
+from utils.usage_logging import log_token_usage
 
 
 logger = logging.getLogger(__name__)
@@ -104,12 +105,9 @@ def generate_followup_questions(
             method="json_schema",
             include_raw=True,
         )
-        prompt = (
-            "Create exactly two concise, distinct follow-up prompts that a user could send next based on this exchange.\n"
-            "Use the same language as the conversation (e.g. Vietnamese). Write each prompt from the user's perspective.\n"
-            "Make them specific, useful, and not repetitions of what was already answered.\n\n"
-            f"User message:\n{clean_user}\n\n"
-            f"Assistant answer:\n{clean_answer}"
+        prompt = FOLLOWUP_PROMPT.format(
+            user_message=clean_user,
+            assistant_answer=clean_answer,
         )
         response = structured_model.invoke([
             HumanMessage(content=prompt)

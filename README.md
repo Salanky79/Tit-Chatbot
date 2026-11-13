@@ -690,42 +690,36 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
 
 ---
 
-## 8. Cấu trúc thư mục dự án
+## 8. Project structure
 
 ```text
 Tit-Chatbot/
-├── app.py                         # FastAPI routes, Auth middleware, file upload, SSE streaming, Profile & Pinning
-├── agent.py                       # LangGraph agent, AgentState, MongoDBSaver, route_after_tools & emit_summary
-├── context_manager.py             # Bộ tối ưu hóa ngữ cảnh 4 bước, Token Budget & Real-time Token Tracker
-├── summarization.py               # Tóm tắt Map-Reduce thích ứng, Auto Language & Rate Limit Resilience (TPM/TPD)
-├── followups.py                   # Bộ sinh 2 câu hỏi gợi ý thông minh (User Prompt) & Token Optimization
-├── image_analysis.py              # Xử lý hình ảnh và thị giác máy tính với Groq Vision & Token Logging
-├── tools.py                       # Registry và hiện thực 7 công cụ của Agent (User Isolation & Cross-Chat Memory)
-├── rag.py                         # Đọc file, OCR scan, text chunking, ChromaDB (Lazy Loading Singleton)
-├── database.py                    # Tầng DAL tương tác với MongoDB (Auth, Sessions, Conversations, Cross-Chat Memory)
-├── mongo_client.py                # MongoDB Client Singleton và cấu hình Index (TTL & Unique)
+├── app.py
+├── agent.py
+├── tools.py
+├── prompts/
+│   ├── agent.py
+│   ├── followups.py
+│   └── summarization.py
+├── services/
+│   ├── context_manager.py
+│   ├── followups.py
+│   ├── image_analysis.py
+│   ├── rag.py
+│   ├── summarization.py
+│   └── token_limit_handler.py
+├── storage/
+│   ├── database.py
+│   └── mongo_client.py
+├── utils/
+│   ├── token_utils.py
+│   └── usage_logging.py
+├── evaluations/
+├── tests/
 ├── templates/
-│   └── index.html                 # Giao diện web người dùng (Sign In/Up, Profile Modal, Voice Dictation, Pin, Search)
-├── uploads/                       # Thư mục lưu trữ file và ảnh upload
-│   └── avatars/                   # Thư mục lưu trữ ảnh đại diện người dùng
-├── chroma_db_hf/                  # Thư mục lưu trữ vectorstore ChromaDB
-├── tests/                         # Bộ kiểm thử tự động toàn diện (57 unit tests)
-│   ├── test_auth_database.py      # Kiểm thử DAL Auth, MongoDB Session & Cross-Chat Long-Term Memory (7 tests)
-│   ├── test_auth_api.py           # Kiểm thử FastAPI Auth endpoints & Protected Routes (2 tests)
-│   ├── test_rag_isolation.py      # Kiểm thử cô lập RAG documents, images & memory (1 test)
-│   ├── test_frontend_auth.py      # Kiểm thử giao diện Auth modal, user cards, profile & JS (5 tests)
-│   ├── test_context_manager.py    # Kiểm thử tối ưu context, token budget & follow-up translation exception (17 tests)
-│   ├── test_agent_workflow.py     # Kiểm thử luồng LangGraph Agent, State & Direct Summary Return (6 tests)
-│   ├── test_summarization_integration.py # Kiểm thử Map-Reduce, Auto Language & Rate Limit handling (6 tests)
-│   └── test_followups_and_vision.py      # Kiểm thử sinh gợi ý & vision token constraints (7 tests)
-├── .env                           # Biến môi trường và khóa bí mật API
-├── requirements.txt               # Danh sách thư viện phụ thuộc
-├── USER_MANAGEMENT.md             # Tài liệu kiến trúc chuyên sâu về Xác thực và Cô lập Dữ liệu
-└── README.md                      # Tài liệu kỹ thuật chi tiết của dự án
+├── uploads/
+└── requirements.txt
 ```
-
----
-
 ## 9. Các API Endpoints
 
 ### 9.1. Xác thực & Quản lý Hồ sơ Người dùng
@@ -879,79 +873,15 @@ PDF_OCR_TRIGGER_CHARS=40
 
 ---
 
-## 12. Kiểm thử tự động (Test Suite)
+## 12. Automated tests
 
-Dự án sở hữu bộ kiểm thử tự động toàn diện với **57 unit tests** bao quát 100% các thành phần nghiệp vụ, bảo mật xác thực, cô lập dữ liệu, xử lý đa ngôn ngữ và tối ưu hóa token:
+Run the focused regression suite with:
 
 ```bash
-python -m unittest tests/test_auth_database.py tests/test_auth_api.py tests/test_rag_isolation.py tests/test_frontend_auth.py tests/test_context_manager.py tests/test_agent_workflow.py tests/test_summarization_integration.py tests/test_followups_and_vision.py
+python -B -m unittest discover -s tests -v
 ```
 
-### Kết quả chạy kiểm thử:
-```text
-Ran 57 tests in 9.296s
-
-OK
-```
-
-### Các tệp kiểm thử trong thư mục `tests/`:
-1. **`test_auth_database.py` (7 tests):**
-   - Kiểm thử tạo tài khoản người dùng (`create_user`) và mã hóa mật khẩu bằng bcrypt (12 rounds).
-   - Kiểm thử ngăn chặn trùng lặp `username` và `email`.
-   - Kiểm thử xác thực đăng nhập (`authenticate_user`) với mật khẩu đúng và sai.
-   - Kiểm thử quản lý phiên làm việc (`create_session`, `get_session`, `delete_session`).
-   - Kiểm thử lọc danh sách cuộc trò chuyện theo `user_id`.
-   - Kiểm thử xóa cuộc trò chuyện an toàn theo quyền sở hữu.
-   - **Mới:** Kiểm thử ký ức dài hạn liên thông toàn bộ các cuộc trò chuyện của cùng một user (`Cross-chat memory`) và cô lập tuyệt đối giữa các user khác nhau.
-2. **`test_auth_api.py` (2 tests):**
-   - Kiểm thử các luồng API đăng ký, đăng nhập, lấy hồ sơ (`/auth/me`), đăng xuất và cấp phát cookie `tit_session`.
-   - Kiểm thử cơ chế bảo vệ phân quyền: chặn `403 Forbidden` khi User A cố tình truy cập hoặc xóa hội thoại của User B.
-3. **`test_rag_isolation.py` (1 test):**
-   - Kiểm thử cô lập triệt để tài liệu vector RAG và danh mục ảnh upload giữa hai người dùng khác nhau trên cùng thread ID hoặc khác thread ID.
-   - Kiểm thử bộ lọc ChromaDB `{"$and": [{"thread_id": ...}, {"user_id": ...}]}`.
-4. **`test_frontend_auth.py` (5 tests):**
-   - Kiểm thử sự hiện diện và cấu trúc của sidebar user section (`#sidebarUserSection`).
-   - Kiểm thử khu vực user status trên thanh công cụ (`#topbarUserArea`).
-   - Kiểm thử đầy đủ cấu trúc HTML của Auth Modal (form Đăng nhập, form Đăng ký, tabs, inputs, error banner).
-   - Kiểm thử các hàm JavaScript quản lý phiên và xác thực (`checkAuthStatus`, `renderUserUI`, `handleSignInSubmit`, `handleSignUpSubmit`, `handleSignOut`).
-   - Kiểm thử các lệnh gọi fetch đúng định dạng tới các endpoint `/auth/*`.
-5. **`test_context_manager.py` (17 tests):**
-   - Kiểm thử hàm ước tính token đa ngôn ngữ (`estimate_tokens`).
-   - Kiểm thử ước tính token của tin nhắn (`estimate_message_tokens`) và schema công cụ (`estimate_tool_schemas_tokens`).
-   - Kiểm thử gom nhóm lượt hội thoại (`group_messages_into_turns`).
-   - Kiểm thử cắt tỉa và tóm tắt hội thoại cũ (`trim_conversation_history`).
-   - Kiểm thử loại bỏ kết quả công cụ cũ nhưng bảo vệ công cụ đang chạy (`prune_old_tool_results`).
-   - Kiểm thử cô lập ngữ cảnh tóm tắt (`validate_and_isolate_summarization_context`).
-   - Kiểm thử nhận diện tác vụ tài liệu độc lập (`is_isolated_document_task`).
-   - **Mới:** Kiểm thử ngoại lệ yêu cầu dịch tiếp nối (`test_followup_translation_is_not_isolated_task`): khi lượt trước là bản tóm tắt và lượt này yêu cầu dịch tiếng Việt, hệ thống không cô lập ngữ cảnh mà giữ nguyên để dịch tức thì.
-   - Kiểm thử khử trùng lặp dòng tóm tắt (`_deduplicate_summary_lines`).
-   - Kiểm thử ngân sách động theo mô hình (`get_model_token_budget`).
-   - Kiểm thử giới hạn token và cắt gọn dữ liệu khi vượt ngưỡng (`enforce_token_budget`).
-   - Kiểm thử luồng tích hợp hoàn chỉnh (`prepare_context_for_llm`).
-6. **`test_agent_workflow.py` (6 tests):**
-   - Kiểm thử chuẩn hóa tên model (`normalize_model_name`).
-   - Kiểm thử tích hợp Chatbot Node trong LangGraph.
-   - Kiểm thử loại bỏ tool cũ qua các turn liên tiếp.
-   - Kiểm thử bảo toàn kết quả công cụ active của lượt hiện tại.
-   - Kiểm thử phân rã các thành phần token (`calculate_token_breakdown`).
-   - **Mới:** Kiểm thử cơ chế trả thẳng bản tóm tắt (`route_after_tools` và `emit_summary_node`), đảm bảo kết thúc đồ thị ngay mà không gọi LLM lần 2.
-7. **`test_summarization_integration.py` (6 tests):**
-   - Kiểm thử quy trình Map-Reduce tài liệu lớn qua nhiều tầng.
-   - Kiểm thử tóm tắt tài liệu nhỏ chỉ qua 1 pass.
-   - Kiểm thử lan truyền lỗi khi LLM thất bại thay vì trả về tóm tắt chắp vá.
-   - Kiểm thử cô lập ngữ cảnh: đảm bảo không có lịch sử chat nào lọt vào Map-Reduce pass.
-   - Kiểm thử xử lý song song đa luồng bảo toàn đúng trật tự các đoạn văn bản.
-   - **Mới:** Kiểm thử tùy chọn ngôn ngữ đích `target_language="auto"` và tự động retry khi chạm trần 8.000 TPM.
-8. **`test_followups_and_vision.py` (7 tests):**
-   - Kiểm thử lọc khối code dài khỏi dữ liệu sinh gợi ý (`_clean_content_for_followup`).
-   - Kiểm thử loại bỏ tag đính kèm file/ảnh thô.
-   - Kiểm thử áp dụng giới hạn token cho ngữ cảnh gợi ý.
-   - Kiểm thử tạo gợi ý User Prompt không có từ xưng hô thừa.
-   - Kiểm thử bộ lọc hậu xử lý Regex `_clean_prompt_suggestion`.
-   - Kiểm thử thuật toán gợi ý cục bộ cho tiếng Việt và tiếng Anh.
-   - Kiểm thử cắt gọn câu hỏi thị giác máy tính quá dài trong `analyze_image`.
-
----
+The suite contains 12 tests covering context pruning and turn selection, LangGraph summary routing, SSE streaming payloads, uploaded file and image name resolution, conversation ownership, public user data, and token limit classification.
 
 ## 13. Từ điển thuật ngữ
 

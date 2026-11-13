@@ -8,13 +8,9 @@ Tự động:
      - Correctness, Relevance, Groundedness, Retrieval Relevance
 """
 
-import os
-import time
-import tempfile
 from pathlib import Path
 
 from langsmith import Client, traceable
-from langchain_core.documents import Document
 
 from eval_config import RAG_THREAD_ID, PROJECT_ROOT
 from eval_datasets import (
@@ -23,11 +19,9 @@ from eval_datasets import (
 from eval_metrics import RAG_EVALUATORS
 
 # Import Tit Chatbot RAG pipeline
-from rag import (
+from services.rag import (
     add_document_to_rag,
-    retrieve_from_rag,
-    vectorstore,
-    read_file_text,
+    get_vectorstore,
 )
 
 
@@ -95,7 +89,7 @@ def rag_target(inputs: dict) -> dict:
     question = inputs["question"]
 
     # Step 1: Retrieve - dùng trực tiếp vectorstore của Tit Chatbot
-    docs = vectorstore.similarity_search(
+    docs = get_vectorstore().similarity_search(
         question,
         k=4,
         filter={"thread_id": RAG_THREAD_ID},
@@ -175,7 +169,7 @@ def cleanup_rag_test_data():
     print("🧹 Cleaning up RAG test data...")
     try:
         # Xóa documents với thread_id eval
-        collection = vectorstore._collection
+        collection = get_vectorstore()._collection
         results = collection.get(where={"thread_id": RAG_THREAD_ID})
         if results and results["ids"]:
             collection.delete(ids=results["ids"])
