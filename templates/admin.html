@@ -4,85 +4,483 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Admin · Tit Chatbot</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%20xmlns%3Ac2pa%3D%22http%3A//c2pa.org/manifest%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ff3b4a%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%238f0b17%22/%3E%3C/linearGradient%3E%3C/defs%3E%0A%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2217%22%20fill%3D%22url%28%23g%29%22/%3E%0A%3Cg%20transform%3D%22translate%284.2%202.3%29%20scale%28.86%29%22%3E%3Cg%3E%3Cpath%20d%3D%22M27.6%2013%20L31.2%2011.4%20L30.2%2014.6%20Z%22%20fill%3D%22%230b0607%22%20stroke%3D%22%230b0607%22%20stroke-width%3D%221.2%22%20stroke-linejoin%3D%22round%22/%3E%3C/g%3E%0A%3Cpath%20d%3D%22M33.5%2047.5%20L31.5%2054.5%20L26.5%2057.6%20M31.5%2054.5%20L29.6%2059.2%20M31.5%2054.5%20L34.6%2058.6%20M38%2049%20L36.6%2055%20L32%2058.6%20M36.6%2055%20L35.2%2059.6%22%20stroke%3D%22%230b0607%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20fill%3D%22none%22/%3E%0A%3Cpath%20d%3D%22M6.2%2018.6%20C9.2%2015.4%2014%2013.8%2017.5%2013.2%20C19.5%2010.8%2024.5%209.6%2028.5%2012.5%20C34%2016%2041%2024%2047%2033%20C50%2037.5%2053%2044%2057.5%2053%20C58.3%2056%2058%2058.5%2057%2059.3%20C53%2058%2046%2055%2041%2051.5%20L36%2049.5%20C30%2048%2024.5%2042%2022%2034%20C20.5%2029%2019.6%2025%2018.8%2022%20C17.5%2020.2%2012.5%2019.8%206.2%2018.6%20Z%22%20fill%3D%22%230b0607%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.38%22%20stroke-width%3D%22.7%22%20stroke-linejoin%3D%22round%22/%3E%0A%3Cpath%20d%3D%22M7.6%2018.3%20C11.4%2017.8%2014.8%2016.6%2017.4%2015.4%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.4%22%20stroke-width%3D%22.6%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22/%3E%0A%3Cpath%20d%3D%22M45%2049.4%20L56.6%2058%20M48.2%2046.8%20L57.6%2055.4%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.5%22%20stroke-width%3D%22.7%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22/%3E%0A%3Cg%3E%0A%3Cpath%20d%3D%22M21.6%2021.5%20C22.2%2018.2%2027.5%2018.6%2033.5%2023.4%20C41%2029.6%2049.5%2038.4%2056.2%2052.4%20C49.5%2049.4%2042%2045.4%2035%2041.2%20C28%2037%2021.4%2029.8%2021.6%2021.5%20Z%22%20fill%3D%22%230b0607%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.8%22%20stroke-width%3D%22.9%22%20stroke-linejoin%3D%22round%22/%3E%0A%3Cpath%20d%3D%22M23.6%2023.8%20C24.2%2021.2%2028%2021.6%2033%2025.8%20C40%2031.6%2047.6%2039.8%2053.6%2050%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.38%22%20stroke-width%3D%22.65%22%20fill%3D%22none%22/%3E%0A%3Cpath%20d%3D%22M37%2037%20C43%2041.5%2048.5%2047%2052.6%2053.2%20M34.2%2038.8%20C40%2043.4%2045%2048.6%2048.6%2054.4%20M31.5%2040.2%20C36.6%2044.2%2041%2049%2044%2054.6%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.65%22%20stroke-width%3D%22.75%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22/%3E%0A%3Cpath%20d%3D%22M27%2031%20C29.4%2031.2%2031.4%2032.8%2032.4%2035%20M30.6%2028.4%20C33%2028.8%2035%2030.6%2036%2032.8%20M34%2026.4%20C36.4%2027%2038.2%2028.8%2039.2%2031%20M25.6%2034.4%20C27.6%2034.6%2029.4%2036%2030.2%2038%22%20stroke%3D%22%23fff%22%20stroke-opacity%3D%22.6%22%20stroke-width%3D%22.75%22%20stroke-linecap%3D%22round%22%20fill%3D%22none%22/%3E%0A%3C/g%3E%0A%3Cg%3E%3Ccircle%20cx%3D%2223.6%22%20cy%3D%2215.7%22%20r%3D%222.4%22%20fill%3D%22%23fff%22/%3E%3Cg%3E%3Ccircle%20cx%3D%2223.2%22%20cy%3D%2215.7%22%20r%3D%221.05%22%20fill%3D%22%230b0607%22/%3E%3C/g%3E%3C/g%3E%3C/g%3E%0A%3Cmetadata%3E%3Cc2pa%3Amanifest%3EAAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToyMTFiN2FmOS1kNTk0LTQ2OGMtOTkzZS0xOTNjMTMxNjQ5M2UAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaKUGv6j/3E0oamYkMzf3rLMAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDoyYWNlYmY1MS1lYjE5LTQ4NzgtOGQ3Mi1lZWU0NjBiNTA0YjFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoW/AZcf5StnzCuIGgyUWy3QAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggBHkVMTnSgZBbSorSQTzBzd%2Bj2TVWZXDn0fZZyzaKYCekZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaME5F%2BBNWkanJTgVkq/2AIcAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIEqOwRW%2BNPJagobGdU4UbHYR/JkulFKZlWGVGQ4QN85QZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GQksZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjIxMWI3YWY5LWQ1OTQtNDY4Yy05OTNlLTE5M2MxMzE2NDkzZS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjAyZTVjYzI0LWE3YjAtNDk0ZC1hODIyLTQ5N2E0ZjZkNDFhZXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCAEeRUxOdKBkFtKitJBPMHN36PZNVZlcOfR9lnLNopgJ6JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggQDU%2B4MVgSKnPS2S50GQ0/yFwEf2ygikrzjboLR0ydUmiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggTrnDxQNmfVJYMz0xXEpAQKDBgpBubOVOnM9mKLLgqBh0Y2xhaW1fZ2VuZXJhdG9yX2luZm%2BjZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj%2BOPEz5o%2BnMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1%2BUCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9%2B1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQLIGPNio4fPMEw5IfW40hlH4HsnkWF34w4ut83POP/YwEbJZ%2B6Jhexh7Z4EFGsmIP/ovsHTA3Y0LelCQcF87M%2BI%3D%3C/c2pa%3Amanifest%3E%3C/metadata%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #100c0d; color: #f6eeee; }
+        :root {
+            color-scheme: dark;
+            --bg: #060304;
+            --panel: #120a0c;
+            --panel-2: #170d10;
+            --line: rgba(255, 255, 255, 0.07);
+            --line-strong: rgba(255, 255, 255, 0.13);
+            --text: #f6eeee;
+            --muted: #b5a3a6;
+            --faint: #7f6b6e;
+            --accent: #ff2b3d;
+            --accent-rgb: 255, 43, 61;
+            --blood-rgb: 190, 18, 38;
+            --ember-rgb: 255, 110, 40;
+            --gradient: linear-gradient(135deg, #ff3b4a 0%, #b0101f 100%);
+            --ok: #4ade80;
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, "Segoe UI", sans-serif;
+            --font-display: 'Bricolage Grotesque', 'Plus Jakarta Sans', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+            font-family: var(--font-sans);
+            background: var(--bg);
+            color: var(--text);
+        }
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 32px; }
-        main { max-width: 1180px; margin: auto; }
-        header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
-        h1 { margin: 0; font-size: 28px; } h2 { margin: 0 0 16px; font-size: 18px; }
-        a, button { color: inherit; }
-        .back, .action, .pager button { border: 1px solid #413436; border-radius: 8px; background: #21191b; padding: 9px 13px; text-decoration: none; cursor: pointer; transition: background 0.15s ease; }
-        .action:hover, .pager button:hover, .back:hover { background: #332528; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            padding: 32px;
+            background: var(--bg);
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            overflow-x: hidden;
+        }
+        ::selection { background: rgba(var(--accent-rgb), 0.35); color: #fff; }
+        :focus-visible { outline: 2px solid #ff7a85; outline-offset: 2px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 9999px; }
+
+        a, button { color: inherit; font-family: inherit; }
+        main { position: relative; z-index: 1; max-width: 1180px; margin: auto; }
+
+        /* ---------- Ambient background ---------- */
+        .ambient { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+        .ambient i { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.38; will-change: transform; }
+        .ambient i:nth-child(1) { width: 540px; height: 540px; top: -200px; left: 6%; background: radial-gradient(circle, rgba(var(--accent-rgb), 0.5), transparent 68%); animation: drift1 28s ease-in-out infinite alternate; }
+        .ambient i:nth-child(2) { width: 480px; height: 480px; top: 18%; right: -160px; background: radial-gradient(circle, rgba(var(--ember-rgb), 0.28), transparent 68%); animation: drift2 34s ease-in-out infinite alternate; }
+        .ambient i:nth-child(3) { width: 460px; height: 460px; bottom: -180px; left: 28%; background: radial-gradient(circle, rgba(var(--blood-rgb), 0.4), transparent 68%); animation: drift3 40s ease-in-out infinite alternate; }
+        @keyframes drift1 { to { transform: translate(120px, 70px) scale(1.15); } }
+        @keyframes drift2 { to { transform: translate(-140px, 90px) scale(1.1); } }
+        @keyframes drift3 { to { transform: translate(-110px, -60px) scale(1.2); } }
+
+        .cursor-glow { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0; }
+        .cursor-glow i { position: absolute; left: 0; top: 0; border-radius: 50%; mix-blend-mode: screen; will-change: transform; }
+        .cursor-glow i:nth-child(1) { width: 780px; height: 780px; background: radial-gradient(closest-side, rgba(255, 30, 50, 0.16), rgba(255, 30, 50, 0.1) 24%, rgba(255, 30, 50, 0.045) 50%, rgba(255, 30, 50, 0.012) 76%, rgba(255, 30, 50, 0) 100%); }
+        .cursor-glow i:nth-child(2) { width: 640px; height: 640px; background: radial-gradient(closest-side, rgba(190, 18, 38, 0.15), rgba(190, 18, 38, 0.09) 24%, rgba(190, 18, 38, 0.04) 52%, rgba(190, 18, 38, 0.01) 78%, rgba(190, 18, 38, 0) 100%); }
+
+        /* ---------- Entrance ---------- */
+        .reveal { opacity: 0; transform: translateY(18px); animation: riseIn 0.8s var(--ease-out) forwards; animation-delay: calc(var(--d, 0) * 1ms); }
+        @keyframes riseIn { to { opacity: 1; transform: none; } }
+
+        /* ---------- Header ---------- */
+        header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+        .brand { display: flex; align-items: center; gap: 16px; min-width: 0; }
+        .logo {
+            width: 52px; height: 52px; flex-shrink: 0; border-radius: 15px; overflow: hidden; cursor: pointer;
+            box-shadow: 0 10px 28px -8px rgba(var(--accent-rgb), 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            transition: transform 0.5s var(--ease-spring);
+        }
+        .logo svg { width: 100%; height: 100%; display: block; transform-origin: 50% 85%; }
+        .logo:hover { transform: rotate(-6deg) scale(1.06); }
+        .logo.hop svg { animation: hop 0.7s var(--ease-out); }
+        @keyframes hop {
+            0% { transform: none; } 20% { transform: scale(1.1, 0.86) translateY(3%); }
+            50% { transform: scale(0.94, 1.1) translateY(-14%) rotate(-6deg); } 100% { transform: none; }
+        }
+        h1 { margin: 0; font-family: var(--font-display); font-size: 29px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+        h2 { margin: 0; font-family: var(--font-display); font-size: 19px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; }
+        h2 svg { color: var(--accent); }
+        .muted { color: var(--muted); }
+        header.top .muted { font-size: 14px; margin-top: 3px; }
+
+        .back {
+            position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+            padding: 10px 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: rgba(255, 255, 255, 0.04);
+            text-decoration: none; font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: background 0.25s, border-color 0.25s, transform 0.3s var(--ease-out), box-shadow 0.3s;
+        }
+        .back svg { transition: transform 0.4s var(--ease-spring); }
+        .back:hover { background: rgba(var(--accent-rgb), 0.1); border-color: rgba(var(--accent-rgb), 0.4); transform: translateY(-1px); box-shadow: 0 8px 22px -12px rgba(var(--accent-rgb), 0.7); }
+        .back:hover svg { transform: translateX(-4px); }
+        .back:active { transform: scale(0.97); }
+
+        /* ---------- Toast ---------- */
+        .message {
+            position: fixed; top: 20px; left: 50%; z-index: 60; max-width: min(560px, calc(100vw - 32px));
+            display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 14px;
+            background: rgba(30, 12, 15, 0.92); border: 1px solid rgba(var(--accent-rgb), 0.4); color: #ffc7cb;
+            font-size: 14px; font-weight: 500; box-shadow: 0 20px 50px -18px rgba(0, 0, 0, 0.9), 0 0 30px -10px rgba(var(--accent-rgb), 0.5);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            opacity: 0; transform: translate(-50%, -16px) scale(0.96); pointer-events: none;
+            transition: opacity 0.35s, transform 0.5s var(--ease-spring);
+        }
+        .message.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        .message::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); flex-shrink: 0; }
+
+        /* ---------- KPI ---------- */
+        .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 6px; }
+        .kpi, .panel {
+            --mx: 50%; --my: 50%;
+            position: relative; border-radius: 20px; border: 1px solid var(--line);
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)), var(--panel);
+            transition: border-color 0.3s, box-shadow 0.4s var(--ease-out);
+        }
+        /* light on the border that follows the cursor */
+        .kpi::before, .panel::before {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; opacity: 0; transition: opacity 0.35s;
+            background: radial-gradient(260px circle at var(--mx) var(--my), rgba(var(--accent-rgb), 0.9), rgba(var(--accent-rgb), 0.35) 40%, rgba(var(--accent-rgb), 0.05) 72%, transparent 100%);
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+        }
+        .kpi::after, .panel::after {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+            background: radial-gradient(340px circle at var(--mx) var(--my), rgba(var(--accent-rgb), 0.07), transparent 70%);
+        }
+        .kpi:hover::before, .panel:hover::before, .kpi:hover::after, .panel:hover::after { opacity: 1; }
+        .kpi:hover { box-shadow: 0 24px 46px -30px rgba(var(--accent-rgb), 0.45); }
+
+        .kpi { display: flex; align-items: center; gap: 16px; padding: 20px 22px; }
+        .kpi-icon {
+            width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; flex-shrink: 0; color: var(--accent);
+            background: rgba(var(--accent-rgb), 0.12); border: 1px solid rgba(var(--accent-rgb), 0.28);
+            transition: transform 0.5s var(--ease-spring);
+        }
+        .kpi:hover .kpi-icon { transform: rotate(-8deg) scale(1.08); }
+        .kpi-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+        .kpi-value { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+        /* ---------- Panels ---------- */
+        .panel { margin: 18px 0; padding: 22px; }
+        .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+
+        .field { position: relative; flex: 1 1 220px; min-width: 180px; }
+        .field svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; transition: color 0.25s; }
+        .field:focus-within svg { color: var(--accent); }
+        input, select {
+            width: 100%; min-width: 180px; border: 1px solid var(--line-strong); border-radius: 12px; background: rgba(0, 0, 0, 0.35);
+            color: inherit; font: inherit; font-size: 14px; padding: 11px 14px; outline: none;
+            transition: border-color 0.25s, box-shadow 0.3s, background 0.25s;
+        }
+        .field input { padding-left: 40px; }
+        input::placeholder { color: var(--faint); }
+        input:hover, select:hover { border-color: rgba(255, 255, 255, 0.22); }
+        input:focus, select:focus { border-color: rgba(var(--accent-rgb), 0.7); box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.12), 0 10px 30px -14px rgba(var(--accent-rgb), 0.6); background: rgba(0, 0, 0, 0.5); }
+        select { width: auto; flex: 0 0 auto; cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 36px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b5a3a6' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 13px center; }
+        select option { background: #170d10; color: var(--text); }
+
+        /* ---------- Buttons ---------- */
+        .action, .pager button {
+            position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+            border: 1px solid var(--line-strong); border-radius: 11px; background: rgba(255, 255, 255, 0.05);
+            padding: 10px 16px; font-size: 13.5px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
+            transition: background 0.25s, border-color 0.25s, transform 0.3s var(--ease-spring), box-shadow 0.3s, color 0.25s;
+        }
+        .action::after, .pager button::after {
+            content: ""; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.16) 50%, transparent 70%);
+            transform: translateX(-130%); transition: transform 0.75s var(--ease-out);
+        }
+        .action:hover::after, .pager button:hover:not(:disabled)::after { transform: translateX(130%); }
+        .action:hover, .pager button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.24); transform: translateY(-1px); }
+        .action:active, .pager button:active:not(:disabled) { transform: scale(0.96); }
+        .action.primary { background: var(--gradient); border-color: transparent; color: #fff; box-shadow: 0 8px 22px -10px rgba(var(--accent-rgb), 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+        .action.primary:hover { background: var(--gradient); box-shadow: 0 12px 28px -10px rgba(var(--accent-rgb), 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+        .action.danger { border-color: rgba(var(--accent-rgb), 0.35); color: #ff9aa3; background: rgba(var(--accent-rgb), 0.07); }
+        .action.danger:hover { background: rgba(var(--accent-rgb), 0.18); border-color: rgba(var(--accent-rgb), 0.6); color: #ffc7cb; box-shadow: 0 8px 20px -12px rgba(var(--accent-rgb), 0.8); }
+        .action.ok { border-color: rgba(74, 222, 128, 0.3); color: #86efac; background: rgba(74, 222, 128, 0.06); }
+        .action.ok:hover { background: rgba(74, 222, 128, 0.14); border-color: rgba(74, 222, 128, 0.55); }
         button:disabled, .action:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
-        .panel { margin: 18px 0; padding: 20px; border: 1px solid #35292b; border-radius: 14px; background: #171112; }
-        .toolbar { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }
-        input, select { min-width: 180px; border: 1px solid #413436; border-radius: 8px; background: #100c0d; color: inherit; padding: 10px 12px; }
+
+        /* ---------- Tables ---------- */
+        .table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.18); }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th, td { padding: 11px 9px; border-bottom: 1px solid #302527; text-align: left; vertical-align: middle; }
-        th { color: #bcaeb0; font-weight: 600; }
-        .muted { color: #a99b9d; } .danger { border-color: #704147; color: #ffb9c1; }
-        .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 14px; color: #bcaeb0; }
-        .message { min-height: 20px; color: #ffb9c1; margin: 8px 0; }
-        @media (max-width: 720px) { body { padding: 16px; } .panel { overflow-x: auto; padding: 14px; } table { min-width: 720px; } }
+        thead th {
+            position: sticky; top: 0; padding: 12px 14px; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+            text-transform: uppercase; color: var(--faint); background: rgba(24, 12, 15, 0.9); border-bottom: 1px solid var(--line-strong);
+        }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+        tbody tr:last-child td { border-bottom: 0; }
+        tbody tr { transition: background 0.2s; }
+        tbody tr:hover { background: rgba(var(--accent-rgb), 0.05); }
+        tbody tr td:first-child { position: relative; }
+        tbody tr td:first-child::before {
+            content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 3px; border-radius: 0 3px 3px 0;
+            background: var(--gradient); transform: scaleY(0); transition: transform 0.3s var(--ease-out);
+        }
+        tbody tr:hover td:first-child::before { transform: scaleY(1); }
+        td:last-child { text-align: right; white-space: nowrap; }
+        .row-in { animation: rowIn 0.5s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 32ms); }
+        @keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+        .who { display: flex; align-items: center; gap: 12px; }
+        .avatar {
+            width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff;
+            background: var(--gradient); box-shadow: 0 6px 14px -6px rgba(var(--accent-rgb), 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+        }
+        .name { font-weight: 600; }
+        .who .muted { font-size: 12.5px; }
+        .mono { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+        .badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 9999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.05); color: var(--muted); }
+        .badge.admin { color: #ff9aa3; border-color: rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.1); }
+        .badge.type { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; color: #ffb06b; border-color: rgba(255, 154, 77, 0.3); background: rgba(255, 154, 77, 0.08); }
+        .badge.on { color: #86efac; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.07); }
+        .badge.off { color: #ff9aa3; border-color: rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.08); }
+        .badge.on::before, .badge.off::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+        .badge.on::before { animation: pulse 2.4s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        td.muted.empty, td.empty { text-align: center; padding: 38px 14px; color: var(--muted); }
+        .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: rowIn 0.5s var(--ease-out) both; position: sticky; left: 0; width: min(100%, calc(100vw - 72px)); }
+        .empty-state svg { color: var(--faint); }
+
+        /* skeleton */
+        .skel td { padding: 16px 14px; }
+        .skel i { display: block; height: 12px; border-radius: 6px; width: var(--w, 70%); background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.11) 50%, rgba(255, 255, 255, 0.04) 75%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+        @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+        /* ---------- Pager ---------- */
+        .pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; color: var(--muted); font-size: 13.5px; }
+        .pager button { padding: 8px 14px; }
+        .pager button:first-child svg { transition: transform 0.3s var(--ease-spring); }
+        .pager button:first-child:hover svg { transform: translateX(-3px); }
+        .pager button:last-child:hover svg { transform: translateX(3px); }
+        .pager button:last-child svg { transition: transform 0.3s var(--ease-spring); }
+        .pager span { font-variant-numeric: tabular-nums; min-width: 160px; text-align: center; }
+
+        /* ---------- Confirm dialog ---------- */
+        .dialog-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(4, 1, 2, 0.65); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity 0.25s; }
+        .dialog-backdrop[hidden] { display: none; }
+        .dialog-backdrop.open { opacity: 1; }
+        .dialog {
+            width: min(420px, 100%); padding: 26px; border-radius: 22px; text-align: center; border: 1px solid var(--line-strong);
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)), #14090c;
+            box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.95), 0 0 60px -20px rgba(var(--accent-rgb), 0.45);
+            transform: translateY(18px) scale(0.94); opacity: 0; transition: transform 0.45s var(--ease-spring), opacity 0.3s;
+        }
+        .dialog-backdrop.open .dialog { transform: none; opacity: 1; }
+        .dialog-icon { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 16px; display: grid; place-items: center; color: var(--accent); background: rgba(var(--accent-rgb), 0.12); border: 1px solid rgba(var(--accent-rgb), 0.3); }
+        .dialog.safe .dialog-icon { color: var(--ok); background: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.3); }
+        .dialog h3 { margin: 0 0 8px; font-family: var(--font-display); font-size: 21px; letter-spacing: -0.02em; }
+        .dialog p { margin: 0 0 22px; color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+        .dialog-actions { display: flex; gap: 10px; }
+        .dialog-actions .action { flex: 1; padding: 12px 16px; }
+
+        @media (max-width: 720px) {
+            body { padding: 16px; }
+            h1 { font-size: 23px; }
+            .kpis { grid-template-columns: 1fr; }
+            .panel { padding: 16px; }
+            table { min-width: 720px; }
+            .pager { justify-content: space-between; }
+            .pager span { min-width: 0; font-size: 12.5px; }
+            .back span { display: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+            .reveal { opacity: 1; transform: none; }
+        }
     </style>
 </head>
 <body>
-<main>
-    <header>
-        <div><h1>Quản trị Tit Chatbot</h1><div class="muted">Quản lý tài khoản và tài liệu đã tải lên</div></div>
-        <a class="back" href="/">← Về chat</a>
-    </header>
-    <div class="message" id="message" role="status"></div>
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="cursor-glow" id="cursorGlow" aria-hidden="true"><i></i><i></i></div>
 
-    <section class="panel">
-        <h2>Người dùng</h2>
-        <div class="toolbar">
-            <input id="userSearch" type="search" placeholder="Tìm tên, username hoặc email" onkeydown="if(event.key==='Enter') loadUsers(1)">
-            <button class="action" onclick="loadUsers(1)">Tìm</button>
+<main>
+    <header class="top reveal" style="--d: 0">
+        <div class="brand">
+            <div class="logo" id="logo" role="img" aria-label="Logo Tit"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" xmlns:c2pa="http://c2pa.org/manifest">
+<defs><linearGradient id="adminLogoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff3b4a"/><stop offset="1" stop-color="#8f0b17"/></linearGradient></defs>
+<rect width="64" height="64" rx="17" fill="url(#adminLogoGrad)"/>
+<g transform="translate(4.2 2.3) scale(.86)"><g><path d="M27.6 13 L31.2 11.4 L30.2 14.6 Z" fill="#0b0607" stroke="#0b0607" stroke-width="1.2" stroke-linejoin="round"/></g>
+<path d="M33.5 47.5 L31.5 54.5 L26.5 57.6 M31.5 54.5 L29.6 59.2 M31.5 54.5 L34.6 58.6 M38 49 L36.6 55 L32 58.6 M36.6 55 L35.2 59.6" stroke="#0b0607" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="M6.2 18.6 C9.2 15.4 14 13.8 17.5 13.2 C19.5 10.8 24.5 9.6 28.5 12.5 C34 16 41 24 47 33 C50 37.5 53 44 57.5 53 C58.3 56 58 58.5 57 59.3 C53 58 46 55 41 51.5 L36 49.5 C30 48 24.5 42 22 34 C20.5 29 19.6 25 18.8 22 C17.5 20.2 12.5 19.8 6.2 18.6 Z" fill="#0b0607" stroke="#fff" stroke-opacity=".38" stroke-width=".7" stroke-linejoin="round"/>
+<path d="M7.6 18.3 C11.4 17.8 14.8 16.6 17.4 15.4" stroke="#fff" stroke-opacity=".4" stroke-width=".6" stroke-linecap="round" fill="none"/>
+<path d="M45 49.4 L56.6 58 M48.2 46.8 L57.6 55.4" stroke="#fff" stroke-opacity=".5" stroke-width=".7" stroke-linecap="round" fill="none"/>
+<g>
+<path d="M21.6 21.5 C22.2 18.2 27.5 18.6 33.5 23.4 C41 29.6 49.5 38.4 56.2 52.4 C49.5 49.4 42 45.4 35 41.2 C28 37 21.4 29.8 21.6 21.5 Z" fill="#0b0607" stroke="#fff" stroke-opacity=".8" stroke-width=".9" stroke-linejoin="round"/>
+<path d="M23.6 23.8 C24.2 21.2 28 21.6 33 25.8 C40 31.6 47.6 39.8 53.6 50" stroke="#fff" stroke-opacity=".38" stroke-width=".65" fill="none"/>
+<path d="M37 37 C43 41.5 48.5 47 52.6 53.2 M34.2 38.8 C40 43.4 45 48.6 48.6 54.4 M31.5 40.2 C36.6 44.2 41 49 44 54.6" stroke="#fff" stroke-opacity=".65" stroke-width=".75" stroke-linecap="round" fill="none"/>
+<path d="M27 31 C29.4 31.2 31.4 32.8 32.4 35 M30.6 28.4 C33 28.8 35 30.6 36 32.8 M34 26.4 C36.4 27 38.2 28.8 39.2 31 M25.6 34.4 C27.6 34.6 29.4 36 30.2 38" stroke="#fff" stroke-opacity=".6" stroke-width=".75" stroke-linecap="round" fill="none"/>
+</g>
+<g><circle cx="23.6" cy="15.7" r="2.4" fill="#fff"/><g><circle cx="23.2" cy="15.7" r="1.05" fill="#0b0607"/></g></g></g>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYToyMTFiN2FmOS1kNTk0LTQ2OGMtOTkzZS0xOTNjMTMxNjQ5M2UAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaKUGv6j/3E0oamYkMzf3rLMAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDoyYWNlYmY1MS1lYjE5LTQ4NzgtOGQ3Mi1lZWU0NjBiNTA0YjFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoW/AZcf5StnzCuIGgyUWy3QAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggBHkVMTnSgZBbSorSQTzBzd+j2TVWZXDn0fZZyzaKYCekZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaME5F+BNWkanJTgVkq/2AIcAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIEqOwRW+NPJagobGdU4UbHYR/JkulFKZlWGVGQ4QN85QZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GQksZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjIxMWI3YWY5LWQ1OTQtNDY4Yy05OTNlLTE5M2MxMzE2NDkzZS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjAyZTVjYzI0LWE3YjAtNDk0ZC1hODIyLTQ5N2E0ZjZkNDFhZXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCAEeRUxOdKBkFtKitJBPMHN36PZNVZlcOfR9lnLNopgJ6JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggQDU+4MVgSKnPS2S50GQ0/yFwEf2ygikrzjboLR0ydUmiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggTrnDxQNmfVJYMz0xXEpAQKDBgpBubOVOnM9mKLLgqBh0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQLIGPNio4fPMEw5IfW40hlH4HsnkWF34w4ut83POP/YwEbJZ+6Jhexh7Z4EFGsmIP/ovsHTA3Y0LelCQcF87M+I=</c2pa:manifest></metadata></svg></div>
+            <div><h1>Quản trị Tit Chatbot</h1><div class="muted">Quản lý tài khoản và tài liệu đã tải lên</div></div>
         </div>
-        <table>
-            <thead><tr><th>Tài khoản</th><th>Email</th><th>Quyền</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead>
-            <tbody id="usersBody"><tr><td colspan="6" class="muted">Đang tải…</td></tr></tbody>
-        </table>
-        <div class="pager">
-            <button id="userPrevBtn" onclick="loadUsers(userPage - 1)" disabled>Trước</button>
-            <span id="usersPage"></span>
-            <button id="userNextBtn" onclick="loadUsers(userPage + 1)" disabled>Tiếp</button>
+        <a class="back" href="/"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg><span>Về chat</span></a>
+    </header>
+    <div class="message" id="message" role="status" aria-live="polite"></div>
+
+    <section class="kpis">
+        <div class="kpi reveal" style="--d: 90">
+            <div class="kpi-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+            <div><div class="kpi-label">Tổng tài khoản</div><div class="kpi-value" id="kpiUsers">—</div></div>
+        </div>
+        <div class="kpi reveal" style="--d: 160">
+            <div class="kpi-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+            <div><div class="kpi-label">Tổng tài liệu</div><div class="kpi-value" id="kpiDocs">—</div></div>
         </div>
     </section>
 
-    <section class="panel">
-        <h2>Tài liệu</h2>
+    <section class="panel reveal" style="--d: 230">
+        <div class="panel-head"><h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Người dùng</h2></div>
         <div class="toolbar">
-            <input id="docSearch" type="search" placeholder="Tìm theo tên tài liệu" onkeydown="if(event.key==='Enter') loadDocuments(1)">
-            <input id="docUser" type="search" placeholder="Lọc theo user ID hoặc username" onkeydown="if(event.key==='Enter') loadDocuments(1)">
-            <select id="docType" onchange="loadDocuments(1)"><option value="">Tất cả loại</option><option>pdf</option><option>docx</option><option>txt</option><option>md</option><option>py</option><option>csv</option><option>image</option></select>
-            <button class="action" onclick="loadDocuments(1)">Lọc</button>
+            <div class="field">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input id="userSearch" type="search" placeholder="Tìm tên, username hoặc email" onkeydown="if(event.key==='Enter') loadUsers(1)">
+            </div>
+            <button class="action primary" onclick="loadUsers(1)">Tìm</button>
         </div>
-        <table>
-            <thead><tr><th>Tên</th><th>Loại</th><th>User ID</th><th>Thread</th><th>Chunks</th><th>Ngày tải</th><th></th></tr></thead>
-            <tbody id="documentsBody"><tr><td colspan="7" class="muted">Đang tải…</td></tr></tbody>
-        </table>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Tài khoản</th><th>Email</th><th>Quyền</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead>
+                <tbody id="usersBody"><tr><td colspan="6" class="muted empty">Đang tải…</td></tr></tbody>
+            </table>
+        </div>
         <div class="pager">
-            <button id="docPrevBtn" onclick="loadDocuments(documentPage - 1)" disabled>Trước</button>
+            <button id="userPrevBtn" onclick="loadUsers(userPage - 1)" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Trước</button>
+            <span id="usersPage"></span>
+            <button id="userNextBtn" onclick="loadUsers(userPage + 1)" disabled>Tiếp<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+    </section>
+
+    <section class="panel reveal" style="--d: 300">
+        <div class="panel-head"><h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Tài liệu</h2></div>
+        <div class="toolbar">
+            <div class="field">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input id="docSearch" type="search" placeholder="Tìm theo tên tài liệu" onkeydown="if(event.key==='Enter') loadDocuments(1)">
+            </div>
+            <div class="field">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <input id="docUser" type="search" placeholder="Lọc theo user ID hoặc username" onkeydown="if(event.key==='Enter') loadDocuments(1)">
+            </div>
+            <select id="docType" onchange="loadDocuments(1)"><option value="">Tất cả loại</option><option>pdf</option><option>docx</option><option>txt</option><option>md</option><option>py</option><option>csv</option><option>image</option></select>
+            <button class="action primary" onclick="loadDocuments(1)">Lọc</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Tên</th><th>Loại</th><th>User ID</th><th>Thread</th><th>Chunks</th><th>Ngày tải</th><th></th></tr></thead>
+                <tbody id="documentsBody"><tr><td colspan="7" class="muted empty">Đang tải…</td></tr></tbody>
+            </table>
+        </div>
+        <div class="pager">
+            <button id="docPrevBtn" onclick="loadDocuments(documentPage - 1)" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Trước</button>
             <span id="documentsPage"></span>
-            <button id="docNextBtn" onclick="loadDocuments(documentPage + 1)" disabled>Tiếp</button>
+            <button id="docNextBtn" onclick="loadDocuments(documentPage + 1)" disabled>Tiếp<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
         </div>
     </section>
 </main>
+
+<div class="dialog-backdrop" id="dialog" hidden>
+    <div class="dialog" id="dialogBox" role="alertdialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogText">
+        <div class="dialog-icon" id="dialogIcon"></div>
+        <h3 id="dialogTitle"></h3>
+        <p id="dialogText"></p>
+        <div class="dialog-actions">
+            <button class="action" id="dialogCancel" type="button">Hủy</button>
+            <button class="action danger" id="dialogOk" type="button">Xác nhận</button>
+        </div>
+    </div>
+</div>
+
 <script>
     const pageSize = 25;
     let userPage = 1, userTotalPages = 1;
     let documentPage = 1, documentTotalPages = 1;
     const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     const dateLabel = value => value ? new Date(value).toLocaleString() : "—";
-    const showMessage = value => { document.getElementById("message").textContent = value || ""; };
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // ---------- Toast ----------
+    let toastTimer = null;
+    const showMessage = value => {
+        const el = document.getElementById("message");
+        clearTimeout(toastTimer);
+        if (!value) { el.classList.remove("show"); return; }
+        el.textContent = value;
+        el.classList.add("show");
+        toastTimer = setTimeout(() => el.classList.remove("show"), 6000);
+    };
+
+    // ---------- Animated counters ----------
+    function animateNumber(id, to) {
+        const el = document.getElementById(id);
+        const from = parseInt(el.dataset.value || "0", 10) || 0;
+        el.dataset.value = to;
+        if (reduceMotion || from === to) { el.textContent = Number(to).toLocaleString(); return; }
+        const start = performance.now(), duration = 900;
+        const step = now => {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            el.textContent = Math.round(from + (to - from) * eased).toLocaleString();
+            if (t < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    // ---------- Skeleton rows while loading ----------
+    function skeletonRows(cols, rows = 5) {
+        const widths = [62, 78, 48, 70, 56, 66, 40];
+        return Array.from({ length: rows }, (_, r) =>
+            `<tr class="skel">${Array.from({ length: cols }, (_, c) => `<td><i style="--w:${widths[(r + c) % widths.length]}%"></i></td>`).join("")}</tr>`
+        ).join("");
+    }
+    const emptyRow = (cols, text) => `<tr><td colspan="${cols}" class="empty"><div class="empty-state"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>${text}</span></div></td></tr>`;
+
+    // ---------- Confirm dialog (replaces window.confirm) ----------
+    const dialog = { root: null, resolve: null, lastFocus: null };
+    function confirmDialog({ title, text, okLabel = "Xác nhận", danger = true }) {
+        const root = document.getElementById("dialog");
+        const box = document.getElementById("dialogBox");
+        dialog.root = root;
+        dialog.lastFocus = document.activeElement;
+        document.getElementById("dialogTitle").textContent = title;
+        document.getElementById("dialogText").textContent = text;
+        const ok = document.getElementById("dialogOk");
+        ok.textContent = okLabel;
+        ok.className = "action " + (danger ? "danger" : "ok");
+        box.classList.toggle("safe", !danger);
+        document.getElementById("dialogIcon").innerHTML = danger
+            ? '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+            : '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+        root.hidden = false;
+        requestAnimationFrame(() => root.classList.add("open"));
+        document.getElementById("dialogCancel").focus();
+        return new Promise(resolve => { dialog.resolve = resolve; });
+    }
+    function closeDialog(result) {
+        const root = dialog.root;
+        if (!root || !dialog.resolve) return;
+        const resolve = dialog.resolve;
+        dialog.resolve = null;
+        root.classList.remove("open");
+        setTimeout(() => { root.hidden = true; }, reduceMotion ? 0 : 260);
+        if (dialog.lastFocus && dialog.lastFocus.focus) dialog.lastFocus.focus();
+        resolve(result);
+    }
+    document.getElementById("dialogOk").addEventListener("click", () => closeDialog(true));
+    document.getElementById("dialogCancel").addEventListener("click", () => closeDialog(false));
+    document.getElementById("dialog").addEventListener("click", e => { if (e.target.id === "dialog") closeDialog(false); });
+    document.addEventListener("keydown", e => {
+        if (!dialog.resolve) return;
+        if (e.key === "Escape") { e.preventDefault(); closeDialog(false); }
+        if (e.key === "Tab") {
+            const items = [document.getElementById("dialogCancel"), document.getElementById("dialogOk")];
+            const i = items.indexOf(document.activeElement);
+            e.preventDefault();
+            items[(i + (e.shiftKey ? -1 : 1) + items.length) % items.length].focus();
+        }
+    });
 
     // Cookie tit_session được browser gửi tự động; server xác thực role ở mọi API Admin.
     async function requestJson(url, options = {}) {
         const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Yêu cầu thất bại.");
         return data;
     }
@@ -90,27 +488,44 @@
     async function loadUsers(page = 1) {
         if (page < 1) return;
         if (userTotalPages > 0 && page > userTotalPages && page !== 1) return;
+        const body = document.getElementById("usersBody");
+        body.innerHTML = skeletonRows(6);
         try {
-            const params = new URLSearchParams({ search: document.getElementById("userSearch").value.trim(), page: page, page_size: pageSize });
+            const search = document.getElementById("userSearch").value.trim();
+            const params = new URLSearchParams({ search: search, page: page, page_size: pageSize });
             const data = await requestJson(`/admin/api/users?${params}`);
             userPage = data.page;
             userTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
+            if (!search) animateNumber("kpiUsers", data.total);
 
             // Escape các giá trị do user nhập trước khi ghép vào HTML của bảng.
-            document.getElementById("usersBody").innerHTML = data.items.length ? data.items.map(user => `
-                <tr><td>${escapeHtml(user.full_name)}<div class="muted">@${escapeHtml(user.username)}</div></td>
-                <td>${escapeHtml(user.email)}</td><td>${escapeHtml(user.role)}</td>
-                <td>${user.is_active ? "Hoạt động" : "Đã khóa"}</td><td>${dateLabel(user.created_at)}</td>
-                <td><button class="action ${user.is_active ? "danger" : ""}" data-action="user-status" data-id="${escapeHtml(user.id)}" data-active="${!user.is_active}">${user.is_active ? "Khóa" : "Mở khóa"}</button></td></tr>`).join("") : '<tr><td colspan="6" class="muted">Không có người dùng phù hợp.</td></tr>';
+            body.innerHTML = data.items.length ? data.items.map((user, i) => {
+                const initial = escapeHtml((user.full_name || user.username || "?").trim().charAt(0).toUpperCase() || "?");
+                const isAdmin = String(user.role).toLowerCase() === "admin";
+                return `
+                <tr class="row-in" style="--i:${i}"><td><div class="who"><span class="avatar">${initial}</span><div><div class="name">${escapeHtml(user.full_name)}</div><div class="muted">@${escapeHtml(user.username)}</div></div></div></td>
+                <td>${escapeHtml(user.email)}</td><td><span class="badge ${isAdmin ? "admin" : ""}">${escapeHtml(user.role)}</span></td>
+                <td><span class="badge ${user.is_active ? "on" : "off"}">${user.is_active ? "Hoạt động" : "Đã khóa"}</span></td><td>${dateLabel(user.created_at)}</td>
+                <td><button class="action ${user.is_active ? "danger" : "ok"}" data-action="user-status" data-id="${escapeHtml(user.id)}" data-active="${!user.is_active}">${user.is_active ? "Khóa" : "Mở khóa"}</button></td></tr>`;
+            }).join("") : emptyRow(6, "Không có người dùng phù hợp.");
             document.getElementById("usersPage").textContent = `${userPage} / ${userTotalPages} · ${data.total} tài khoản`;
             document.getElementById("userPrevBtn").disabled = (userPage <= 1);
             document.getElementById("userNextBtn").disabled = (userPage >= userTotalPages);
-        } catch (error) { showMessage(error.message); }
+        } catch (error) {
+            body.innerHTML = emptyRow(6, "Không tải được dữ liệu.");
+            showMessage(error.message);
+        }
     }
 
     async function setUserStatus(userId, isActive) {
         const action = isActive ? "mở khóa" : "khóa";
-        if (!confirm(`Bạn muốn ${action} tài khoản này?`)) return;
+        const ok = await confirmDialog({
+            title: isActive ? "Mở khóa tài khoản" : "Khóa tài khoản",
+            text: `Bạn muốn ${action} tài khoản này?`,
+            okLabel: isActive ? "Mở khóa" : "Khóa",
+            danger: !isActive,
+        });
+        if (!ok) return;
         try {
             await requestJson(`/admin/api/users/${encodeURIComponent(userId)}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) });
             showMessage(""); await loadUsers(userPage);
@@ -120,32 +535,43 @@
     async function loadDocuments(page = 1) {
         if (page < 1) return;
         if (documentTotalPages > 0 && page > documentTotalPages && page !== 1) return;
+        const body = document.getElementById("documentsBody");
+        body.innerHTML = skeletonRows(7);
         try {
-            const params = new URLSearchParams({
+            const filters = {
                 search: document.getElementById("docSearch").value.trim(),
                 user_id: document.getElementById("docUser").value.trim(),
                 file_type: document.getElementById("docType").value,
-                page: page,
-                page_size: pageSize,
-            });
+            };
+            const params = new URLSearchParams({ ...filters, page: page, page_size: pageSize });
             const data = await requestJson(`/admin/api/documents?${params}`);
             documentPage = data.page;
             documentTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
+            if (!filters.search && !filters.user_id && !filters.file_type) animateNumber("kpiDocs", data.total);
 
-            document.getElementById("documentsBody").innerHTML = data.items.length ? data.items.map(doc => `
-                <tr><td>${escapeHtml(doc.source)}</td>
-                <td>${escapeHtml(doc.file_type)}</td><td>${escapeHtml(doc.user_id || "Khách")}</td>
-                <td>${escapeHtml(doc.thread_id || "—")}</td><td>${doc.chunks}</td><td>${dateLabel(doc.uploaded_at)}</td>
-                <td><button class="action danger" data-action="remove-document" data-id="${escapeHtml(doc.id)}">Xóa</button></td></tr>`).join("") : '<tr><td colspan="7" class="muted">Không có tài liệu phù hợp.</td></tr>';
+            body.innerHTML = data.items.length ? data.items.map((doc, i) => `
+                <tr class="row-in" style="--i:${i}"><td class="name">${escapeHtml(doc.source)}</td>
+                <td><span class="badge type">${escapeHtml(doc.file_type)}</span></td><td><span class="mono" title="${escapeHtml(doc.user_id || "Khách")}">${escapeHtml(doc.user_id || "Khách")}</span></td>
+                <td><span class="mono" title="${escapeHtml(doc.thread_id || "—")}">${escapeHtml(doc.thread_id || "—")}</span></td><td>${doc.chunks}</td><td>${dateLabel(doc.uploaded_at)}</td>
+                <td><button class="action danger" data-action="remove-document" data-id="${escapeHtml(doc.id)}">Xóa</button></td></tr>`).join("") : emptyRow(7, "Không có tài liệu phù hợp.");
             document.getElementById("documentsPage").textContent = `${documentPage} / ${documentTotalPages} · ${data.total} tài liệu`;
             document.getElementById("docPrevBtn").disabled = (documentPage <= 1);
             document.getElementById("docNextBtn").disabled = (documentPage >= documentTotalPages);
-        } catch (error) { showMessage(error.message); }
+        } catch (error) {
+            body.innerHTML = emptyRow(7, "Không tải được dữ liệu.");
+            showMessage(error.message);
+        }
     }
 
     async function removeDocument(documentId) {
         // Xóa dữ liệu là thao tác không thể hoàn tác từ UI nên luôn hỏi xác nhận.
-        if (!confirm("Xóa tài liệu này khỏi ChromaDB và xóa file tải lên nếu có đường dẫn lưu?")) return;
+        const ok = await confirmDialog({
+            title: "Xóa tài liệu",
+            text: "Xóa tài liệu này khỏi ChromaDB và xóa file tải lên nếu có đường dẫn lưu?",
+            okLabel: "Xóa",
+            danger: true,
+        });
+        if (!ok) return;
         try {
             await requestJson(`/admin/api/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
             showMessage(""); await loadDocuments(documentPage);
@@ -162,6 +588,59 @@
             removeDocument(button.dataset.id);
         }
     });
+
+    // ---------- Logo: little hop on click ----------
+    const logoEl = document.getElementById("logo");
+    logoEl.addEventListener("click", () => {
+        if (reduceMotion) return;
+        logoEl.classList.remove("hop");
+        void logoEl.offsetWidth;
+        logoEl.classList.add("hop");
+    });
+
+    // ---------- Cursor-driven light ----------
+    (function initCursorFX() {
+        // border light on panels / KPI cards follows the pointer
+        document.addEventListener("pointermove", e => {
+            const t = e.target.closest && e.target.closest(".panel, .kpi");
+            if (!t) return;
+            const r = t.getBoundingClientRect();
+            t.style.setProperty("--mx", (e.clientX - r.left) + "px");
+            t.style.setProperty("--my", (e.clientY - r.top) + "px");
+        }, { passive: true });
+
+        const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+        if (!fine || reduceMotion) return;
+
+        const glow = document.getElementById("cursorGlow");
+        const layers = [
+            { el: glow.children[0], size: 780, k: 0.12, ox: 0, oy: 0, x: 0, y: 0 },
+            { el: glow.children[1], size: 640, k: 0.07, ox: -260, oy: -200, x: 0, y: 0 },
+        ];
+        const S = { px: 0, py: 0, nx: 0, ny: 0, a: 0, inside: false, first: true, raf: 0 };
+        const ease = (o, k, target, rate, eps) => { o[k] += (target - o[k]) * rate; if (Math.abs(target - o[k]) < eps) { o[k] = target; return false; } return true; };
+
+        function tick() {
+            S.raf = 0;
+            let busy = ease(S, "a", S.inside ? 1 : 0, 0.09, 0.005);
+            layers.forEach(L => {
+                busy = ease(L, "x", S.px + S.nx * L.ox, L.k, 0.4) || busy;
+                busy = ease(L, "y", S.py + S.ny * L.oy, L.k, 0.4) || busy;
+                L.el.style.transform = `translate3d(${(L.x - L.size / 2).toFixed(1)}px, ${(L.y - L.size / 2).toFixed(1)}px, 0)`;
+            });
+            glow.style.opacity = S.a.toFixed(3);
+            if (busy) S.raf = requestAnimationFrame(tick);
+        }
+        const kick = () => { if (!S.raf) S.raf = requestAnimationFrame(tick); };
+        document.addEventListener("pointermove", e => {
+            S.px = e.clientX; S.py = e.clientY;
+            S.nx = e.clientX / innerWidth - 0.5; S.ny = e.clientY / innerHeight - 0.5;
+            if (S.first) { layers.forEach(L => { L.x = S.px; L.y = S.py; }); S.first = false; }
+            S.inside = true; kick();
+        }, { passive: true });
+        document.documentElement.addEventListener("pointerleave", () => { S.inside = false; kick(); });
+        window.addEventListener("blur", () => { S.inside = false; kick(); });
+    })();
 
     loadUsers();
     loadDocuments();
