@@ -60,6 +60,15 @@ from storage.database import (
     get_session,
     delete_session,
 )
+from services.authentication import (
+    allow_immediate_resend,
+    cancel_challenge,
+    get_challenge,
+    resend_challenge,
+    start_challenge,
+    verify_challenge,
+)
+from services.email_service import send_verification_code
 
 from services.rag import (
     add_document_to_rag,
@@ -188,107 +197,173 @@ def _admin_api_error(request: Request) -> JSONResponse | None:
 # Authentication APIs
 # ---------------------------------------------------------------------------
 
+AUTH_CHALLENGE_COOKIE = "tit_auth_challenge"
+
+
+def _set_challenge_cookie(response: JSONResponse, secret: str, request: Request) -> None:
+    response.set_cookie(
+        key=AUTH_CHALLENGE_COOKIE, value=secret, httponly=True,
+        secure=request.url.scheme == "https", samesite="lax",
+        max_age=15 * 60, path="/auth",
+    )
+
+
+def _clear_challenge_cookie(response: JSONResponse) -> None:
+    response.delete_cookie(key=AUTH_CHALLENGE_COOKIE, path="/auth")
+
+
+def _masked_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}{'*' * max(2, min(len(local) - 1, 6))}@{domain}"
+
+
+def _begin_email_verification(user: dict, request: Request, message: str) -> JSONResponse:
+    secret, code = start_challenge(user)
+    try:
+        send_verification_code(user["email"], code)
+        response = JSONResponse({
+            "success": True, "requires_verification": True,
+            "message": message, "email": _masked_email(user["email"]),
+        }, status_code=202)
+    except Exception:
+        logger.exception("Could not send account verification email")
+        allow_immediate_resend(secret)
+        response = JSONResponse({
+            "success": False, "requires_verification": True,
+            "error": "Không thể gửi email xác minh lúc này. Vui lòng thử gửi lại mã.",
+            "email": _masked_email(user["email"]),
+        }, status_code=503)
+    _set_challenge_cookie(response, secret, request)
+    return response
+
 @app.post("/auth/signup")
 async def auth_signup(request: Request):
-    """Đăng ký tài khoản người dùng mới và tự động tạo phiên đăng nhập."""
     try:
         data = await request.json()
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
-
-    username = data.get("username", "")
-    email = data.get("email", "")
-    password = data.get("password", "")
-    full_name = data.get("full_name", "")
-
     try:
-        user = create_user(username=username, email=email, password=password, full_name=full_name)
-        session_id = create_session(user["id"])
-        response = JSONResponse({
-            "success": True,
-            "message": "Đăng ký tài khoản thành công!",
-            "user": _serialize_user(user),
-            "token": session_id,
-        })
-        response.set_cookie(
-            key="tit_session",
-            value=session_id,
-            httponly=True, # Javascript không thể truy cập cookie này, chỉ server mới đọc được
-            samesite="lax", # cho phép gửi cookie trong các request cùng domain và một số request cross-site an toàn
-            max_age=7 * 24 * 3600,
-            path="/",
+        user = create_user(
+            username=data.get("username", ""), email=data.get("email", ""),
+            password=data.get("password", ""), full_name=data.get("full_name", ""),
         )
-        return response
-    except ValueError as ve:
-        return JSONResponse({"success": False, "error": str(ve)}, status_code=400)
+        return _begin_email_verification(user, request, "Tài khoản đã tạo. Hãy xác minh email để đăng nhập.")
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
     except Exception as exc:
-        logger.exception("Lỗi đăng ký tài khoản:")
-        return JSONResponse({"success": False, "error": f"Lỗi hệ thống: {str(exc)}"}, status_code=500)
+        logger.exception("Account registration failed")
+        return JSONResponse({"success": False, "error": f"System error: {exc}"}, status_code=500)
 
 
 @app.post("/auth/signin")
 async def auth_signin(request: Request):
-    """Đăng nhập tài khoản bằng username hoặc email."""
     try:
         data = await request.json()
     except Exception:
         return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
-
-    username_or_email = (
-        data.get("identifier", "")
-        or data.get("username", "")
-        or data.get("email", "")
-        or data.get("username_or_email", "")
+    identifier = (
+        data.get("identifier", "") or data.get("username", "")
+        or data.get("email", "") or data.get("username_or_email", "")
     )
-    password = data.get("password", "")
-
-    user = authenticate_user(username_or_email, password)
+    user = authenticate_user(identifier, data.get("password", ""))
     if not user:
         return JSONResponse({
             "success": False,
-            "error": "Tên đăng nhập / Email hoặc mật khẩu không chính xác."
+            "error": "Tên đăng nhập/email hoặc mật khẩu không chính xác.",
         }, status_code=401)
+    return _begin_email_verification(user, request, "Mã xác minh đã được gửi đến email của bạn.")
 
+
+@app.get("/auth/challenge")
+async def auth_challenge_status(request: Request):
+    challenge = get_challenge(request.cookies.get(AUTH_CHALLENGE_COOKIE))
+    return {"active": bool(challenge), "challenge": challenge}
+
+
+@app.post("/auth/verify")
+async def auth_verify(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON body."}, status_code=400)
+    result, user_id = verify_challenge(
+        request.cookies.get(AUTH_CHALLENGE_COOKIE), data.get("code", "")
+    )
+    if result != "valid":
+        messages = {
+            "invalid": "Mã xác minh không chính xác.",
+            "expired": "Mã xác minh đã hết hạn. Hãy gửi mã mới.",
+            "locked": "Bạn đã nhập sai quá nhiều lần. Hãy gửi mã mới.",
+            "used": "Mã xác minh này đã được sử dụng.",
+            "missing": "Không tìm thấy yêu cầu xác minh. Hãy đăng nhập lại.",
+        }
+        return JSONResponse({
+            "success": False, "error": messages[result], "reason": result,
+        }, status_code=400)
+    user = get_user_by_id(user_id)
+    if not user or not user.get("is_active", True):
+        response = JSONResponse({"success": False, "error": "Account is no longer active."}, status_code=401)
+        _clear_challenge_cookie(response)
+        return response
     session_id = create_session(user["id"])
     response = JSONResponse({
-        "success": True,
-        "message": "Đăng nhập thành công!",
-        "user": _serialize_user(user),
-        "token": session_id, # dự phòng cho các client không hỗ trợ cookie, có thể dùng token này để gửi trong header Authorization: Bearer <token>
+        "success": True, "message": "Verification successful.",
+        "user": _serialize_user(user), "token": session_id,
     })
     response.set_cookie(
-        key="tit_session",
-        value=session_id,
-        httponly=True, # Javascript không thể truy cập cookie này, chỉ server mới đọc được
-        samesite="lax", # cho phép gửi cookie trong các request cùng domain và một số request cross-site an toàn
-        max_age=7 * 24 * 3600,
-        path="/",
+        key="tit_session", value=session_id, httponly=True,
+        secure=request.url.scheme == "https", samesite="lax",
+        max_age=7 * 24 * 3600, path="/",
     )
+    _clear_challenge_cookie(response)
+    return response
+
+
+@app.post("/auth/resend")
+async def auth_resend(request: Request):
+    secret = request.cookies.get(AUTH_CHALLENGE_COOKIE)
+    result, email, code = resend_challenge(secret)
+    if result == "sent":
+        try:
+            send_verification_code(email, code)
+        except Exception:
+            logger.exception("Could not resend account verification email")
+            allow_immediate_resend(secret)
+            return JSONResponse({"success": False, "error": "Không thể gửi email. Vui lòng thử lại."}, status_code=503)
+        return {"success": True, "message": "Mã xác minh mới đã được gửi."}
+    messages = {
+        "missing": "Yêu cầu xác minh không còn hiệu lực. Hãy đăng nhập lại.",
+        "limit": "Bạn đã đạt giới hạn gửi lại mã. Hãy đăng nhập lại để bắt đầu yêu cầu mới.",
+        "cooldown": "Vui lòng đợi trước khi gửi mã mới.",
+    }
+    status = 429 if result in {"limit", "cooldown"} else 400
+    return JSONResponse({"success": False, "error": messages[result]}, status_code=status)
+
+
+@app.post("/auth/cancel-challenge")
+async def auth_cancel_challenge(request: Request):
+    cancel_challenge(request.cookies.get(AUTH_CHALLENGE_COOKIE))
+    response = JSONResponse({"success": True})
+    _clear_challenge_cookie(response)
     return response
 
 
 @app.post("/auth/signout")
 async def auth_signout(request: Request):
-    """Đăng xuất và hủy bỏ phiên làm việc."""
     session_id = _session_id_from_request(request)
     if session_id:
         delete_session(session_id)
-
-    response = JSONResponse({
-        "success": True,
-        "message": "Đã đăng xuất thành công."
-    })
+    cancel_challenge(request.cookies.get(AUTH_CHALLENGE_COOKIE))
+    response = JSONResponse({"success": True, "message": "Đã đăng xuất thành công."})
     response.delete_cookie(key="tit_session", path="/")
+    _clear_challenge_cookie(response)
     return response
 
 
 @app.get("/auth/me")
 async def auth_me(request: Request):
-    """Lấy thông tin người dùng đang đăng nhập."""
     user = get_current_user(request)
-    if not user:
-        return {"authenticated": False, "user": None}
-    return {"authenticated": True, "user": _serialize_user(user)}
+    return {"authenticated": bool(user), "user": _serialize_user(user)}
 
 
 @app.post("/auth/profile")

@@ -835,6 +835,16 @@ MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/?retryWrite
 MONGODB_DB_NAME=tit_chatbot
 MONGODB_CHECKPOINT_DB=tit_chatbot_checkpoints
 
+# Email OTP (SMTP; port 587 uses STARTTLS, port 465 uses implicit SSL)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_EMAIL=your_email@example.com
+SMTP_PASSWORD=your_smtp_password
+# Optional; defaults to SMTP_EMAIL
+# SMTP_FROM=no-reply@example.com
+# Set true when using SMTP port 465
+SMTP_USE_SSL=false
+
 # ===========================================================================
 # Context Optimization & Token Budgeting (context_manager.py)
 # ===========================================================================

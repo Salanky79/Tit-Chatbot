@@ -110,6 +110,11 @@ def ensure_indexes() -> None:
         sessions.create_index([("session_id", ASCENDING)], unique=True, background=True)
         sessions.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
 
+        # Authentication challenges are short-lived and are restored through an HttpOnly cookie.
+        challenges = get_collection("auth_challenges")
+        challenges.create_index([("challenge_key", ASCENDING)], unique=True, background=True)
+        challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=3600, background=True)
+
         # conversations
         conv = get_collection("conversations")
         conv.create_index([("thread_id", ASCENDING)], unique=True, background=True)

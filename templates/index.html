@@ -2026,6 +2026,19 @@
             color: rgba(255, 255, 255, 0.25);
         }
 
+        .otp-digits { display: flex; gap: 8px; margin: 20px 0 8px; }
+        .otp-digit {
+            min-width: 0; flex: 1; height: 52px; text-align: center;
+            border-radius: 10px; background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.14); color: #fff;
+            font-size: 22px; font-weight: 700; font-family: inherit; outline: none;
+        }
+        .otp-digit:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,43,61,.22); }
+        .auth-secondary-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; }
+        .auth-link-btn { border: 0; padding: 4px 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer; }
+        .auth-link-btn:hover { color: #fff; }
+        .auth-link-btn:disabled { opacity: .5; cursor: not-allowed; }
+
         .auth-submit-btn {
             width: 100%;
             padding: 11px;
@@ -3865,12 +3878,17 @@
         }
     }
 
+    let authChallengeActive = false;
+    let otpCountdownTimer = null;
+
     function openAuthModal(tab = "signin") {
         const modal = document.getElementById("authModal");
         if (!modal) return;
         modal.style.display = "flex";
         hideAuthError();
+        if (authChallengeActive) return;
         switchAuthTab(tab);
+        restoreAuthChallenge();
     }
 
     function closeAuthModal() {
@@ -3878,15 +3896,23 @@
         if (!modal) return;
         modal.style.display = "none";
         hideAuthError();
-        const inForm = document.getElementById("signInForm");
-        if (inForm) inForm.reset();
-        const upForm = document.getElementById("signUpForm");
-        if (upForm) upForm.reset();
+        if (authChallengeActive) return;
+        document.getElementById("signInForm")?.reset();
+        document.getElementById("signUpForm")?.reset();
     }
 
     function showAuthError(msg) {
         const banner = document.getElementById("authErrorBanner");
         if (!banner) return;
+        banner.className = "auth-error-banner";
+        banner.textContent = msg;
+        banner.style.display = "flex";
+    }
+
+    function showAuthNotice(msg) {
+        const banner = document.getElementById("authErrorBanner");
+        if (!banner) return;
+        banner.className = "auth-success-banner";
         banner.textContent = msg;
         banner.style.display = "flex";
     }
@@ -3894,42 +3920,89 @@
     function hideAuthError() {
         const banner = document.getElementById("authErrorBanner");
         if (!banner) return;
+        banner.className = "auth-error-banner";
         banner.textContent = "";
         banner.style.display = "none";
     }
 
     function switchAuthTab(tab) {
+        if (authChallengeActive) return;
         hideAuthError();
-        const signinBtn = document.getElementById("tabSignInBtn");
-        const signupBtn = document.getElementById("tabSignUpBtn");
-        const inForm = document.getElementById("signInForm");
-        const upForm = document.getElementById("signUpForm");
-        const modalTitle = document.getElementById("authModalTitle");
-        const modalDesc = document.getElementById("authModalDesc");
+        document.getElementById("authTabs").style.display = "flex";
+        document.getElementById("otpForm").style.display = "none";
+        document.getElementById("signInForm").style.display = tab === "signin" ? "block" : "none";
+        document.getElementById("signUpForm").style.display = tab === "signup" ? "block" : "none";
+        document.getElementById("tabSignInBtn").classList.toggle("active", tab === "signin");
+        document.getElementById("tabSignUpBtn").classList.toggle("active", tab === "signup");
+        document.getElementById("authModalTitle").textContent = tab === "signin" ? "Đăng nhập" : "Đăng ký tài khoản";
+        document.getElementById("authModalDesc").textContent = tab === "signin"
+            ? "Đăng nhập để đồng bộ và lưu trữ lịch sử trò chuyện"
+            : "Tạo tài khoản mới để sở hữu không gian chat và tài liệu riêng";
+        setTimeout(() => document.getElementById(tab === "signin" ? "signInUsername" : "signUpUsername")?.focus(), 50);
+    }
 
-        if (tab === "signin") {
-            signinBtn.classList.add("active");
-            signupBtn.classList.remove("active");
-            inForm.style.display = "block";
-            upForm.style.display = "none";
-            if (modalTitle) modalTitle.textContent = "Đăng nhập";
-            if (modalDesc) modalDesc.textContent = "Đăng nhập để đồng bộ và lưu trữ lịch sử trò chuyện";
-            setTimeout(() => {
-                const el = document.getElementById("signInUsername");
-                if (el) el.focus();
-            }, 50);
-        } else {
-            signupBtn.classList.add("active");
-            signinBtn.classList.remove("active");
-            inForm.style.display = "none";
-            upForm.style.display = "block";
-            if (modalTitle) modalTitle.textContent = "Đăng ký tài khoản";
-            if (modalDesc) modalDesc.textContent = "Tạo tài khoản mới để sở hữu không gian chat và tài liệu riêng";
-            setTimeout(() => {
-                const el = document.getElementById("signUpUsername");
-                if (el) el.focus();
-            }, 50);
+    async function showOtpScreen(email) {
+        authChallengeActive = true;
+        document.getElementById("authTabs").style.display = "none";
+        document.getElementById("signInForm").style.display = "none";
+        document.getElementById("signUpForm").style.display = "none";
+        document.getElementById("otpForm").style.display = "block";
+        document.getElementById("authModalTitle").textContent = "Xác minh email";
+        document.getElementById("authModalDesc").textContent = `Nhập mã 6 chữ số đã gửi đến ${email || "email của bạn"}.`;
+        document.querySelectorAll(".otp-digit").forEach((input) => { input.value = ""; });
+        document.getElementById("otpDigit0")?.focus();
+        const response = await fetch("/auth/challenge");
+        const data = await response.json();
+        if (data.active) updateOtpChallenge(data.challenge);
+    }
+
+    function updateOtpChallenge(challenge) {
+        const resend = document.getElementById("resendCodeBtn");
+        const label = document.getElementById("resendCountdown");
+        if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+        const update = () => {
+            const wait = Math.max(0, Math.ceil((new Date(challenge.resend_available_at).getTime() - Date.now()) / 1000));
+            resend.disabled = wait > 0 || !challenge.can_resend;
+            label.textContent = !challenge.can_resend ? "Đã hết lượt gửi lại mã." : wait ? `Gửi lại sau ${wait}s` : "";
+            if (!challenge.expired && Date.now() >= new Date(challenge.expires_at).getTime()) {
+                challenge.expired = true;
+                showAuthError("Mã đã hết hạn. Bạn có thể gửi mã mới để tiếp tục.");
+            }
+        };
+        update();
+        otpCountdownTimer = setInterval(update, 1000);
+        if (challenge.expired) showAuthError("Mã đã hết hạn. Bạn có thể gửi mã mới để tiếp tục.");
+    }
+
+    async function restoreAuthChallenge() {
+        try {
+            const response = await fetch("/auth/challenge");
+            const data = await response.json();
+            if (data.active) {
+                document.getElementById("authModal").style.display = "flex";
+                await showOtpScreen(data.challenge.email);
+                updateOtpChallenge(data.challenge);
+            }
+        } catch (error) { console.error("Could not restore verification challenge:", error); }
+    }
+
+    async function completeAuthResponse(response) {
+        const data = await response.json();
+        if (data.requires_verification) {
+            await showOtpScreen(data.email);
+            if (!response.ok) showAuthError(data.error || "Không thể gửi mã xác minh.");
+            return;
         }
+        if (!response.ok || !data.success) {
+            showAuthError(data.error || data.detail || "Yêu cầu thất bại.");
+            return;
+        }
+        currentUser = data.user;
+        renderUserUI();
+        authChallengeActive = false;
+        closeAuthModal();
+        localStorage.removeItem("thread_id");
+        await newChat();
     }
 
     async function handleSignInSubmit(event) {
@@ -3938,97 +4011,114 @@
         const identifier = (document.getElementById("signInUsername").value || "").trim();
         const password = document.getElementById("signInPassword").value;
         const btn = document.getElementById("signInSubmitBtn");
-
-        if (!identifier || !password) {
-            showAuthError("Vui lòng điền đầy đủ tên đăng nhập và mật khẩu.");
-            return;
-        }
-
+        if (!identifier || !password) return showAuthError("Vui lòng nhập tên đăng nhập và mật khẩu.");
         btn.disabled = true;
-        btn.innerHTML = `<span>Đang đăng nhập...</span>`;
-
         try {
-            const res = await fetch("/auth/signin", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ identifier, username: identifier, email: identifier, password })
+            const response = await fetch("/auth/signin", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ identifier, password }),
             });
-
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                showAuthError(data.error || data.detail || "Đăng nhập thất bại.");
-                btn.disabled = false;
-                btn.innerHTML = `<span>Đăng nhập</span>`;
-                return;
-            }
-
-            currentUser = data.user || data;
-            renderUserUI();
-            closeAuthModal();
-
-            localStorage.removeItem("thread_id");
-            await newChat();
-        } catch (err) {
-            console.error("Sign in error:", err);
-            showAuthError("Có lỗi xảy ra khi kết nối tới máy chủ.");
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = `<span>Đăng nhập</span>`;
-        }
+            await completeAuthResponse(response);
+        } catch (error) {
+            console.error("Sign in error:", error);
+            showAuthError("Có lỗi kết nối tới máy chủ.");
+        } finally { btn.disabled = false; }
     }
 
     async function handleSignUpSubmit(event) {
         event.preventDefault();
         hideAuthError();
-        const username = (document.getElementById("signUpUsername").value || "").trim();
-        const email = (document.getElementById("signUpEmail").value || "").trim();
-        const fullName = (document.getElementById("signUpFullName").value || "").trim();
-        const password = document.getElementById("signUpPassword").value;
         const btn = document.getElementById("signUpSubmitBtn");
-
-        if (!username || !email || !password) {
-            showAuthError("Vui lòng điền các trường bắt buộc.");
-            return;
-        }
-
+        const body = {
+            username: document.getElementById("signUpUsername").value.trim(),
+            email: document.getElementById("signUpEmail").value.trim(),
+            full_name: document.getElementById("signUpFullName").value.trim(),
+            password: document.getElementById("signUpPassword").value,
+        };
+        if (!body.username || !body.email || !body.password) return showAuthError("Vui lòng điền các trường bắt buộc.");
         btn.disabled = true;
-        btn.innerHTML = `<span>Đang tạo tài khoản...</span>`;
-
         try {
-            const res = await fetch("/auth/signup", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    username,
-                    email,
-                    password,
-                    full_name: fullName || null
-                })
-            });
+            await completeAuthResponse(await fetch("/auth/signup", {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            }));
+        } catch (error) {
+            console.error("Sign up error:", error);
+            showAuthError("Có lỗi kết nối tới máy chủ.");
+        } finally { btn.disabled = false; }
+    }
 
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                showAuthError(data.error || data.detail || "Đăng ký thất bại.");
-                btn.disabled = false;
-                btn.innerHTML = `<span>Tạo tài khoản</span>`;
-                return;
-            }
-
-            currentUser = data.user || data;
-            renderUserUI();
-            closeAuthModal();
-
-            localStorage.removeItem("thread_id");
-            await newChat();
-        } catch (err) {
-            console.error("Sign up error:", err);
-            showAuthError("Có lỗi xảy ra khi kết nối tới máy chủ.");
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = `<span>Tạo tài khoản</span>`;
+    async function handleOtpSubmit(event) {
+        event.preventDefault();
+        const code = [...document.querySelectorAll(".otp-digit")].map((input) => input.value).join("");
+        if (code.length !== 6) return showAuthError("Vui lòng nhập đủ 6 chữ số.");
+        hideAuthError();
+        try {
+            await completeAuthResponse(await fetch("/auth/verify", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code }),
+            }));
+        } catch (error) {
+            console.error("OTP verification error:", error);
+            showAuthError("Có lỗi kết nối tới máy chủ.");
         }
     }
 
+    async function resendAuthCode() {
+        const button = document.getElementById("resendCodeBtn");
+        button.disabled = true;
+        hideAuthError();
+        try {
+            const response = await fetch("/auth/resend", { method: "POST" });
+            const data = await response.json();
+            if (!response.ok) showAuthError(data.error || "Không thể gửi mã mới.");
+            else {
+                document.querySelectorAll(".otp-digit").forEach((input) => { input.value = ""; });
+                await restoreAuthChallenge();
+                showAuthNotice(data.message);
+            }
+        } catch (error) { showAuthError("Không thể kết nối để gửi mã."); }
+        finally { button.disabled = Boolean(document.getElementById("resendCountdown").textContent); }
+    }
+
+    async function backToAuthLogin() {
+        try {
+            await fetch("/auth/cancel-challenge", { method: "POST" });
+            authChallengeActive = false;
+            if (otpCountdownTimer) clearInterval(otpCountdownTimer);
+            hideAuthError();
+            switchAuthTab("signin");
+        } catch (error) {
+            showAuthError("Không thể hủy xác minh lúc này. Vui lòng thử lại.");
+        }
+    }
+
+    document.addEventListener("input", (event) => {
+        if (!event.target.matches(".otp-digit")) return;
+        const input = event.target;
+        const digits = input.value.replace(/\D/g, "");
+        if (digits.length > 1) {
+            const start = Number(input.dataset.index);
+            document.querySelectorAll(".otp-digit").forEach((field, offset) => {
+                if (offset >= start && offset < start + 6) field.value = digits[offset - start] || "";
+            });
+            document.getElementById(`otpDigit${Math.min(start + digits.length, 5)}`)?.focus();
+            return;
+        }
+        input.value = digits.slice(-1);
+        if (input.value) document.getElementById(`otpDigit${Number(input.dataset.index) + 1}`)?.focus();
+    });
+    document.addEventListener("keydown", (event) => {
+        if (!event.target.matches(".otp-digit") || event.key !== "Backspace") return;
+        if (!event.target.value) document.getElementById(`otpDigit${Number(event.target.dataset.index) - 1}`)?.focus();
+    });
+    document.addEventListener("paste", (event) => {
+        if (!event.target.matches(".otp-digit")) return;
+        const digits = (event.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6);
+        if (!digits) return;
+        event.preventDefault();
+        document.querySelectorAll(".otp-digit").forEach((input, index) => { input.value = digits[index] || ""; });
+        document.getElementById(`otpDigit${Math.min(digits.length, 5)}`)?.focus();
+    });
     async function handleSignOut() {
         if (!confirm("Bạn có chắc chắn muốn đăng xuất không?")) return;
         try {
@@ -4415,6 +4505,7 @@
     // Kh?i d?ng: ki?m tra auth tru?c, sau d� load d�ng tr?ng th�i
     // checkAuthStatus() c?n ho�n th�nh tru?c d? bi?t user d� dang nh?p chua
     checkAuthStatus().then(() => {
+        restoreAuthChallenge();
         renderWelcome();
         loadConversations();
         // Ch? restore thread cu n?u d� dang nh?p (guest kh�ng c� l?ch s?)
@@ -4434,7 +4525,7 @@
             <p class="auth-modal-desc" id="authModalDesc">Đăng nhập để đồng bộ và lưu trữ lịch sử trò chuyện</p>
         </div>
 
-        <div class="auth-tabs">
+        <div class="auth-tabs" id="authTabs">
             <button type="button" class="auth-tab-btn active" id="tabSignInBtn" onclick="switchAuthTab('signin')">Đăng nhập</button>
             <button type="button" class="auth-tab-btn" id="tabSignUpBtn" onclick="switchAuthTab('signup')">Đăng ký</button>
         </div>
@@ -4477,6 +4568,22 @@
             <button type="submit" class="auth-submit-btn" id="signUpSubmitBtn">
                 <span>Tạo tài khoản</span>
             </button>
+        </form>
+        <form id="otpForm" onsubmit="handleOtpSubmit(event)" style="display: none;">
+            <div class="otp-digits" role="group" aria-label="6 digit verification code">
+                <input class="otp-digit" id="otpDigit0" data-index="0" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 1" autocomplete="one-time-code">
+                <input class="otp-digit" id="otpDigit1" data-index="1" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 2">
+                <input class="otp-digit" id="otpDigit2" data-index="2" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 3">
+                <input class="otp-digit" id="otpDigit3" data-index="3" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 4">
+                <input class="otp-digit" id="otpDigit4" data-index="4" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 5">
+                <input class="otp-digit" id="otpDigit5" data-index="5" inputmode="numeric" pattern="[0-9]" maxlength="1" aria-label="Digit 6">
+            </div>
+            <button type="submit" class="auth-submit-btn" id="verifyOtpBtn"><span>Xác minh mã</span></button>
+            <div class="auth-secondary-actions">
+                <button type="button" class="auth-link-btn" id="resendCodeBtn" onclick="resendAuthCode()" disabled>Resend Code</button>
+                <span class="auth-link-btn" id="resendCountdown" aria-live="polite"></span>
+                <button type="button" class="auth-link-btn" onclick="backToAuthLogin()">Back to Login</button>
+            </div>
         </form>
     </div>
 </div>
