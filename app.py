@@ -50,6 +50,8 @@ from storage.database import (
     get_user_by_id,
     get_user_by_username,
     list_users,
+    list_admin_conversations,
+    get_admin_conversation_messages,
     set_user_active,
     update_user_profile,
     create_session,
@@ -96,6 +98,16 @@ def _serialize_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     if hasattr(d.get("updated_at"), "isoformat"):
         d["updated_at"] = d["updated_at"].isoformat()
     return d
+
+
+def _serialize_conversation(conversation: dict[str, Any]) -> dict[str, Any]:
+    """Serialize conversation timestamps for JSON responses."""
+    result = dict(conversation)
+    for field in ("created_at", "updated_at"):
+        value = result.get(field)
+        if hasattr(value, "isoformat"):
+            result[field] = value.isoformat()
+    return result
 
 
 def _session_id_from_request(
@@ -412,6 +424,71 @@ async def admin_set_user_status(user_id: str, request: Request):
         return {"success": True, "user": _serialize_user(user)}
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+
+@app.get("/admin/api/users/{user_id}/conversations")
+async def admin_list_user_conversations(
+    user_id: str,
+    request: Request,
+    search: str = "",
+    page: int = 1,
+    page_size: int = 20,
+):
+    """List only the selected user's conversations for the admin viewer."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+    result = list_admin_conversations(
+        user_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
+    result["items"] = [_serialize_conversation(item) for item in result["items"]]
+    return {"success": True, **result}
+
+
+@app.get("/admin/api/users/{user_id}/conversations/{thread_id}/messages")
+async def admin_get_conversation_messages(
+    user_id: str,
+    thread_id: str,
+    request: Request,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Return one page of messages after verifying conversation ownership."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+
+    result = get_admin_conversation_messages(
+        user_id,
+        thread_id,
+        page=page,
+        page_size=page_size,
+    )
+    if result is None:
+        return JSONResponse({"success": False, "error": "Conversation not found."}, status_code=404)
+
+    return {
+        "success": True,
+        "conversation": _serialize_conversation(result["conversation"]),
+        "messages": [
+            {
+                "role": message.get("role", ""),
+                "content": message.get("content", ""),
+                "created_at": (
+                    message["created_at"].isoformat()
+                    if hasattr(message.get("created_at"), "isoformat")
+                    else message.get("created_at")
+                ),
+            }
+            for message in result["messages"]
+        ],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total": result["total"],
+    }
 
 
 @app.get("/admin/api/documents")

@@ -49,6 +49,8 @@ Tài liệu này tổng hợp toàn bộ phân tích hiện trạng, kiến trú
   - `GET /admin`: Giao diện Admin Dashboard (`templates/admin.html`).
   - `GET /admin/api/users`: Lấy danh sách người dùng có tìm kiếm (`search`), phân trang (`page`, `page_size`). Không để lộ trường `hashed_password`.
   - `PATCH /admin/api/users/{user_id}/status`: Khóa hoặc mở khóa tài khoản người dùng (`is_active: boolean`).
+  - `GET /admin/api/users/{user_id}/conversations`: Lấy các hội thoại thuộc user đã chọn, tìm theo tiêu đề và phân trang.
+  - `GET /admin/api/users/{user_id}/conversations/{thread_id}/messages`: Lấy tối đa 50 tin nhắn mỗi trang sau khi xác nhận thread thuộc user đó.
   - `GET /admin/api/documents`: Lấy danh sách tài liệu từ ChromaDB, hỗ trợ tìm kiếm theo tên, lọc theo loại file (`file_type`), và lọc theo `user_id` hoặc `username`.
   - `DELETE /admin/api/documents/{document_key}`: Xóa tài liệu đồng bộ cả vector chunks và file vật lý trên đĩa.
 - **Trải nghiệm giao diện (UI/UX)**:
@@ -57,6 +59,8 @@ Tài liệu này tổng hợp toàn bộ phân tích hiện trạng, kiến trú
   - Phân trang kiểm soát chặt chẽ biên: Tự động vô hiệu hóa (`disabled`) nút "Trước" khi ở trang 1 và nút "Tiếp" khi ở trang cuối, chặn nhảy trang vô tận.
   - Hộp thoại xác nhận (`confirm`) trước khi thực hiện các hành động nhạy cảm (Khóa/Mở khóa, Xóa vĩnh viễn).
   - Liên kết "Admin" trên thanh header của `index.html` chỉ hiển thị với tài khoản có `role === "admin"`.
+  - Nút "Lịch sử chat" mở lịch sử với tiêu đề `Lịch sử hội thoại của: @username (full_name)`; Admin chọn hội thoại để đọc tin nhắn.
+  - Tin user hiển thị bubble căn phải, tin assistant căn trái; nội dung giữ xuống dòng bằng `white-space: pre-wrap` và ngắt dòng dài bằng `word-break: break-word`.
 
 ### 2.3. Quản lý tài liệu trong ChromaDB & Xóa đồng bộ
 
@@ -67,15 +71,22 @@ Tài liệu này tổng hợp toàn bộ phân tích hiện trạng, kiến trú
   - Hàm `list_admin_documents()` đọc metadata từ ChromaDB, gom các chunks có cùng `document_id` thành một dòng dữ liệu duy nhất đại diện cho file (gồm tổng số chunks, tên file, người upload, ngày upload).
 - **Lọc tài liệu linh hoạt theo `username` hoặc `user_id`**:
   - Admin có thể nhập chuỗi ObjectId 24 ký tự hoặc nhập trực tiếp tên đăng nhập (`username`) vào ô lọc. Backend tự tra cứu `get_user_by_username()` để lấy `id` tương ứng và lọc chính xác.
-- **Xóa trực tiếp tối ưu $O(1)$**:
+- **Xóa trực tiếp theo document ID**:
   - Hàm `delete_admin_document(document_key)` truy vấn trực tiếp theo `where={"document_id": document_key}` với `limit=1` để lấy `file_path`.
-  - Không cần duyệt mảng toàn bộ collection, giúp thao tác xóa diễn ra tức thì dù database có hàng chục ngàn chunks.
+  - Không gọi `list_admin_documents()` và không nạp toàn bộ collection vào RAM của Python. Chroma thực hiện lọc/xóa theo metadata; thời gian vẫn phụ thuộc vào Chroma và số chunks khớp.
 - **Xử lý triệt để lỗi Windows File Lock (WinError 32)**:
   - Trên Windows, nếu file vừa upload hoặc đang bị tiến trình khác giữ file handle, lệnh `unlink()` có thể ném `PermissionError`.
   - Code bọc `try...except OSError`: Nếu xóa lần đầu thất bại, gọi `gc.collect()` để Python giải phóng các file descriptors đang treo và retry xóa lại.
   - Nếu file vẫn bị khóa bởi tiến trình ngoài OS, hệ thống ghi `logger.warning` và **vẫn tiếp tục xóa sạch toàn bộ vector chunks trong ChromaDB** (`collection.delete(where=...)`). Thao tác không bao giờ bị crash 500 giữa chừng.
 - **Chống Path Traversal**:
   - Dùng `candidate.is_relative_to(upload_root)` để đảm bảo chỉ cho phép xóa các file nằm trong thư mục `uploads/`, ngăn chặn tấn công xóa file hệ thống ra bên ngoài.
+
+### 2.4. Xem lịch sử chat của user
+
+- `list_admin_conversations()` xác thực `user_id` bằng `_to_object_id()` trước khi truy vấn MongoDB. ID sai định dạng trả về danh sách rỗng; guest conversations không được đưa vào danh sách.
+- `get_admin_conversation_messages()` cũng xác thực ObjectId, kiểm tra cặp `user_id` + `thread_id` trong collection `conversations`, rồi truy vấn tin nhắn với cả hai điều kiện. Thread không thuộc user được chọn trả `None`.
+- Các truy vấn có phân trang ở MongoDB: 20 hội thoại/trang, 50 tin nhắn/trang. Tin nhắn sắp xếp thời gian tăng dần.
+- Hai API mới đều gọi `_admin_api_error()`; API lịch sử người dùng `/history/{thread_id}` không bị nới quyền.
 
 ---
 
@@ -240,6 +251,50 @@ async def admin_list_documents(
 
 ---
 
+### 5.5. Kiểm tra user/thread và phân trang lịch sử chat
+
+Hàm đọc tin nhắn xác thực user ID, kiểm tra quyền sở hữu conversation trước, rồi chỉ truy vấn messages thuộc cùng user và thread:
+
+```python
+oid = _to_object_id(user_id)
+if oid is None or not thread_id:
+    return None
+
+conversation_query = {
+    "user_id": oid,
+    "thread_id": thread_id,
+    "is_guest": {"$ne": True},
+}
+conversation = get_collection("conversations").find_one(conversation_query, ...)
+if not conversation:
+    return None
+
+message_query = {"user_id": oid, "thread_id": thread_id}
+messages = get_collection("chat_messages")
+total = messages.count_documents(message_query)
+cursor = messages.find(message_query, ...).sort("created_at", 1).skip(...).limit(...)
+```
+
+API Admin kiểm tra role trước khi gọi DAL và trả `404` nếu DAL không xác nhận được hội thoại:
+
+```python
+error = _admin_api_error(request)
+if error:
+    return error
+
+result = get_admin_conversation_messages(user_id, thread_id, page=page, page_size=page_size)
+if result is None:
+    return JSONResponse({"success": False, "error": "Conversation not found."}, status_code=404)
+```
+
+Giao diện căn bubble theo vai trò và giữ nguyên xuống dòng trong nội dung:
+
+```css
+.chat-bubble { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.chat-bubble.user { align-self: flex-end; }
+.chat-bubble.assistant { align-self: flex-start; }
+```
+
 ## 6. Đánh giá chất lượng và kiểm thử (Verification & Testing)
 
 1. **Kiểm thử phân quyền**:
@@ -258,3 +313,6 @@ async def admin_list_documents(
 5. **Kiểm thử xóa tài liệu & Windows File Lock**:
    - Xóa tài liệu thành công: File trong thư mục `uploads/` bị xóa và toàn bộ vector chunks biến mất khỏi ChromaDB.
    - Thử nghiệm với file đang bị lock $\rightarrow$ Hệ thống ghi log cảnh báo nhưng vẫn xóa sạch vector chunks trong ChromaDB, trả về trạng thái thành công cho Admin UI.
+6. **Kiểm thử xem lịch sử chat**:
+   - User ID không hợp lệ không gọi MongoDB; hội thoại phân trang và tin nhắn được trả theo thời gian tăng dần.
+   - Thread không thuộc user được chọn trả `404`; request không phải Admin bị chặn ở API guard.

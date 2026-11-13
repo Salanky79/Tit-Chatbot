@@ -512,6 +512,55 @@ def list_conversations(
     return items
 
 
+def list_admin_conversations(
+    user_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    search: str = "",
+) -> dict[str, Any]:
+    """Tìm và phân trang hội thoại của một user để Admin xem.
+
+    User ID được xác thực thành ObjectId trước mọi truy vấn. Guest và hội thoại
+    không thuộc user đã chọn không xuất hiện trong kết quả.
+    """
+    oid = _to_object_id(user_id)
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    if oid is None:
+        return {"items": [], "page": page, "page_size": page_size, "total": 0}
+
+    query: dict[str, Any] = {"user_id": oid, "is_guest": {"$ne": True}}
+    clean_search = (search or "").strip()[:100]
+    if clean_search:
+        query["title"] = {"$regex": re.escape(clean_search), "$options": "i"}
+
+    conversations = get_collection("conversations")
+    total = conversations.count_documents(query)
+    cursor = (
+        conversations.find(
+            query,
+            {
+                "_id": 0,
+                "thread_id": 1,
+                "title": 1,
+                "created_at": 1,
+                "updated_at": 1,
+                "is_pinned": 1,
+            },
+        )
+        .sort("updated_at", -1)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "items": list(cursor),
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
 def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool | None:
     """Bật/tắt trạng thái ghim (is_pinned) của một cuộc trò chuyện."""
     if not thread_id:
@@ -622,6 +671,64 @@ def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
         .limit(limit)
     )
     return [_conv_to_obj(doc) for doc in cursor]
+
+
+def get_admin_conversation_messages(
+    user_id: str,
+    thread_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any] | None:
+    """Lấy một trang tin nhắn sau khi xác nhận hội thoại thuộc về user đã chọn.
+
+    Trả ``None`` nếu user ID không hợp lệ hoặc hội thoại không thuộc user đó.
+    Tin nhắn được lọc đồng thời theo ``user_id`` và ``thread_id`` để không thể
+    dùng API này đọc nội dung của tài khoản khác.
+    """
+    oid = _to_object_id(user_id)
+    if oid is None or not thread_id:
+        return None
+
+    conversation_query = {
+        "user_id": oid,
+        "thread_id": thread_id,
+        "is_guest": {"$ne": True},
+    }
+    conversation = get_collection("conversations").find_one(
+        conversation_query,
+        {
+            "_id": 0,
+            "thread_id": 1,
+            "title": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        },
+    )
+    if not conversation:
+        return None
+
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    message_query = {"user_id": oid, "thread_id": thread_id}
+    messages = get_collection("chat_messages")
+    total = messages.count_documents(message_query)
+    cursor = (
+        messages.find(
+            message_query,
+            {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+        )
+        .sort("created_at", 1)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "conversation": conversation,
+        "messages": list(cursor),
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
 
 
 # ---------------------------------------------------------------------------
