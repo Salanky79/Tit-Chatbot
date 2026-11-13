@@ -186,7 +186,7 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     user_id = get_current_user_id() or None
     sources = list_document_sources(get_current_thread_id(), user_id=user_id)
     if not sources:
-        return "No uploaded documents were found in this conversation."
+        return "No uploaded documents were found in this conversation or your account."
 
     requested = (filename or "").strip().strip('"\'')
     selected, matches = _select_uploaded_name(sources, requested)
@@ -228,7 +228,7 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     user_id = get_current_user_id() or None
     images = list_uploaded_images(get_current_thread_id(), user_id=user_id)
     if not images:
-        return "No uploaded images were found in this conversation. Upload a JPG, PNG, or WEBP image first."
+        return "No uploaded images were found in this conversation or your account. Upload a JPG, PNG, or WEBP image first."
 
     requested = (filename or "").strip().strip('"\'')
     image_names = [image["source"] for image in images]

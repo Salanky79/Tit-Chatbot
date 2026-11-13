@@ -268,7 +268,10 @@ def add_document_to_rag(file_path: str, thread_id: str, user_id: str | None = No
 def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k: int = 4) -> str:
     """Tìm kiếm các đoạn văn liên quan trong ChromaDB và trả về kết quả.
 
-    Kết quả bao gồm tên file và số trang để người dùng dễ tham chiếu.
+    Cơ chế Hybrid:
+    - Bước 1: Ưu tiên tìm kiếm tài liệu trong thread hiện tại.
+    - Bước 2: Nếu không tìm thấy và người dùng đã đăng nhập (có user_id),
+      mở rộng tìm kiếm sang toàn bộ tài liệu đã tải lên của user đó.
 
     Args:
         query: Câu hỏi hoặc từ khóa tìm kiếm.
@@ -289,6 +292,18 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
         filter=filter_dict
     )
 
+    # Fallback: Nếu thread hiện tại không có tài liệu và user đã đăng nhập, tìm rộng ra toàn bộ tài liệu của user
+    is_cross_thread = False
+    if not docs and user_id:
+        user_filter = {"user_id": str(user_id)}
+        docs = get_vectorstore().similarity_search(
+            query,
+            k=k,
+            filter=user_filter
+        )
+        if docs:
+            is_cross_thread = True
+
     if not docs:
         return "No relevant uploaded document content found."
 
@@ -303,9 +318,14 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
             page_label = f"Page {page}"
             if total:
                 page_label += f"/{total}"
-            label = f"[Source {i}: {source} – {page_label}]"
+            label_text = f"{source} – {page_label}"
         else:
-            label = f"[Source {i}: {source}]"
+            label_text = source
+
+        if is_cross_thread:
+            label = f"[Source {i}: {label_text} (từ tài liệu bạn đã tải lên trước đó)]"
+        else:
+            label = f"[Source {i}: {label_text}]"
 
         results.append(f"{label}\n{doc.page_content}")
 
@@ -313,10 +333,11 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
 
 
 def get_document_chunks(source: str, thread_id: str, user_id: str | None = None) -> list[Document]:
-    """Return every stored chunk for one uploaded file in one conversation.
+    """Return every stored chunk for one uploaded file.
 
-    This deliberately reads the Chroma collection directly instead of using
-    similarity search, which would omit chunks unrelated to a query.
+    Cơ chế Hybrid:
+    - Tìm file trong thread hiện tại trước.
+    - Nếu không thấy và có user_id, fallback tìm trong toàn bộ file của user đó.
     """
     source = (source or "").strip()
     thread_id = (thread_id or "").strip()
@@ -325,6 +346,7 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
     if not thread_id:
         raise ValueError("A conversation ID is required to find the document.")
 
+    # 1. Tìm trong thread hiện tại
     conditions = [{"thread_id": thread_id}, {"source": source}]
     if user_id:
         conditions.append({"user_id": str(user_id)})
@@ -337,6 +359,17 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
     )
     contents = result.get("documents") or []
     metadatas = result.get("metadatas") or []
+
+    # 2. Fallback: Nếu không tìm thấy trong thread hiện tại và user đã đăng nhập, tìm trong file của user
+    if not contents and user_id:
+        where_filter = {"$and": [{"user_id": str(user_id)}, {"source": source}]}
+        result = get_vectorstore()._collection.get(
+            where=where_filter,
+            include=["documents", "metadatas"],
+        )
+        contents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+
     docs = [
         Document(page_content=content, metadata=metadata or {})
         for content, metadata in zip(contents, metadatas)
@@ -345,7 +378,7 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
 
     if not docs:
         raise ValueError(
-            f'No content found for "{source}" in this conversation. '
+            f'No content found for "{source}". '
             "Check the file name or upload the file first."
         )
 
@@ -367,7 +400,7 @@ def _sort_number(value: Any) -> int:
 
 
 def list_document_sources(thread_id: str, user_id: str | None = None) -> list[str]:
-    """List distinct filenames uploaded in a conversation."""
+    """List distinct filenames uploaded in a conversation, falling back to all user documents."""
     where_filter = {"thread_id": thread_id}
     if user_id:
         where_filter = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
@@ -375,11 +408,24 @@ def list_document_sources(thread_id: str, user_id: str | None = None) -> list[st
     result = get_vectorstore()._collection.get(
         where=where_filter, include=["metadatas"]
     )
-    return sorted({
+    sources = sorted({
         metadata.get("source")
         for metadata in (result.get("metadatas") or [])
         if metadata and metadata.get("source")
     }, key=str.casefold)
+
+    # Fallback: Nếu thread hiện tại chưa có file nào nhưng có user_id, lấy danh sách file user từng upload
+    if not sources and user_id:
+        result = get_vectorstore()._collection.get(
+            where={"user_id": str(user_id)}, include=["metadatas"]
+        )
+        sources = sorted({
+            metadata.get("source")
+            for metadata in (result.get("metadatas") or [])
+            if metadata and metadata.get("source")
+        }, key=str.casefold)
+
+    return sources
 
 
 def add_image_to_rag(file_path: str, thread_id: str, filename: str, user_id: str | None = None) -> dict:
@@ -402,7 +448,7 @@ def add_image_to_rag(file_path: str, thread_id: str, filename: str, user_id: str
 
 
 def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dict]:
-    """Return image metadata for one conversation without exposing other files."""
+    """Return image metadata for one conversation, falling back to user images."""
     conditions = [{"thread_id": thread_id}, {"file_type": "image"}]
     if user_id:
         conditions.append({"user_id": str(user_id)})
@@ -413,8 +459,19 @@ def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dic
         where=where_filter,
         include=["metadatas"],
     )
+    metadatas = result.get("metadatas") or []
+
+    # Fallback: Nếu thread hiện tại chưa có ảnh nào nhưng có user_id, tìm các ảnh user từng upload
+    if not metadatas and user_id:
+        where_filter = {"$and": [{"user_id": str(user_id)}, {"file_type": "image"}]}
+        result = get_vectorstore()._collection.get(
+            where=where_filter,
+            include=["metadatas"],
+        )
+        metadatas = result.get("metadatas") or []
+
     images = {}
-    for metadata in result.get("metadatas") or []:
+    for metadata in metadatas:
         if metadata and metadata.get("source") and metadata.get("image_path"):
             images[(metadata["source"], metadata["image_path"])] = {
                 "source": metadata["source"],
