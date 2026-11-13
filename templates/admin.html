@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin · Tit Chatbot</title>
+    <style>
+        :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #100c0d; color: #f6eeee; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 32px; }
+        main { max-width: 1180px; margin: auto; }
+        header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+        h1 { margin: 0; font-size: 28px; } h2 { margin: 0 0 16px; font-size: 18px; }
+        a, button { color: inherit; }
+        .back, .action, .pager button { border: 1px solid #413436; border-radius: 8px; background: #21191b; padding: 9px 13px; text-decoration: none; cursor: pointer; transition: background 0.15s ease; }
+        .action:hover, .pager button:hover, .back:hover { background: #332528; }
+        button:disabled, .action:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+        .panel { margin: 18px 0; padding: 20px; border: 1px solid #35292b; border-radius: 14px; background: #171112; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }
+        input, select { min-width: 180px; border: 1px solid #413436; border-radius: 8px; background: #100c0d; color: inherit; padding: 10px 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 11px 9px; border-bottom: 1px solid #302527; text-align: left; vertical-align: middle; }
+        th { color: #bcaeb0; font-weight: 600; }
+        .muted { color: #a99b9d; } .danger { border-color: #704147; color: #ffb9c1; }
+        .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 14px; color: #bcaeb0; }
+        .message { min-height: 20px; color: #ffb9c1; margin: 8px 0; }
+        @media (max-width: 720px) { body { padding: 16px; } .panel { overflow-x: auto; padding: 14px; } table { min-width: 720px; } }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <div><h1>Quản trị Tit Chatbot</h1><div class="muted">Quản lý tài khoản và tài liệu đã tải lên</div></div>
+        <a class="back" href="/">← Về chat</a>
+    </header>
+    <div class="message" id="message" role="status"></div>
+
+    <section class="panel">
+        <h2>Người dùng</h2>
+        <div class="toolbar">
+            <input id="userSearch" type="search" placeholder="Tìm tên, username hoặc email" onkeydown="if(event.key==='Enter') loadUsers(1)">
+            <button class="action" onclick="loadUsers(1)">Tìm</button>
+        </div>
+        <table>
+            <thead><tr><th>Tài khoản</th><th>Email</th><th>Quyền</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead>
+            <tbody id="usersBody"><tr><td colspan="6" class="muted">Đang tải…</td></tr></tbody>
+        </table>
+        <div class="pager">
+            <button id="userPrevBtn" onclick="loadUsers(userPage - 1)" disabled>Trước</button>
+            <span id="usersPage"></span>
+            <button id="userNextBtn" onclick="loadUsers(userPage + 1)" disabled>Tiếp</button>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Tài liệu</h2>
+        <div class="toolbar">
+            <input id="docSearch" type="search" placeholder="Tìm theo tên tài liệu" onkeydown="if(event.key==='Enter') loadDocuments(1)">
+            <input id="docUser" type="search" placeholder="Lọc theo user ID hoặc username" onkeydown="if(event.key==='Enter') loadDocuments(1)">
+            <select id="docType" onchange="loadDocuments(1)"><option value="">Tất cả loại</option><option>pdf</option><option>docx</option><option>txt</option><option>md</option><option>py</option><option>csv</option><option>image</option></select>
+            <button class="action" onclick="loadDocuments(1)">Lọc</button>
+        </div>
+        <table>
+            <thead><tr><th>Tên</th><th>Loại</th><th>User ID</th><th>Thread</th><th>Chunks</th><th>Ngày tải</th><th></th></tr></thead>
+            <tbody id="documentsBody"><tr><td colspan="7" class="muted">Đang tải…</td></tr></tbody>
+        </table>
+        <div class="pager">
+            <button id="docPrevBtn" onclick="loadDocuments(documentPage - 1)" disabled>Trước</button>
+            <span id="documentsPage"></span>
+            <button id="docNextBtn" onclick="loadDocuments(documentPage + 1)" disabled>Tiếp</button>
+        </div>
+    </section>
+</main>
+<script>
+    const pageSize = 25;
+    let userPage = 1, userTotalPages = 1;
+    let documentPage = 1, documentTotalPages = 1;
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const dateLabel = value => value ? new Date(value).toLocaleString() : "—";
+    const showMessage = value => { document.getElementById("message").textContent = value || ""; };
+
+    // Cookie tit_session được browser gửi tự động; server xác thực role ở mọi API Admin.
+    async function requestJson(url, options = {}) {
+        const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Yêu cầu thất bại.");
+        return data;
+    }
+
+    async function loadUsers(page = 1) {
+        if (page < 1) return;
+        if (userTotalPages > 0 && page > userTotalPages && page !== 1) return;
+        try {
+            const params = new URLSearchParams({ search: document.getElementById("userSearch").value.trim(), page: page, page_size: pageSize });
+            const data = await requestJson(`/admin/api/users?${params}`);
+            userPage = data.page;
+            userTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
+
+            // Escape các giá trị do user nhập trước khi ghép vào HTML của bảng.
+            document.getElementById("usersBody").innerHTML = data.items.length ? data.items.map(user => `
+                <tr><td>${escapeHtml(user.full_name)}<div class="muted">@${escapeHtml(user.username)}</div></td>
+                <td>${escapeHtml(user.email)}</td><td>${escapeHtml(user.role)}</td>
+                <td>${user.is_active ? "Hoạt động" : "Đã khóa"}</td><td>${dateLabel(user.created_at)}</td>
+                <td><button class="action ${user.is_active ? "danger" : ""}" data-action="user-status" data-id="${escapeHtml(user.id)}" data-active="${!user.is_active}">${user.is_active ? "Khóa" : "Mở khóa"}</button></td></tr>`).join("") : '<tr><td colspan="6" class="muted">Không có người dùng phù hợp.</td></tr>';
+            document.getElementById("usersPage").textContent = `${userPage} / ${userTotalPages} · ${data.total} tài khoản`;
+            document.getElementById("userPrevBtn").disabled = (userPage <= 1);
+            document.getElementById("userNextBtn").disabled = (userPage >= userTotalPages);
+        } catch (error) { showMessage(error.message); }
+    }
+
+    async function setUserStatus(userId, isActive) {
+        const action = isActive ? "mở khóa" : "khóa";
+        if (!confirm(`Bạn muốn ${action} tài khoản này?`)) return;
+        try {
+            await requestJson(`/admin/api/users/${encodeURIComponent(userId)}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) });
+            showMessage(""); await loadUsers(userPage);
+        } catch (error) { showMessage(error.message); }
+    }
+
+    async function loadDocuments(page = 1) {
+        if (page < 1) return;
+        if (documentTotalPages > 0 && page > documentTotalPages && page !== 1) return;
+        try {
+            const params = new URLSearchParams({
+                search: document.getElementById("docSearch").value.trim(),
+                user_id: document.getElementById("docUser").value.trim(),
+                file_type: document.getElementById("docType").value,
+                page: page,
+                page_size: pageSize,
+            });
+            const data = await requestJson(`/admin/api/documents?${params}`);
+            documentPage = data.page;
+            documentTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
+
+            document.getElementById("documentsBody").innerHTML = data.items.length ? data.items.map(doc => `
+                <tr><td>${escapeHtml(doc.source)}</td>
+                <td>${escapeHtml(doc.file_type)}</td><td>${escapeHtml(doc.user_id || "Khách")}</td>
+                <td>${escapeHtml(doc.thread_id || "—")}</td><td>${doc.chunks}</td><td>${dateLabel(doc.uploaded_at)}</td>
+                <td><button class="action danger" data-action="remove-document" data-id="${escapeHtml(doc.id)}">Xóa</button></td></tr>`).join("") : '<tr><td colspan="7" class="muted">Không có tài liệu phù hợp.</td></tr>';
+            document.getElementById("documentsPage").textContent = `${documentPage} / ${documentTotalPages} · ${data.total} tài liệu`;
+            document.getElementById("docPrevBtn").disabled = (documentPage <= 1);
+            document.getElementById("docNextBtn").disabled = (documentPage >= documentTotalPages);
+        } catch (error) { showMessage(error.message); }
+    }
+
+    async function removeDocument(documentId) {
+        // Xóa dữ liệu là thao tác không thể hoàn tác từ UI nên luôn hỏi xác nhận.
+        if (!confirm("Xóa tài liệu này khỏi ChromaDB và xóa file tải lên nếu có đường dẫn lưu?")) return;
+        try {
+            await requestJson(`/admin/api/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+            showMessage(""); await loadDocuments(documentPage);
+        } catch (error) { showMessage(error.message); }
+    }
+
+    // Event delegation giữ một handler cho các nút được tạo lại sau mỗi lần tải bảng.
+    document.addEventListener("click", event => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) return;
+        if (button.dataset.action === "user-status") {
+            setUserStatus(button.dataset.id, button.dataset.active === "true");
+        } else if (button.dataset.action === "remove-document") {
+            removeDocument(button.dataset.id);
+        }
+    });
+
+    loadUsers();
+    loadDocuments();
+</script>
+</body>
+</html>

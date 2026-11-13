@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from langchain_core.messages import (
@@ -48,13 +48,21 @@ from storage.database import (
     create_user,
     authenticate_user,
     get_user_by_id,
+    get_user_by_username,
+    list_users,
+    set_user_active,
     update_user_profile,
     create_session,
     get_session,
     delete_session,
 )
 
-from services.rag import add_document_to_rag, add_image_to_rag
+from services.rag import (
+    add_document_to_rag,
+    add_image_to_rag,
+    list_admin_documents,
+    delete_admin_document,
+)
 from services.image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
 from tools import set_current_thread_id, set_current_user_id
 
@@ -132,7 +140,21 @@ def get_current_user(request: Request) -> dict | None:
     if not session:
         return None
 
-    return get_user_by_id(session.get("user_id", ""))
+    user = get_user_by_id(session.get("user_id", ""))
+    # Kiểm tra trạng thái ở mỗi request để session đã cấp trước đó cũng bị vô hiệu khi khóa user.
+    if user and not user.get("is_active", True):
+        return None
+    return user
+
+
+def _admin_api_error(request: Request) -> JSONResponse | None:
+    """Chặn API Admin ở backend; ẩn nút trên UI không thay thế được bước kiểm tra này."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Sign-in required."}, status_code=401)
+    if user.get("role", "user") != "admin":
+        return JSONResponse({"success": False, "error": "Admin access required."}, status_code=403)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +370,111 @@ async def home(request: Request):
     )
 
 
+@app.get("/admin")
+async def admin_page(request: Request):
+    """Render trang quản trị sau khi xác nhận session và role Admin."""
+    user = get_current_user(request)
+    if not user or user.get("role", "user") != "admin":
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse(request=request, name="admin.html", context={})
+
+
+@app.get("/admin/api/users")
+async def admin_list_users(
+    request: Request,
+    search: str = "",
+    page: int = 1,
+    page_size: int = 25,
+):
+    """Trả danh sách user đã lọc/phân trang cho bảng quản trị."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+    result = list_users(page=page, page_size=page_size, search=search)
+    result["items"] = [_serialize_user(user) for user in result["items"]]
+    return {"success": True, **result}
+
+
+@app.patch("/admin/api/users/{user_id}/status")
+async def admin_set_user_status(user_id: str, request: Request):
+    """Cập nhật trạng thái tài khoản; Admin không thể tự khóa chính mình."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+    admin = get_current_user(request)
+    try:
+        data = await request.json()
+        if not isinstance(data.get("is_active"), bool):
+            raise ValueError("is_active must be a boolean.")
+        if user_id.lower() == str(admin["id"]).lower() and not data["is_active"]:
+            raise ValueError("You cannot disable your own account.")
+        user = set_user_active(user_id, data["is_active"])
+        return {"success": True, "user": _serialize_user(user)}
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+
+@app.get("/admin/api/documents")
+async def admin_list_documents(
+    request: Request,
+    search: str = "",
+    user_id: str = "",
+    file_type: str = "",
+    page: int = 1,
+    page_size: int = 25,
+):
+    """Lọc danh sách tài liệu Chroma và chỉ trả metadata cần hiển thị."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+
+    documents = list_admin_documents()
+    clean_search = search.strip().casefold()[:100]
+    if clean_search:
+        documents = [doc for doc in documents if clean_search in doc["source"].casefold()]
+    clean_user = user_id.strip()
+    if clean_user:
+        # Hỗ trợ lọc theo cả user_id hoặc username để Admin tra cứu linh hoạt
+        target_user_ids = {clean_user}
+        user_info = get_user_by_username(clean_user)
+        if user_info:
+            target_user_ids.add(str(user_info["id"]))
+        documents = [doc for doc in documents if str(doc.get("user_id") or "") in target_user_ids]
+    clean_type = file_type.strip().lower()
+    if clean_type:
+        documents = [doc for doc in documents if (doc.get("file_type") or "").lower() == clean_type]
+
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    total = len(documents)
+    start = (page - 1) * page_size
+    # Không gửi đường dẫn ổ đĩa hay chunk IDs nội bộ về trình duyệt.
+    visible_fields = (
+        "id", "source", "user_id", "thread_id", "file_type", "uploaded_at", "chunks"
+    )
+    return {
+        "success": True,
+        "items": [
+            {field: document[field] for field in visible_fields}
+            for document in documents[start:start + page_size]
+        ],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+@app.delete("/admin/api/documents/{document_key:path}")
+async def admin_delete_document(document_key: str, request: Request):
+    """Xóa tài liệu khỏi Chroma và file upload nếu hệ thống có đường dẫn an toàn."""
+    error = _admin_api_error(request)
+    if error:
+        return error
+    if not delete_admin_document(document_key):
+        return JSONResponse({"success": False, "error": "Document not found."}, status_code=404)
+    return {"success": True}
+
+
 @app.get("/conversations")
 async def conversations(request: Request):
     user = get_current_user(request)
@@ -491,16 +618,25 @@ async def upload_document(
         create_or_update_conversation(thread_id, "Uploaded document", user_id=user_id)
 
         if suffix in SUPPORTED_IMAGE_TYPES:
-            result = add_image_to_rag(file_path, thread_id, filename, user_id=user_id)
+            # Dùng chung UUID của file lưu trên disk để liên kết metadata Chroma với file gốc.
+            result = add_image_to_rag(
+                file_path,
+                thread_id,
+                filename,
+                user_id=user_id,
+                document_id=file_id,
+            )
             return JSONResponse({
                 "success": True,
                 "message": f"Uploaded image {result['filename']}. You can now ask questions about it.",
             })
 
+        # ID riêng cho lần upload giúp Admin xóa đúng chunks khi các file trùng tên.
         result = add_document_to_rag(
             file_path=file_path,
             thread_id=thread_id,
-            user_id=user_id
+            user_id=user_id,
+            document_id=file_id,
         )
 
         return JSONResponse({

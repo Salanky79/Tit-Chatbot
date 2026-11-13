@@ -3761,7 +3761,9 @@
                 ? `<img src="${escapeHtml(currentUser.avatar_url)}" class="pill-avatar-img" alt="Avatar" onerror="this.outerHTML='<div class=\\'pill-avatar\\'>${escapeHtml(initial)}</div>'">`
                 : `<div class="pill-avatar">${escapeHtml(initial)}</div>`;
 
+            // Liên kết chỉ cải thiện điều hướng; quyền truy cập vẫn được kiểm tra tại backend.
             topbarArea.innerHTML = `
+                ${currentUser.role === "admin" ? `<a class="topbar-user-pill" href="/admin" title="Open admin panel">Admin</a>` : ""}
                 <div class="topbar-user-pill clickable" onclick="openProfileModal()" title="Chỉnh sửa thông tin: ${escapeHtml(currentUser.username)}" role="button" tabindex="0">
                     ${topbarAvatarHtml}
                     <span>${escapeHtml(displayName)}</span>

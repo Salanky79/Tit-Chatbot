@@ -1,4 +1,6 @@
 from pathlib import Path
+from datetime import datetime, timezone
+import logging
 from typing import Any
 from dotenv import load_dotenv
 import os
@@ -8,6 +10,8 @@ load_dotenv()
 
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -233,7 +237,13 @@ def _split_documents(docs: list[Document]) -> list[Document]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def add_document_to_rag(file_path: str, thread_id: str, user_id: str | None = None) -> dict:
+def add_document_to_rag(
+    file_path: str,
+    thread_id: str,
+    user_id: str | None = None,
+    *,
+    document_id: str | None = None,
+) -> dict:
     """Đọc file, tách thành chunks (kèm metadata trang & user_id), lưu vào ChromaDB.
 
     Args:
@@ -245,6 +255,15 @@ def add_document_to_rag(file_path: str, thread_id: str, user_id: str | None = No
         dict với ``filename``, ``chunks``, ``pages`` (số trang đã đọc được).
     """
     raw_docs = _load_documents(file_path, thread_id, user_id=user_id)
+
+    # Gắn ID riêng cho lần upload (không chỉ tên file) để phân biệt các file trùng tên.
+    uploaded_at = datetime.now(timezone.utc).isoformat()
+    for doc in raw_docs:
+        doc.metadata.update({
+            "document_id": document_id or Path(file_path).stem,
+            "file_path": str(Path(file_path).resolve()),
+            "uploaded_at": uploaded_at,
+        })
 
     if not raw_docs:
         raise ValueError("No text could be extracted from this file.")
@@ -428,7 +447,14 @@ def list_document_sources(thread_id: str, user_id: str | None = None) -> list[st
     return sources
 
 
-def add_image_to_rag(file_path: str, thread_id: str, filename: str, user_id: str | None = None) -> dict:
+def add_image_to_rag(
+    file_path: str,
+    thread_id: str,
+    filename: str,
+    user_id: str | None = None,
+    *,
+    document_id: str | None = None,
+) -> dict:
     """Register an uploaded image so image tools can find it in this thread."""
     path = Path(file_path).resolve()
     if not path.is_file():
@@ -441,10 +467,119 @@ def add_image_to_rag(file_path: str, thread_id: str, filename: str, user_id: str
             "source": filename,
             "file_type": "image",
             "image_path": str(path),
+            "file_path": str(path),
+            "document_id": document_id or path.stem,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
         },
     )
     get_vectorstore().add_documents([image_doc])
     return {"filename": filename, "images": 1}
+
+
+def list_admin_documents() -> list[dict[str, Any]]:
+    """Lập danh sách tài liệu cho Admin bằng cách gom các chunks của cùng một upload.
+
+    Chroma lưu mỗi chunk thành một bản ghi riêng, còn bảng Admin cần một dòng
+    cho mỗi file. Các chunks được nhóm theo ``document_id`` mà upload mới gắn
+    vào metadata.
+
+    Trả về metadata phục vụ hiển thị và số chunks của từng tài liệu. Bản ghi
+    không có ``document_id`` bị bỏ qua; hệ thống hiện giả định dữ liệu Chroma
+    được tạo theo schema upload mới. Hàm đọc metadata của toàn collection; khi
+    số tài liệu lớn, nên thay bằng registry tài liệu có phân trang ở storage.
+    """
+    collection = get_vectorstore()._collection
+    # API get trả IDs kèm kết quả; phần listing chỉ cần metadata nên không giữ IDs.
+    result = collection.get(include=["metadatas"])
+    grouped: dict[str, dict[str, Any]] = {}
+
+    for metadata in result.get("metadatas") or []:
+        # Bản ghi không có document_id không thuộc schema Admin hiện tại.
+        if not metadata or not metadata.get("source") or not metadata.get("document_id"):
+            continue
+        document_id = metadata.get("document_id")
+        item = grouped.setdefault(document_id, {
+            "id": str(document_id),
+            "document_id": document_id,
+            "source": metadata.get("source", ""),
+            "user_id": metadata.get("user_id", "") or None,
+            "thread_id": metadata.get("thread_id", "") or None,
+            "file_type": metadata.get("file_type", "unknown"),
+            "uploaded_at": metadata.get("uploaded_at"),
+            "chunks": 0,
+            "file_path": metadata.get("file_path") or metadata.get("image_path"),
+        })
+        # Mỗi metadata record tương ứng một chunk của tài liệu.
+        item["chunks"] += 1
+
+    # uploaded_at ISO UTC có thể sắp xếp dạng chuỗi; tên file là tiêu chí phụ.
+    return sorted(
+        grouped.values(),
+        key=lambda item: (item.get("uploaded_at") or "", item["source"].casefold()),
+        reverse=True,
+    )
+
+
+def delete_admin_document(document_key: str) -> bool:
+    """Xóa tài liệu bằng metadata filter mà không tải toàn collection vào Python.
+
+    ``document_key`` là ``document_id`` được gắn lên mọi chunk của lần upload.
+    Hàm chỉ đọc metadata của tối đa một chunk để lấy đường dẫn file, sau đó yêu
+    cầu Chroma xóa tất cả chunks khớp ID. Vì vậy lượng dữ liệu trả về Python
+    không tăng theo kích thước của toàn collection.
+
+    File vật lý chỉ bị xóa nếu metadata có đường dẫn và đường dẫn sau khi
+    resolve vẫn nằm dưới thư mục ``uploads``.
+
+    Returns:
+        ``True`` nếu tìm thấy tài liệu và gửi yêu cầu xóa chunks; ``False`` nếu
+        không có chunk nào mang ``document_key``.
+
+    Lưu ý: file system và Chroma không hỗ trợ một transaction chung. Vì file
+    được xóa trước, lỗi xảy ra trong bước xóa Chroma có thể để lại chunks mồ côi.
+    """
+    collection = get_vectorstore()._collection
+    where_filter = {"document_id": document_key}
+
+    # Lấy duy nhất một metadata record: mọi chunk cùng upload chia sẻ file_path.
+    # get() luôn trả IDs; nếu không có ID thì document_key không tồn tại trong Chroma.
+    result = collection.get(
+        where=where_filter,
+        limit=1,
+        include=["metadatas"],
+    )
+    if not result.get("ids"):
+        return False
+
+    metadata_list = result.get("metadatas") or []
+    metadata = metadata_list[0] if metadata_list else None
+    file_path = (metadata or {}).get("file_path") or (metadata or {}).get("image_path")
+    if file_path:
+        # Resolve cả hai phía để chặn đường dẫn kiểu ../uploads hoặc symlink
+        # thoát khỏi thư mục upload; chỉ file nằm trong uploads mới được unlink.
+        upload_root = Path("uploads").resolve()
+        candidate = Path(file_path).resolve()
+        if candidate.is_relative_to(upload_root) and candidate.is_file():
+            try:
+                candidate.unlink()
+            except OSError as exc:
+                # Trên Windows, nếu file đang bị tiến trình khác giữ handle (file lock / WinError 32),
+                # thử kích hoạt thu gom rác (garbage collection) và thử lại 1 lần nữa.
+                import gc
+                gc.collect()
+                try:
+                    candidate.unlink()
+                except OSError as retry_exc:
+                    logger.warning(
+                        "Không thể xóa file vật lý trên đĩa (%s) do Windows file lock: %s. "
+                        "Vẫn tiếp tục xóa vector chunks trong ChromaDB.",
+                        candidate,
+                        retry_exc,
+                    )
+
+    # Xóa tất cả chunks theo metadata ngay trong Chroma, không tải danh sách IDs về app.
+    collection.delete(where=where_filter)
+    return True
 
 
 def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dict]:

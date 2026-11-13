@@ -78,7 +78,7 @@ def _conv_to_obj(doc: dict[str, Any] | None) -> SimpleNamespace | None:
 def _public_user(
     user: dict[str, Any], user_id: str | ObjectId | None = None
 ) -> dict[str, Any]:
-    """Return the public user fields without exposing stored credentials."""
+    """Trả về thông tin công khai, không để lộ credential đã lưu trong MongoDB."""
     username = user["username"]
     return {
         "id": str(user_id if user_id is not None else user["_id"]),
@@ -86,6 +86,9 @@ def _public_user(
         "email": user["email"],
         "full_name": user.get("full_name", username),
         "avatar_url": user.get("avatar_url", ""),
+        # Mặc định này giữ cho tài khoản tạo trước tính năng Admin tiếp tục hoạt động.
+        "role": user.get("role", "user"),
+        "is_active": user.get("is_active", True),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }
@@ -152,6 +155,9 @@ def create_user(
         "hashed_password": hashed_pw,
         "full_name": full_name or username,
         "avatar_url": "",
+        # Không nhận role từ signup request để người dùng không tự cấp quyền Admin.
+        "role": "user",
+        "is_active": True,
         "created_at": now,
         "updated_at": now,
     }
@@ -185,6 +191,10 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
     if not verify_password(password, user.get("hashed_password", "")):
         return None
 
+    # Tài khoản bị khóa không thể tạo session đăng nhập mới.
+    if not user.get("is_active", True):
+        return None
+
     return _public_user(user)
 
 
@@ -216,6 +226,67 @@ def get_user_by_username(username: str) -> dict | None:
         return None
 
     return _public_user(user)
+
+
+def list_users(*, page: int = 1, page_size: int = 25, search: str = "") -> dict[str, Any]:
+    """Tìm và phân trang danh sách user; giới hạn page size để tránh truy vấn lớn."""
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    users = get_collection("users")
+    query: dict[str, Any] = {}
+    clean_search = (search or "").strip()[:100]
+    if clean_search:
+        escaped = re.escape(clean_search)
+        query["$or"] = [
+            {"username": {"$regex": escaped, "$options": "i"}},
+            {"email": {"$regex": escaped, "$options": "i"}},
+            {"full_name": {"$regex": escaped, "$options": "i"}},
+        ]
+
+    total = users.count_documents(query)
+    # Projection loại hash mật khẩu ngay tại MongoDB, trước khi dựng response.
+    cursor = (
+        users.find(query, {"hashed_password": 0})
+        .sort("created_at", -1)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "items": [_public_user(user) for user in cursor],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+def set_user_active(user_id: str | ObjectId, is_active: bool) -> dict:
+    """Khóa/mở khóa tài khoản và giữ lại ít nhất một Admin đang hoạt động."""
+    query_id = _to_object_id(user_id)
+    if query_id is None:
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    users = get_collection("users")
+    user = users.find_one({"_id": query_id})
+    if not user:
+        raise ValueError("Không tìm thấy người dùng.")
+
+    if not is_active and user.get("role", "user") == "admin" and user.get("is_active", True):
+        # Không cho thao tác làm hệ thống mất toàn bộ tài khoản quản trị.
+        active_admins = users.count_documents({"role": "admin", "is_active": {"$ne": False}})
+        if active_admins <= 1:
+            raise ValueError("Không thể khóa Admin cuối cùng đang hoạt động.")
+
+    users.update_one(
+        {"_id": query_id},
+        {"$set": {"is_active": bool(is_active), "updated_at": _now()}},
+    )
+    if not is_active:
+        # Thu hồi token cũ để chúng không hoạt động lại nếu tài khoản được mở khóa sau này.
+        get_collection("sessions").delete_many({
+            "user_id": {"$in": [query_id, str(query_id)]}
+        })
+    updated_user = users.find_one({"_id": query_id})
+    return _public_user(updated_user)
 
 
 def update_user_profile(
