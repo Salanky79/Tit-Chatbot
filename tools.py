@@ -1,13 +1,16 @@
 from contextvars import ContextVar
+from typing import Annotated, Any
+import json
 import math
 import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, ToolMessage
+from langgraph.prebuilt import InjectedState
 from langchain_tavily import TavilySearch
 from storage.database import (
     save_memory,
-    search_memory,
-    find_memory_candidates,
+    get_user_memories as load_user_memories,
     update_memory_by_id,
     delete_memory_by_id,
 )
@@ -276,66 +279,97 @@ def remember_this(memory: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Long-term memory - Recall
+# Long-term memory - Search and recall
 # ---------------------------------------------------------------------------
+def _current_turn_memory_results(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Parse memory retrievals from this turn, excluding checkpointed prior turns."""
+    memories: list[dict[str, Any]] = []
+    messages = state.get("messages", []) if state else []
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            break
+        if not isinstance(message, ToolMessage) or getattr(message, "name", None) != "get_user_memories":
+            continue
+        try:
+            result = json.loads(message.content) if isinstance(message.content, str) else {}
+        except (TypeError, json.JSONDecodeError):
+            continue
+        memories.extend(result.get("memories", []))
+    return memories
+
+
 @tool
-def recall_memory(query: str = "") -> str:
-    """Recall and search the current user's long-term memories across ALL chats.
+def get_user_memories(
+    state: Annotated[dict[str, Any], InjectedState],
+    query: str = "",
+) -> str:
+    """Retrieve this user's long-term memories for the agent to inspect.
 
-    CRITICAL RULES FOR CALLING THIS TOOL:
-    - If the user asks general questions about themselves or asks what you remember
-      (e.g., "Bạn nhớ gì về tôi?", "Tôi là ai?", "Liệt kê thông tin của tôi", "Tôi học ở đâu?", "What do you remember about me?"):
-      --> Pass query="" (empty string) to retrieve all recent profile memories.
-    - If the user asks about a specific fact or topic
-      (e.g., "Tôi tên là gì?", "Tôi thích ăn món gì?", "Tôi học ở đâu / học trường nào?", "Tôi đang làm nghề gì?"):
-      --> Extract and pass a broad core root keyword (e.g. query="học", query="tên", query="việc", query="thích").
-          DO NOT pass full conversational sentences like "bạn có nhớ tôi tên là gì".
-          DO NOT pass narrow synonyms that may not match literal text (e.g. prefer query="học" over "trường").
-      --> If unsure, pass query="" to load the user's profile memories.
-
-    Returns a list of matching memory entries, or a message if none are found.
+    A non-empty query first uses safe regex matching. If that finds no entries,
+    all active memories are returned for semantic review by the LLM. Use an
+    empty query to explicitly retrieve all active memories. The memory list is
+    for internal agent reasoning; never present it as a choice list to the user.
     """
-    user_id = get_current_user_id() or None
-    return search_memory(thread_id=get_current_thread_id(), query=query, user_id=user_id)
+    # Read only messages from the current user turn, not previous checkpointed
+    # turns, so the one-full-read guard resets naturally on the next request.
+    messages = state.get("messages", []) if state else []
+    full_read_already_used = False
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            break
+        if not isinstance(message, ToolMessage) or getattr(message, "name", None) != "get_user_memories":
+            continue # nếu không phải là ToolMessage của get_user_memories thì bỏ qua
+        try:
+            prior_result = json.loads(message.content) if isinstance(message.content, str) else {}
+        except (TypeError, json.JSONDecodeError):
+            prior_result = {}
+        if prior_result.get("source") in {"all_requested", "fallback_no_regex_match"}: # query rỗng hoặc không tìm thấy regex, đã đọc toàn bộ memory
+            full_read_already_used = True
+            break
 
+    clean_query = (query or "").strip()
+    if full_read_already_used and not clean_query:
+        return json.dumps(
+            {
+                "status": "full_read_already_used",
+                "source": "none",
+                "memories": [],
+                "message": "The full-memory fallback has already been used for this user request. Do not call this tool again for the same request.",
+            },
+            ensure_ascii=False,
+        )
 
-# ---------------------------------------------------------------------------
-# Long-term memory - Candidate Search (Bước 1 & 2)
-# ---------------------------------------------------------------------------
-@tool
-def search_memory_candidates(keyword: str = "") -> str:
-    """Search for existing memory candidates by keyword to inspect their memory_id, version, and content.
-
-    CRITICAL WORKFLOW RULES (Bước 1 & 2):
-    1. ALWAYS call this tool FIRST before updating (update_memory_entry) or deleting (forget_memory_entry) any memory.
-    2. Inspect the candidate list returned:
-       - If exactly 1 matching candidate is found: Proceed immediately to call update_memory_entry or forget_memory_entry.
-       - If multiple candidates are found: Present the choices naturally to the user and ask them which one they want to modify.
-       - If no candidates are found: Inform the user that no matching memory was found.
-    """
-    user_id = get_current_user_id() or None
-    candidates = find_memory_candidates(user_id=user_id, keyword=keyword)
-    if not candidates:
-        return f"Không tìm thấy ký ức nào liên quan đến từ khóa '{keyword}'."
-
-    lines = [f"Tìm thấy {len(candidates)} ký ức ứng viên:"]
-    for c in candidates:
-        lines.append(f"- [ID: {c['memory_id']}] (Version: {c['version']}): \"{c['memory']}\"")
-    return "\n".join(lines)
+    result = load_user_memories(
+        user_id=get_current_user_id() or None,
+        query=clean_query,
+        allow_full_fallback=not full_read_already_used,
+    )
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 # ---------------------------------------------------------------------------
 # Long-term memory - Update by ID (Bước 4)
 # ---------------------------------------------------------------------------
 @tool
-def update_memory_entry(memory_id: str, new_memory: str, version: int) -> str:
+def update_memory_entry(
+    state: Annotated[dict[str, Any], InjectedState],
+    memory_id: str,
+    new_memory: str,
+    version: int,
+) -> str:
     """Update an existing long-term memory entry using its exact memory_id and current version.
 
     CRITICAL RULES (Bước 4):
-    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from search_memory_candidates first.
+    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from get_user_memories first.
     2. Pass the exact memory_id and version received.
     3. Pass the full, updated statement in new_memory (e.g. 'Tên người dùng là Nam.').
     """
+    if not any(
+        entry.get("memory_id") == memory_id and int(entry.get("version", -1)) == int(version)
+        for entry in _current_turn_memory_results(state)
+    ):
+        return "Memory update blocked: retrieve this exact memory ID and version with get_user_memories during the current request first."
+
     user_id = get_current_user_id() or None
     return update_memory_by_id(
         user_id=user_id,
@@ -349,13 +383,23 @@ def update_memory_entry(memory_id: str, new_memory: str, version: int) -> str:
 # Long-term memory - Forget / Soft-Delete by ID (Bước 4)
 # ---------------------------------------------------------------------------
 @tool
-def forget_memory_entry(memory_id: str, version: int) -> str:
+def forget_memory_entry(
+    state: Annotated[dict[str, Any], InjectedState],
+    memory_id: str,
+    version: int,
+) -> str:
     """Soft-delete an existing long-term memory entry using its exact memory_id and current version.
 
     CRITICAL RULES (Bước 4):
-    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from search_memory_candidates first.
+    1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from get_user_memories first.
     2. Pass the exact memory_id and version received.
     """
+    if not any(
+        entry.get("memory_id") == memory_id and int(entry.get("version", -1)) == int(version)
+        for entry in _current_turn_memory_results(state)
+    ):
+        return "Memory deletion blocked: retrieve this exact memory ID and version with get_user_memories during the current request first."
+
     user_id = get_current_user_id() or None
     return delete_memory_by_id(
         user_id=user_id,
@@ -373,8 +417,7 @@ tools = [
     summarize_uploaded_document,
     analyze_uploaded_image,
     remember_this,
-    recall_memory,
-    search_memory_candidates,
+    get_user_memories,
     update_memory_entry,
     forget_memory_entry,
     web_search,
