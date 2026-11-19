@@ -814,7 +814,7 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
         "user_id": oid,
         "memory": memory.strip(),
         "is_deleted": False,
-        "version": 1,
+        "version": 1, # tránh race_condition khi update
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,

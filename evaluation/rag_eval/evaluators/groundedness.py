@@ -1,4 +1,7 @@
-"""Claim-level faithfulness judge with an explicit deterministic score formula."""
+"""Claim-level faithfulness judge with an explicit deterministic score formula.
+
+# METRIC: groundedness - Đo độ trung thực/chống ảo giác: Từng luận điểm trong câu trả lời có được tài liệu chứng minh không (thang 0-4).
+"""
 
 from __future__ import annotations
 

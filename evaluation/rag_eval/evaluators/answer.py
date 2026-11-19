@@ -1,4 +1,7 @@
-"""Judge whether the generated answer directly addresses the question."""
+"""Judge whether the generated answer directly addresses the question.
+
+# METRIC: answer_relevance - Đo độ bám sát câu hỏi: Câu trả lời của bot có đi đúng trọng tâm và phạm vi câu hỏi không (thang 0-4).
+"""
 
 from __future__ import annotations
 

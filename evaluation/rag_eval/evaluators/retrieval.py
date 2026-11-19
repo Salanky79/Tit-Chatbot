@@ -1,4 +1,7 @@
-"""Judge relevance of each retrieved context to the question."""
+"""Judge relevance of each retrieved context to the question.
+
+# METRIC: retrieval_relevance - Đo chất lượng tìm kiếm: Các đoạn tài liệu ChromaDB tìm ra có liên quan/hữu ích cho câu hỏi không (thang 0-4).
+"""
 
 from __future__ import annotations
 

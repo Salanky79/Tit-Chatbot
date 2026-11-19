@@ -30,14 +30,30 @@ def _now() -> datetime:
 
 
 def _challenge_key(secret: str) -> str:
-    """Băm chuỗi secret của trình duyệt bằng SHA-256 để làm khóa tra cứu trong MongoDB (không lưu secret gốc)."""
+    """Băm chuỗi secret của trình duyệt bằng SHA-256 để làm khóa tra cứu trong MongoDB (không lưu secret gốc).
+    
+    LƯU Ý - Tại sao không dùng secrets.token_urlsafe(32) ở đây?
+    - token_urlsafe(32) là hàm SINH NGẪU NHIÊN: mỗi lần gọi sẽ ra một chuỗi mới toanh khác nhau.
+    - Trong khi đó, ở đây ta cần hàm BĂM XÁC ĐỊNH (Deterministic Hash): Cùng một secret truyền vào
+      bắt buộc phải sinh ra cùng một chuỗi băm để làm khóa tìm kiếm bản ghi trong MongoDB 
+      (tương tự find_one({"challenge_key": _challenge_key(secret)})).
+    - Bảo mật: Tránh lưu secret gốc vào DB, nếu DB bị lộ thì kẻ tấn công cũng không có secret của client.
+    """
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
 def _code_hash(secret: str, code: str) -> str:
-    """Băm mã OTP 6 số bằng HMAC-SHA256, sử dụng secret của trình duyệt làm khóa ký bí mật."""
-    return hmac.new(secret.encode("utf-8"), code.encode("ascii"), hashlib.sha256).hexdigest()
-# hợp nhất 
+    """Băm mã OTP 6 số bằng HMAC-SHA256, sử dụng secret của trình duyệt làm khóa ký bí mật.
+    
+    LƯU Ý - Tại sao dùng HMAC-SHA256 thay vì hash thường hay token_urlsafe(32)?
+    - Mã OTP chỉ có 6 chữ số (000000 -> 999999, chỉ có 1 triệu khả năng). Nếu chỉ băm SHA-256 thường,
+      kẻ có quyền xem MongoDB (hoặc Admin xấu) có thể dùng Rainbow Table dò ra mã OTP trong 0.1 giây.
+    - Bằng cách dùng HMAC với chìa khóa ký là 'secret' (chỉ nằm ở Cookie HttpOnly của nạn nhân),
+      kẻ tấn công dù đọc được MongoDB cũng KHÔNG THỂ giải mã được mã OTP 6 số.
+    - Tại sao không dùng token_urlsafe(32): Tương tự, cần tính xác định để khi user nhập mã code lên,
+      hệ thống băm lại và so khớp được với bản ghi đã lưu.
+    """
+    return hmac.new(secret.encode("utf-8"), code.encode("ascii"), hashlib.sha256).hexdigest() 
 
 def _aware(value: datetime) -> datetime:
     """Chuẩn hóa đối tượng datetime đọc từ MongoDB về dạng có múi giờ UTC (tránh lỗi TypeError so sánh datetime)."""
@@ -47,7 +63,7 @@ def _aware(value: datetime) -> datetime:
 def start_challenge(user: dict) -> tuple[str, str]:
     """Khởi tạo thử thách OTP mới: sinh secret (gắn cookie) + sinh mã 6 số (gửi email), lưu MongoDB (hạn 5p, cooldown 60s)."""
     secret = secrets.token_urlsafe(32)
-    code = f"{secrets.randbelow(1_000_000):06d}"
+    code = f"{secrets.randbelow(1_000_000):06d}" # đảm bảo sinh 6 số ngẫu nhiên 
     now = _now()
     get_collection("auth_challenges").insert_one({
         "challenge_key": _challenge_key(secret),      # Khóa tra cứu đã băm SHA-256

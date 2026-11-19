@@ -1,4 +1,7 @@
-"""Judge semantic correctness against the hand-reviewed reference answer."""
+"""Judge semantic correctness against the hand-reviewed reference answer.
+
+# METRIC: correctness - Đo độ chính xác ngữ nghĩa: Câu trả lời của bot có đúng ý nghĩa so với đáp án mẫu chuẩn hay không (thang 0-4).
+"""
 
 from __future__ import annotations
 
