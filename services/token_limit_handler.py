@@ -8,13 +8,310 @@ Xử lý tập trung các tình huống khi LLM chạm ngưỡng giới hạn to
 
 from __future__ import annotations
 
+import asyncio
+import email.utils
 import logging
-import re
-from typing import Sequence
+import math
+import os
+import random
+import time
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Literal, Sequence, TypeVar
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 _VIETNAMESE_LANGUAGES = {"vi", "vietnamese", "tiếng việt", "tieng viet"}
+
+
+def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if math.isfinite(value) and value >= minimum else default
+
+
+MAX_RATE_LIMIT_WAIT_SECONDS = _float_setting("MAX_RATE_LIMIT_WAIT_SECONDS", 60.0, 1.0)
+RATE_LIMIT_BACKOFF_BASE_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_BASE_SECONDS", 1.0, 0.1)
+RATE_LIMIT_BACKOFF_JITTER_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_JITTER_SECONDS", 0.5, 0.0)
+
+
+@dataclass(frozen=True) # frozen để đảm bảo tính bất biến của quyết định retry, tránh thay đổi ngoài ý muốn
+class RetryDecision:
+    """One normalized decision for a failed provider request."""
+
+    action: Literal[ # hành động quyết định sau khi phân loại lỗi
+        "fail_fast_tpd",
+        "retry",
+        "exceeded_max_retries",
+        "exceeded_max_wait",
+        "not_rate_limit",
+    ]
+    wait_seconds: float | None # số giây chờ trước khi retry, None nếu không retry
+    reason: str # lý do quyết định, dùng để log hoặc debug
+    source: Literal[ # nguồn thông tin quyết định retry, dùng để log hoặc debug
+        "retry-after",
+        "x-ratelimit-reset-tokens",
+        "backoff",
+        "none",
+    ]
+
+# dò tìm header và chống lặp vô hạn
+def _exception_chain(error: BaseException) -> Iterator[BaseException]:
+    """Walk wrapped exceptions safely, including unusual cyclic cause/context links."""
+    pending = [error]
+    seen_ids: set[int] = set()
+    while pending:
+        current = pending.pop()
+        current_id = id(current)
+        if current_id in seen_ids: # tránh lặp vô hạn nếu có vòng lặp trong __cause__ hoặc __context__
+            continue
+        seen_ids.add(current_id)
+        yield current
+        # Prefer explicit cause while still checking context for provider details.
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+
+# Normalize exception text for explicit quota/rate-limit markers and logging.
+def _exception_text(error: BaseException | str) -> str:
+    if isinstance(error, BaseException):
+        return " ".join(str(item) for item in _exception_chain(error)).lower()
+    return str(error).lower()
+
+# trích xuất tất cả header từ chuỗi exception, bao gồm cả header trực tiếp và header trong response nếu có
+def _response_headers(error: BaseException) -> list[Mapping[str, Any]]:
+    headers_list: list[Mapping[str, Any]] = []
+    for item in _exception_chain(error):
+        direct_headers = getattr(item, "headers", None)
+        response = getattr(item, "response", None)
+        response_headers = getattr(response, "headers", None) if response is not None else None
+        for headers in (response_headers, direct_headers):
+            if isinstance(headers, Mapping):
+                headers_list.append(headers)
+    return headers_list
+
+# trích xuất giá trị header từ mapping, không phân biệt chữ hoa/chữ thường, bỏ qua giá trị None
+def _header_value(headers: Mapping[str, Any], name: str) -> str | None:
+    target = name.casefold()
+    for key, value in headers.items():
+        if str(key).casefold() == target and value is not None:
+            return str(value).strip()
+    return None
+
+# Parse duration strings like "7.66s" or "1m30.5s" into seconds.
+def _parse_duration(value: str) -> float | None:
+    """Parse structured provider durations such as 7.66s or 1m30.5s."""
+    clean = value.strip().lower()
+    if not clean.endswith("s"):
+        return None
+
+    number = clean[:-1].strip()
+    try:
+        if "m" in number:
+            if number.count("m") != 1:
+                return None
+            minutes_text, seconds_text = number.split("m", 1)
+            total_seconds = float(minutes_text.strip()) * 60.0 + float(seconds_text.strip())
+        else:
+            total_seconds = float(number)
+    except ValueError:
+        return None
+    return total_seconds if math.isfinite(total_seconds) and total_seconds >= 0 else None
+
+# Parse Retry-After header values, which can be either a number of seconds or an HTTP date.
+def _parse_retry_after(value: str, server_date: str | None) -> float | None:
+    clean_value = value.strip()
+    # Nếu là số giây thuần (ví dụ: '5')
+    try:
+        seconds = float(clean_value)
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+    try:
+        target = email.utils.parsedate_to_datetime(clean_value)
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=timezone.utc)
+        base = None
+        if server_date:
+            base = email.utils.parsedate_to_datetime(server_date)
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=timezone.utc)
+        if base is None:
+            base = datetime.now(timezone.utc)
+        return max(0.0, (target - base).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _header_retry_delay(error: BaseException) -> tuple[float, str] | None:
+    for headers in _response_headers(error):
+        retry_after = _header_value(headers, "Retry-After")
+        if retry_after is not None:
+            server_date = _header_value(headers, "Date")
+            seconds = _parse_retry_after(retry_after, server_date)
+            if seconds is not None:
+                return seconds, "retry-after"
+
+        reset_tokens = _header_value(headers, "x-ratelimit-reset-tokens")
+        if reset_tokens is not None:
+            seconds = _parse_duration(reset_tokens)
+            if seconds is not None:
+                return seconds, "x-ratelimit-reset-tokens"
+    return None
+
+
+def extract_retry_delay(error: BaseException | str) -> tuple[float, str] | None:
+    """Return a delay from structured HTTP headers, if the exception exposes one."""
+    if isinstance(error, BaseException):
+        return _header_retry_delay(error)
+    return None
+
+
+def _has_daily_limit_marker(error: BaseException | str) -> bool:
+    text = _exception_text(error)
+    return any(marker in text for marker in (
+        "tokens per day", "tpd", "daily", "per day", "quota_exceeded", "insufficient_quota"
+    ))
+
+
+def _is_rate_limit_exception(error: BaseException | str) -> bool:
+    text = _exception_text(error)
+    if any(marker in text for marker in (
+        "429", "rate_limit_exceeded", "tokens per minute", "tokens per day",
+        "tpm", "tpd", "rate limit", "ratelimit",
+    )):
+        return True
+    return isinstance(error, BaseException) and any(
+        getattr(item, "status_code", None) == 429
+        or getattr(getattr(item, "response", None), "status_code", None) == 429
+        for item in _exception_chain(error)
+    )
+
+
+def decide_rate_limit_retry(
+    error: BaseException | str,
+    *,
+    attempt: int,
+    max_retries: int | None,
+    max_wait_seconds: float = MAX_RATE_LIMIT_WAIT_SECONDS,
+) -> RetryDecision:
+    """Classify a failed call and choose a bounded or unlimited retry action.
+
+    ``attempt`` is one-based. ``max_retries`` counts retries after the initial call;
+    ``None`` intentionally means retry without an attempt limit.
+    """
+    # 1. Nếu là TPD (Hết hạn ngày) -> FAIL-FAST NGAY LẬP TỨC
+    if _has_daily_limit_marker(error):
+        return RetryDecision("fail_fast_tpd", None, "Daily token quota exhausted.", "none")
+
+    delay = extract_retry_delay(error)
+    if not _is_rate_limit_exception(error):
+        return RetryDecision("not_rate_limit", None, "Error is not a rate limit.", "none")
+
+    retries_used = max(0, attempt - 1)
+    if max_retries is not None and retries_used >= max(0, max_retries):
+        return RetryDecision(
+            "exceeded_max_retries", None,
+            f"Retry limit ({max_retries}) reached after {retries_used} retries.",
+            delay[1] if delay else "none",
+        )
+
+    if delay is None:
+        exponent = max(0, attempt - 1)
+        wait_seconds = min(RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** min(exponent, 20)), max_wait_seconds)
+        wait_seconds = min(
+            max_wait_seconds,
+            wait_seconds + random.uniform(0.0, RATE_LIMIT_BACKOFF_JITTER_SECONDS),
+        )
+        source = "backoff"
+    else:
+        wait_seconds, source = delay
+
+    # Avoid a hot retry loop if a provider sends a zero-second hint.
+    wait_seconds = max(0.25, wait_seconds)
+    if max_retries is not None and wait_seconds > max_wait_seconds:
+        return RetryDecision(
+            "exceeded_max_wait", wait_seconds,
+            f"Server requested {wait_seconds:.2f}s, above configured maximum {max_wait_seconds:.2f}s.",
+            source,
+        )
+    return RetryDecision("retry", wait_seconds, "Transient rate limit; retry is allowed.", source)
+
+
+def wait_for_retry(wait_seconds: float, *, max_sleep_chunk_seconds: float = MAX_RATE_LIMIT_WAIT_SECONDS) -> None:
+    """Wait the full requested delay in chunks; chunks avoid one opaque long sleep."""
+    remaining = max(0.0, wait_seconds)
+    while remaining > 0:
+        chunk = min(remaining, max_sleep_chunk_seconds)
+        time.sleep(chunk)
+        remaining -= chunk
+
+
+def invoke_with_rate_limit_retry(
+    invoke: Callable[[], T],
+    *,
+    max_retries: int | None,
+    operation: str,
+    can_retry: Callable[[], bool] | None = None,
+) -> T:
+    """Run a synchronous model call with the shared rate-limit policy."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return invoke()
+        except Exception as exc:
+            if can_retry is not None and not can_retry():
+                logger.warning("[%s] Skipping retry because output has already started.", operation)
+                raise
+            decision = decide_rate_limit_retry(exc, attempt=attempt, max_retries=max_retries)
+            if decision.action == "not_rate_limit":
+                raise
+            if decision.action != "retry":
+                logger.warning("[%s] %s: %s", operation, decision.action, decision.reason)
+                raise
+            logger.warning(
+                "[%s] Rate limited (source=%s, attempt=%d, retries=%s); waiting %.2fs",
+                operation, decision.source, attempt,
+                "unlimited" if max_retries is None else max_retries,
+                decision.wait_seconds or 0.0,
+            )
+            wait_for_retry(decision.wait_seconds or 0.0)
+
+
+async def ainvoke_with_rate_limit_retry(
+    invoke: Callable[[], Awaitable[T]],
+    *,
+    max_retries: int | None,
+    operation: str,
+) -> T:
+    """Async counterpart to :func:`invoke_with_rate_limit_retry`."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return await invoke()
+        except Exception as exc:
+            decision = decide_rate_limit_retry(exc, attempt=attempt, max_retries=max_retries)
+            if decision.action == "not_rate_limit":
+                raise
+            if decision.action != "retry":
+                logger.warning("[%s] %s: %s", operation, decision.action, decision.reason)
+                raise
+            logger.warning(
+                "[%s] Rate limited (source=%s, attempt=%d, retries=%s); waiting %.2fs",
+                operation, decision.source, attempt,
+                "unlimited" if max_retries is None else max_retries,
+                decision.wait_seconds or 0.0,
+            )
+            await asyncio.sleep(decision.wait_seconds or 0.0)
 
 
 def _is_vietnamese(language: str) -> bool:
@@ -36,54 +333,17 @@ class DailyTokenLimitInterrupted(Exception):
         self.original_error = original_error
 
 
-def parse_wait_time(err_msg: str) -> float | None:
-    """Trích xuất thời gian chờ (giây) từ thông báo lỗi của Groq nếu có."""
-    match = re.search(r"try again in (?:(\d+)\s*m\s*)?([\d\.]+)\s*s", str(err_msg), re.IGNORECASE)
-    if match:
-        minutes = float(match.group(1)) if match.group(1) else 0.0
-        seconds = float(match.group(2))
-        return minutes * 60.0 + seconds
-    return None
-
-
 def is_daily_token_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải do chạm trần token trong ngày (TPD / daily quota) hay không.
 
-    Dấu hiệu:
-    - Chứa từ khóa 'tokens per day', 'tpd', 'daily', 'per day', 'quota_exceeded'
-    - Hoặc thời gian chờ > 180s (biểu hiện của quota chu kỳ ngày/giờ, không phải rate limit phút thông thường).
+    Chỉ dựa trên thông báo quota ngày rõ ràng; không suy luận từ thời gian trong message.
     """
-    err_str = str(exc).lower()
-    if (
-        "tokens per day" in err_str
-        or "tpd" in err_str
-        or "daily" in err_str
-        or "per day" in err_str
-        or "quota_exceeded" in err_str
-        or "insufficient_quota" in err_str
-    ):
-        return True
-
-    wait_time = parse_wait_time(err_str)
-    if wait_time is not None and wait_time > 180.0:
-        return True
-
-    return False
+    return _has_daily_limit_marker(exc)
 
 
 def is_rate_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải là bất kỳ dạng rate limit nào từ Groq (TPM, RPM, TPD)."""
-    err_str = str(exc).lower()
-    return (
-        "429" in err_str
-        or "rate_limit_exceeded" in err_str
-        or "tokens per minute" in err_str
-        or "tokens per day" in err_str
-        or "tpm" in err_str
-        or "tpd" in err_str
-        or "rate limit" in err_str
-        or "ratelimit" in err_str
-    )
+    return _is_rate_limit_exception(exc)
 
 
 def handle_partial_stream(

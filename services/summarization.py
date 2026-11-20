@@ -27,8 +27,7 @@ from utils.token_utils import estimate_tokens
 from utils.usage_logging import log_token_usage
 from services.token_limit_handler import (
     is_daily_token_limit,
-    is_rate_limit as is_rate_limit_error,
-    parse_wait_time,
+    invoke_with_rate_limit_retry,
     assemble_partial_summary,
     DailyTokenLimitInterrupted,
 )
@@ -150,71 +149,42 @@ def _invoke(
     - Chỉ khi chạm giới hạn TPD (200.000 token/ngày): Fail-fast ngay lập tức và ném lỗi
       rõ ràng để báo ra màn hình vì quota trong ngày đã hết.
     """
-    attempt = 0
-    while True:
-        attempt += 1
-        try:
-            lang_rule = ""
-            if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
-                lang_rule = VIETNAMESE_LANGUAGE_RULE
-            elif target_language and target_language.lower() in ("auto", "original", "default", "ngôn ngữ gốc"):
-                lang_rule = ORIGINAL_LANGUAGE_RULE
-            elif target_language:
-                lang_rule = CUSTOM_LANGUAGE_RULE.format(language=target_language)
+    lang_rule = ""
+    if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
+        lang_rule = VIETNAMESE_LANGUAGE_RULE
+    elif target_language and target_language.lower() in ("auto", "original", "default", "ngôn ngữ gốc"):
+        lang_rule = ORIGINAL_LANGUAGE_RULE
+    elif target_language:
+        lang_rule = CUSTOM_LANGUAGE_RULE.format(language=target_language)
 
-            response = llm.invoke([
-                SystemMessage(content=SUMMARY_SYSTEM_PROMPT + lang_rule),
-                HumanMessage(content=prompt),
-            ])
-            model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-LLM")
-            log_token_usage(str(model_name), f"Summarization ({stage}, group {group_number})", response)
-            result = _content_text(response)
-            if not result:
-                raise RuntimeError(
-                    f"Document summarization failed during {stage}, group {group_number}: the model returned an empty result."
-                )
-            return result
-        except Exception as exc:
-            err_str = str(exc).lower()
-            if not is_rate_limit_error(exc):
-                logger.error(f"[SummarizationError] Failed during {stage}, group {group_number}: {exc}")
-                raise RuntimeError(
-                    f"Document summarization failed during {stage}, group {group_number}: {exc}"
-                ) from exc
+    messages = [
+        SystemMessage(content=SUMMARY_SYSTEM_PROMPT + lang_rule),
+        HumanMessage(content=prompt),
+    ]
+    operation = f"Summarization ({stage}, group {group_number})"
+    try:
+        response = invoke_with_rate_limit_retry(
+            lambda: llm.invoke(messages),
+            max_retries=max_retries,
+            operation=operation,
+        )
+    except Exception as exc:
+        if is_daily_token_limit(exc):
+            logger.error("[RateLimit-TPD] Summarization stopped during %s: %s", operation, exc)
+            raise RuntimeError(
+                f"Document summarization rate limit exceeded (Đã hết hạn mức token trong ngày): {exc}"
+            ) from exc
+        logger.error("[SummarizationError] Failed during %s: %s", operation, exc)
+        raise RuntimeError(f"Document summarization failed during {operation}: {exc}") from exc
 
-            # Kiểm tra nếu là chạm trần NGÀY (TPD - Tokens Per Day, ví dụ 200.000 token)
-            is_daily_limit = (
-                "tokens per day" in err_str
-                or "tpd" in err_str
-                or "daily" in err_str
-                or "per day" in err_str
-            )
-
-            parsed_wait = parse_wait_time(str(exc))
-
-            # Nếu là giới hạn ngày (TPD) hoặc thời gian chờ quá lớn (> 3 phút - biểu hiện của quota ngày/giờ):
-            if is_daily_limit or (parsed_wait is not None and parsed_wait > 180):
-                logger.error(
-                    f"[RateLimit-TPD] Summarization hit daily token limit (TPD 200.000) during {stage}, group {group_number}: {exc}"
-                )
-                raise RuntimeError(
-                    f"Document summarization rate limit exceeded (Đã hết hạn mức 200.000 token trong ngày): {exc}"
-                ) from exc
-
-            # Nếu có cấu hình max_retries hữu hạn và đã vượt quá:
-            if max_retries is not None and attempt > max_retries:
-                logger.error(
-                    f"[RateLimit-TPM] Exceeded maximum retries ({max_retries}) during {stage}, group {group_number}: {exc}"
-                )
-                raise RuntimeError(f"Document summarization rate limit exceeded: {exc}") from exc
-
-            # Nếu là chạm trần PHÚT (8.000 TPM) hoặc RPM: tự động chờ rồi retry cho tới khi xong
-            wait_seconds = max(1.0, (parsed_wait + 0.5)) if parsed_wait is not None else 6.0
-            logger.warning(
-                f"[RateLimit-TPM] Reached 8.000 TPM limit at {stage}, group {group_number} (Lần thử {attempt}). "
-                f"Tự động đợi {wait_seconds:.2f}s để qua cửa sổ phút tiếp theo rồi chạy tiếp..."
-            )
-            time.sleep(wait_seconds)
+    model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-LLM")
+    log_token_usage(str(model_name), operation, response)
+    result = _content_text(response)
+    if not result:
+        raise RuntimeError(
+            f"Document summarization failed during {operation}: the model returned an empty result."
+        )
+    return result
 
 
 def _build_groq_llm(model_name: str | None = None, max_tokens: int = FINAL_SUMMARY_OUTPUT_TOKENS) -> ChatGroq:

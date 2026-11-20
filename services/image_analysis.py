@@ -11,7 +11,11 @@ from langchain_groq import ChatGroq
 
 from utils.token_utils import estimate_tokens
 from utils.usage_logging import log_token_usage
-from services.token_limit_handler import is_daily_token_limit, format_tool_limit_notice
+from services.token_limit_handler import (
+    format_tool_limit_notice,
+    invoke_with_rate_limit_retry,
+    is_daily_token_limit,
+)
 
 
 SUPPORTED_IMAGE_TYPES = {
@@ -23,6 +27,10 @@ SUPPORTED_IMAGE_TYPES = {
 MAX_IMAGE_BYTES = 14 * 1024 * 1024
 MAX_IMAGE_QUESTION_TOKENS = 350
 VISION_OUTPUT_TOKENS = 800
+try:
+    VISION_RATE_LIMIT_MAX_RETRIES = max(0, int(os.getenv("VISION_RATE_LIMIT_MAX_RETRIES", "3")))
+except ValueError:
+    VISION_RATE_LIMIT_MAX_RETRIES = 3
 
 
 def analyze_image(image_path: str, question: str, llm=None) -> str:
@@ -70,10 +78,14 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         f"Question: {clean_question or 'Describe this image.'}"
     )
     try:
-        response = llm.invoke([HumanMessage(content=[
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": data_url}},
-        ])])
+        response = invoke_with_rate_limit_retry(
+            lambda: llm.invoke([HumanMessage(content=[
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ])]),
+            max_retries=VISION_RATE_LIMIT_MAX_RETRIES,
+            operation="Image Analysis",
+        )
         vision_model = getattr(llm, "model_name", None) or getattr(llm, "model", "Groq-Vision")
         log_token_usage(str(vision_model), "Image Analysis", response)
     except Exception as exc:

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from prompts.followups import FOLLOWUP_PROMPT
 from utils.token_utils import estimate_tokens, truncate_text_to_tokens
 from utils.usage_logging import log_token_usage
+from services.token_limit_handler import ainvoke_with_rate_limit_retry
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ FOLLOWUP_MAX_ANSWER_TOKENS = _int_setting("FOLLOWUP_MAX_ANSWER_TOKENS", 300)
 # Lưu ý: Một số mô hình suy luận (reasoning model) như openai/gpt-oss-20b sẽ tạo ra khoảng 150-200 token suy nghĩ
 # trước khi sinh ra chuỗi JSON kết quả. Do đó cần đặt ít nhất 500 tokens để tránh JSON bị đứt đoạn giữa chừng.
 FOLLOWUP_OUTPUT_TOKENS = _int_setting("FOLLOWUP_OUTPUT_TOKENS", 500)
+FOLLOWUP_RATE_LIMIT_MAX_RETRIES = _int_setting("FOLLOWUP_RATE_LIMIT_MAX_RETRIES", 2, minimum=0)
 
 # Độ dài tối đa (số ký tự) cho mỗi câu hỏi gợi ý để đảm bảo ngắn gọn, vừa vặn trên giao diện UI
 FOLLOWUP_MAX_PROMPT_CHARS = _int_setting("FOLLOWUP_MAX_PROMPT_CHARS", 180)
@@ -210,9 +212,11 @@ async def generate_followup_questions(
         #     "parsed": FollowupSuggestions,   # Dữ liệu đã được Pydantic ép kiểu thành công (hoặc None)
         #     "parsing_error": Exception|None  # Lỗi nếu mô hình trả về JSON sai định dạng
         # }
-        response = await structured_model.ainvoke([
-            HumanMessage(content=prompt)
-        ])
+        response = await ainvoke_with_rate_limit_retry(
+            lambda: structured_model.ainvoke([HumanMessage(content=prompt)]),
+            max_retries=FOLLOWUP_RATE_LIMIT_MAX_RETRIES,
+            operation="Follow-up Suggestions",
+        )
 
         # Kiểm tra phản hồi có đúng là dictionary hay không
         if not isinstance(response, dict):

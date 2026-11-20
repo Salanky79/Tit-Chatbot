@@ -13,6 +13,7 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 from langchain_groq import ChatGroq
+from langchain_core.callbacks import BaseCallbackHandler
 # Định dạng tin nhắn hệ thống (System Prompt) cho mô hình
 from langchain_core.messages import SystemMessage, BaseMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
@@ -25,6 +26,7 @@ from storage.mongo_client import get_client
 from prompts.agent import SYSTEM_PROMPT
 from tools import tools, SUMMARY_RESULT_PREFIX
 from services.context_manager import prepare_context_for_llm
+from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
 
 
@@ -37,6 +39,17 @@ class AgentState(TypedDict, total=False):
     # Lịch sử được lưu đầy đủ; context_manager chọn lượt cần gửi ở mỗi lần gọi model.
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
+
+
+class _OutputStartedTracker(BaseCallbackHandler):
+    """Track streamed model output so a late failure cannot replay visible tokens."""
+
+    def __init__(self) -> None:
+        self.output_started = False
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        if token:
+            self.output_started = True
 
 
 def delete_user_checkpoints(thread_ids: Iterable[str]) -> int:
@@ -89,6 +102,10 @@ def emit_summary_node(state: AgentState) -> dict[str, list[AIMessage]]:
 
 # Update default and allowed models to use Groq models
 DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+try:
+    CHAT_RATE_LIMIT_MAX_RETRIES = max(0, int(os.getenv("CHAT_RATE_LIMIT_MAX_RETRIES", "3")))
+except ValueError:
+    CHAT_RATE_LIMIT_MAX_RETRIES = 3
 
 ALLOWED_MODELS = {
     "openai/gpt-oss-20b",
@@ -166,7 +183,16 @@ def build_agent(model_name: str) -> Any:
             model_name=selected_model,
         )
 
-        response = llm_with_tools.invoke(final_messages)
+        output_tracker = _OutputStartedTracker()
+        response = invoke_with_rate_limit_retry(
+            lambda: llm_with_tools.invoke(
+                final_messages,
+                config={"callbacks": [output_tracker]},
+            ),
+            max_retries=CHAT_RATE_LIMIT_MAX_RETRIES,
+            operation=f"Chatbot ({selected_model})",
+            can_retry=lambda: not output_tracker.output_started,
+        )
 
         task_desc = "Tool Call Request" if getattr(response, "tool_calls", None) else "Chatbot Answer"
         log_token_usage(selected_model, task_desc, response)

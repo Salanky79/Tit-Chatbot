@@ -20,7 +20,7 @@ from storage.database import (
     list_admin_conversations,
     get_admin_conversation_messages,
 )
-from services.token_limit_handler import is_daily_token_limit, is_rate_limit, parse_wait_time
+from services.token_limit_handler import is_daily_token_limit, is_rate_limit, extract_retry_delay
 from tools import (
     SUMMARY_RESULT_PREFIX_VI,
     _select_uploaded_name,
@@ -144,9 +144,15 @@ class ContextAndRoutingTests(unittest.TestCase):
 
 class SharedHelperTests(unittest.TestCase):
     def test_rate_limit_helpers_share_wait_time_parsing(self) -> None:
-        self.assertEqual(parse_wait_time("try again in 1m30.5s"), 90.5)
+        class _MockResp:
+            headers = {"retry-after": "90.5"}
+        class _MockExc(Exception):
+            response = _MockResp()
+
+        self.assertEqual(extract_retry_delay(_MockExc()), (90.5, "retry-after"))
         self.assertTrue(is_rate_limit("429 rate limit exceeded"))
-        self.assertTrue(is_daily_token_limit("try again in 4m0s"))
+        self.assertTrue(is_daily_token_limit("tokens per day limit exceeded"))
+        self.assertFalse(is_daily_token_limit("try again in 4m0s"))
 
     def test_public_user_projection_excludes_credentials(self) -> None:
         result = _public_user(
