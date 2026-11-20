@@ -1,5 +1,6 @@
 from contextvars import ContextVar
 from typing import Annotated, Any
+import logging
 import json
 import math
 import re
@@ -27,9 +28,11 @@ from services.token_limit_handler import (
     assemble_partial_summary,
     format_tool_limit_notice,
 )
+from services.language import detect_language, get_current_language, normalize_language, tr
 
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 # Ngữ cảnh theo từng request (ContextVar) — an toàn tuyệt đối khi nhiều người dùng chat đồng thời
@@ -189,33 +192,42 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     user_id = get_current_user_id() or None
     sources = list_document_sources(get_current_thread_id(), user_id=user_id)
     if not sources:
-        return "No uploaded documents were found in this conversation or your account."
+        return tr("no_documents")
 
     requested = (filename or "").strip().strip('"\'')
     selected, matches = _select_uploaded_name(sources, requested)
     if selected is None:
         if matches:
             names = ", ".join(f'"{source}"' for source in matches)
-            return f"The file name matches multiple uploads. Which one did you mean: {names}?"
+            return tr("ambiguous_file", names=names)
         available = ", ".join(f'"{source}"' for source in sources)
-        return f'No uploaded file named "{requested}" was found. Available files: {available}.'
+        return tr("missing_file", requested=requested, available=available)
 
+    requested_target = normalize_language(target_language)
+    normalized_target = requested_target or get_current_language()
+    summary_language = "Vietnamese" if normalized_target == "vi" else "English"
     try:
         chunks = get_document_chunks(selected, get_current_thread_id(), user_id=user_id)
-        summary = summarize_documents(chunks, target_language=target_language)
+        if requested_target is None and (target_language or "auto").lower() in ("auto", "original", "default"):
+            document_text = "\n".join(getattr(chunk, "page_content", "") for chunk in chunks)
+            normalized_target = detect_language(document_text) or get_current_language()
+        summary_language = "Vietnamese" if normalized_target == "vi" else "English"
+        summary = summarize_documents(chunks, target_language=summary_language)
     except Exception as exc:
         if is_daily_token_limit(exc):
-            return assemble_partial_summary([], 1, filename=selected, language=target_language)
-        return f'Could not summarize "{selected}": {exc}'
+            return assemble_partial_summary([], 1, filename=selected, language=summary_language,
+                                            notice_language=get_current_language())
+        logger.exception("Document summarization failed for uploaded source '%s'.", selected)
+        return tr("summary_error", filename=selected)
 
     # Nếu bản tóm tắt đã có tiền tố (ví dụ bản tóm tắt bán phần cứu hộ), trả về luôn
     if summary.startswith(SUMMARY_RESULT_PREFIX) or summary.startswith(SUMMARY_RESULT_PREFIX_VI):
         return summary
 
-    if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
-        prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}" (toàn bộ {len(chunks)} phần nội dung):\n\n'
+    if normalized_target == "vi":
+        prefix = tr("summary_result_prefix", "vi", filename=selected, count=len(chunks))
     else:
-        prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n'
+        prefix = tr("summary_result_prefix", "en", filename=selected, count=len(chunks))
     return f'{prefix}{summary}'
 
 
@@ -231,7 +243,7 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     user_id = get_current_user_id() or None
     images = list_uploaded_images(get_current_thread_id(), user_id=user_id)
     if not images:
-        return "No uploaded images were found in this conversation or your account. Upload a JPG, PNG, or WEBP image first."
+        return tr("no_images")
 
     requested = (filename or "").strip().strip('"\'')
     image_names = [image["source"] for image in images]
@@ -239,17 +251,18 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     if selected_name is None:
         if matches:
             names = ", ".join(f'"{name}"' for name in matches)
-            return f"The image name matches multiple uploads. Which one did you mean: {names}?"
+            return tr("ambiguous_image", names=names)
         available = ", ".join(f'"{name}"' for name in image_names)
-        return f'No uploaded image named "{requested}" was found. Available files: {available}.'
+        return tr("missing_image", requested=requested, available=available)
     selected = next(image for image in images if image["source"] == selected_name)
     try:
-        answer = analyze_image(selected["image_path"], question)
+        answer = analyze_image(selected["image_path"], question, response_language=get_current_language())
     except Exception as exc:
         if is_daily_token_limit(exc):
-            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
-        return f'Could not analyze "{selected["source"]}": {exc}'
-    return f'Image analysis of "{selected["source"]}":\n\n{answer}'
+            return format_tool_limit_notice("Image analysis", language=get_current_language())
+        logger.exception("Image analysis failed for uploaded source '%s'.", selected["source"])
+        return tr("image_error", filename=selected["source"])
+    return tr("image_result", filename=selected["source"], answer=answer)
 
 
 # ---------------------------------------------------------------------------

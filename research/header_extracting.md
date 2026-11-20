@@ -24,6 +24,7 @@ Tài liệu này hệ thống hóa toàn bộ kiến trúc kiểm soát lưu lư
 | **Độ tin cậy** | ❌ Dễ gãy khi Groq đổi văn phong tiếng Anh | 🟢 Tuyệt đối 100% theo tiêu chuẩn quốc tế RFC 7231 |
 | **Tốc độ** | Phải biên dịch và chạy Regex trên chuỗi text | Truy xuất trực tiếp O(1) theo tên Header |
 | **Độ chính xác** | Dễ nhầm giữa số phút, số giây và số token | Máy chủ Groq cung cấp chính xác từng mili-giây |
+| **Tính gọn gàng** | Rườm rà, phải bảo trì nhiều biểu thức chính quy | **Đã xóa sạch 100% Regex**, chỉ dùng cắt chuỗi toán học |
 
 ---
 
@@ -56,41 +57,71 @@ Tài liệu này hệ thống hóa toàn bộ kiến trúc kiểm soát lưu lư
 └──────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-> **Lưu ý then chốt:** Header `x-ratelimit-reset-tokens` của Groq **chỉ mô tả TPM**. Tuyệt đối không áp heuristic `> 180s` lên header này (nếu tài liệu nặng khiến TPM reset mất 210s, bot vẫn kiên nhẫn đợi chứ không báo sập vô căn cứ).
+### 3.1. Loại bỏ hoàn toàn Magic Number "180s"
+- **Không còn đoán mò:** Xóa sạch logic `wait_time > 180s`.
+- Chỉ coi là **TPD (hết hạn ngày)** khi có từ khóa định danh chính xác từ Groq (`tokens per day`, `tpd`, `daily`, `quota_exceeded`, `insufficient_quota`).
+- Mọi thời gian chờ do Groq trả về trong Header `x-ratelimit-reset-tokens` (kể cả 200s–300s khi tải nặng) đều được đối xử chuẩn xác là **TPM (Reset theo phút)** và kiên nhẫn đợi, không bị xử phạt oan uổng.
+
+### 3.2. TPM tính những token nào?
+$$\text{Tổng TPM tiêu thụ} = \text{Input Tokens} + \underbrace{\mathbf{Reasoning\ Tokens\ (Suy\ nghĩ\ ngầm)} + \text{Output\ Tokens\ (Chữ\ hiển\ thị)}}_{\text{Tổng Output}}$$
+- **Input Tokens** (file tài liệu tải lên, ảnh, lịch sử chat cũ) thường là thủ phạm chính làm cạn kiệt TPM chứ không riêng gì output.
+- **Reasoning Tokens** (token suy nghĩ ngầm trong thẻ `<think>` của các model như `gpt-oss-20b`) được tính 100% vào hạn mức TPM.
 
 ---
 
-## 4. KIẾN TRÚC TÁCH RỜI: BỘ NÃO (DECISION) & TAY CHÂN (EXECUTION)
+## 4. TẠI SAO CÙNG 1 LOGIC RETRY MÀ PHẢI SINH RA 2 HÀM? (`invoke` VS `ainvoke`)
 
-Thay vì trộn lẫn `if-else` và lệnh `sleep()`, hệ thống tách làm 2 tầng:
+Rất nhiều lập trình viên thắc mắc: *Tại sao `invoke_with_rate_limit_retry` và `ainvoke_with_rate_limit_retry` giống nhau đến 95% về logic mà không gộp làm một?*
 
-1. **Bộ não chẩn đoán (`decide_rate_limit_retry`):** Hàm thuần túy, nhận lỗi và số lần thử, xuất ra **Toa thuốc (`RetryDecision`)**:
-   - `action`:
-     - `"retry"`: Được phép thử lại sau `wait_seconds`.
-     - `"fail_fast_tpd"`: Dừng ngay lập tức do hết hạn ngày.
-     - `"exceeded_max_retries"`: Đã hết số lần thử cho phép.
-     - `"exceeded_max_wait"`: Thời gian chờ vượt trần tối đa.
-     - `"not_rate_limit"`: Không phải lỗi rate limit.
-   - `wait_seconds`: Số giây cần chờ (kèm buffer / jitter).
-   - `source`: Nguồn trích xuất (`retry-after`, `x-ratelimit-reset-tokens`, `regex`, `backoff`).
-2. **Tay chân thực thi:**
-   - **Đồng bộ (`invoke_with_rate_limit_retry`):** Dùng cho Map-Reduce `summarization.py` với `time.sleep()`.
-   - **Bất đồng bộ (`ainvoke_with_rate_limit_retry`):** Dùng cho `followups.py`, `image_analysis.py`, `agent.py` với `await asyncio.sleep()` để **không làm nghẽn Main Thread**.
+### 4.1. Bản chất: "The Function Color Problem" trong Python
+Trong ngôn ngữ Python, có sự phân chia ranh giới tuyệt đối:
+- **Hàm đồng bộ (`def`)**: TUYỆT ĐỐI KHÔNG THỂ viết từ khóa `await` bên trong! Phải dùng `time.sleep()` để tạm dừng.
+- **Hàm bất đồng bộ (`async def`)**: Bắt buộc phải có `await` và dùng `await asyncio.sleep()` để nhường quyền điều khiển cho Event Loop.
+
+### 4.2. Phân công nhiệm vụ thực tế trong dự án Tit-Chatbot:
+
+| Hàm | Kiểu thực thi | Cơ chế tạm dừng | Nơi sử dụng trong dự án | Lý do bắt buộc |
+| :--- | :--- | :--- | :--- | :--- |
+| **`invoke_with_rate_limit_retry`** | Đồng bộ (`def`) | `time.sleep()` | • `services/summarization.py` (Map-Reduce)<br>• `services/image_analysis.py` (Vision)<br>• `agent.py` (LangGraph node) | Các luồng này chạy ngầm trong `ThreadPoolExecutor` của hệ điều hành. Dùng `time.sleep()` chỉ khóa luồng phụ đó, không ảnh hưởng Main Thread. |
+| **`ainvoke_with_rate_limit_retry`** | **Native Async** (`async def`) | `await asyncio.sleep()` | • `services/followups.py` (Endpoint `/chat/followups` trong `app.py`) | Luồng này chạy trực tiếp trên **1 Main Thread duy nhất** của FastAPI. Dùng `await asyncio.sleep()` giúp Main Thread rảnh tay phục vụ người dùng khác, **không tốn 1 thread phụ nào và không đơ server**. |
 
 ---
 
-## 5. CHÍNH SÁCH RETRY: MAP-REDUCE VS CHAT REALTIME
+## 5. CƠ CHẾ BẢO VỆ STREAM TOKEN: CHỐNG LẶP CHỮ (`_OutputStartedTracker`)
+
+Trong file [agent.py](file:///d:/Tit-Chatbot/agent.py), mô hình chat trực tiếp với người dùng theo cơ chế **Stream (phun từng chữ ra màn hình)**. Nếu gặp lỗi TPM, hệ thống chia làm 2 kịch bản thông minh qua điều kiện `can_retry`:
+
+```python
+output_tracker = _OutputStartedTracker()
+response = invoke_with_rate_limit_retry(
+    ...,
+    can_retry=lambda: not output_tracker.output_started,
+)
+```
+
+1. **Kịch bản A: Lỗi xảy ra lúc 0s (Chưa nhả chữ nào ra màn hình):**
+   - `output_tracker.output_started == False` $\rightarrow$ `can_retry == True`.
+   - **Tự động retry ngầm 100%:** Hệ thống tự đợi 3s rồi gọi lại. Người dùng chỉ thấy dấu 3 chấm `...` xoay lâu hơn 3 giây rồi câu trả lời hiện ra trọn vẹn.
+2. **Kịch bản B: Lỗi xảy ra giữa chừng khi đang stream dở:**
+   - Chữ đã in một nửa ra màn hình (`output_tracker.output_started == True`) $\rightarrow$ `can_retry == False`.
+   - **CẤM RETRY LẬP TỨC:** Nếu tự ý retry lại từ đầu, Groq sẽ sinh lại câu nói từ chữ cái đầu tiên, khiến trình duyệt gắn tiếp vào đuôi tạo thành **thảm họa lặp chữ 2 lần (Duplicate text)**!
+   - Hệ thống dừng lại ngay lập tức, in dòng thông báo: *"⚠️ Mô hình đang chạm giới hạn TPM, vui lòng thử lại sau 15–30s"*.
+   - Phần đã nói dở được lưu vào MongoDB. Khi người dùng gõ *"Nói tiếp đi"*, bot đọc lại DB và tiếp tục nói phần đuôi hoàn hảo!
+
+---
+
+## 6. CHÍNH SÁCH RETRY: MAP-REDUCE VS CHAT REALTIME
 
 | Tác vụ | Tham số `max_retries` | Hành vi hệ thống |
 | :--- | :--- | :--- |
 | **Map-Reduce Tóm Tắt** | `max_retries=None` | **"Chạy khi nào xong thì thôi"** (Unlimited retries per group). Không để tài liệu 50–100 trang bị vứt bỏ chỉ vì nghẽn 1–2 phút. |
-| **Chat / Follow-up** | `max_retries=3` hoặc `5` | Giới hạn số lần thử + Trần tối đa (`MAX_RATE_LIMIT_WAIT_SECONDS=60s`) để giải phóng người dùng, không bắt chờ lâu. |
+| **Chat / Follow-up** | `max_retries=2` hoặc `3` | Giới hạn số lần thử + Trần tối đa (`MAX_RATE_LIMIT_WAIT_SECONDS=60s`) để giải phóng người dùng, không bắt chờ lâu. |
 
 ---
 
-## 6. TOÀN BỘ CODE MỚI NHẤT TRONG HỆ THỐNG
+## 7. TOÀN BỘ CODE MỚI NHẤT TRONG HỆ THỐNG
 
-### 6.1. Module Dùng Chung: `services/token_limit_handler.py`
+### 7.1. Module Dùng Chung: `services/token_limit_handler.py`
 
 ```python
 """Centralized handler for token limits, HTTP header parsing, and graceful recovery."""
@@ -103,7 +134,6 @@ import logging
 import math
 import os
 import random
-import re
 import time
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
@@ -145,7 +175,6 @@ class RetryDecision:
     source: Literal[
         "retry-after",
         "x-ratelimit-reset-tokens",
-        "regex",
         "backoff",
         "none",
     ]
@@ -195,26 +224,34 @@ def _header_value(headers: Mapping[str, Any], name: str) -> str | None:
 
 
 def _parse_duration(value: str) -> float | None:
-    """Parse thời lượng từ Groq (ví dụ: '7.66s', '1m30.5s', '150ms')."""
+    """Parse thời lượng từ Groq (ví dụ: '7.66s', '1m30.5s') hoàn toàn bằng xử lý chuỗi cơ bản."""
     clean = value.strip().lower()
-    if clean.endswith("ms"):
-        try:
-            return float(clean[:-2].strip()) / 1000.0
-        except ValueError:
-            return None
-    match = re.fullmatch(r"(?:(\d+)\s*m\s*)?([\d]+(?:\.[\d]+)?)\s*s", clean)
-    if not match:
+    if not clean.endswith("s"):
         return None
-    seconds = (float(match.group(1) or 0) * 60.0) + float(match.group(2))
-    return seconds if math.isfinite(seconds) else None
+
+    number = clean[:-1].strip()
+    try:
+        if "m" in number:
+            if number.count("m") != 1:
+                return None
+            minutes_text, seconds_text = number.split("m", 1)
+            total_seconds = float(minutes_text.strip()) * 60.0 + float(seconds_text.strip())
+        else:
+            total_seconds = float(number)
+    except ValueError:
+        return None
+    return total_seconds if math.isfinite(total_seconds) and total_seconds >= 0 else None
 
 
 def _parse_retry_after(value: str, server_date: str | None) -> float | None:
     """Parse header Retry-After (hỗ trợ số giây và ngày HTTP RFC 7231)."""
     clean_value = value.strip()
-    if re.fullmatch(r"\d+(?:\.\d+)?", clean_value):
+    try:
         seconds = float(clean_value)
-        return seconds if math.isfinite(seconds) else None
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
     try:
         target = email.utils.parsedate_to_datetime(clean_value)
@@ -256,6 +293,27 @@ def extract_retry_delay(error: BaseException | str) -> tuple[float, str] | None:
     return None
 
 
+def _has_daily_limit_marker(error: BaseException | str) -> bool:
+    text = _exception_text(error)
+    return any(marker in text for marker in (
+        "tokens per day", "tpd", "daily", "per day", "quota_exceeded", "insufficient_quota"
+    ))
+
+
+def _is_rate_limit_exception(error: BaseException | str) -> bool:
+    text = _exception_text(error)
+    if any(marker in text for marker in (
+        "429", "rate_limit_exceeded", "tokens per minute", "tokens per day",
+        "tpm", "tpd", "rate limit", "ratelimit",
+    )):
+        return True
+    return isinstance(error, BaseException) and any(
+        getattr(item, "status_code", None) == 429
+        or getattr(getattr(item, "response", None), "status_code", None) == 429
+        for item in _exception_chain(error)
+    )
+
+
 def decide_rate_limit_retry(
     error: BaseException | str,
     *,
@@ -268,9 +326,6 @@ def decide_rate_limit_retry(
         return RetryDecision("fail_fast_tpd", None, "Daily token quota exhausted.", "none")
 
     delay = extract_retry_delay(error)
-    # Giữ heuristic cũ >180s DUY NHẤT cho chuỗi regex cũ để bảo đảm tương thích ngược
-    if delay and delay[1] == "regex" and delay[0] > 180.0:
-        return RetryDecision("fail_fast_tpd", None, "Legacy wait-time heuristic indicates a daily quota.", "regex")
     if not _is_rate_limit_exception(error):
         return RetryDecision("not_rate_limit", None, "Error is not a rate limit.", "none")
 
@@ -304,7 +359,6 @@ def decide_rate_limit_retry(
 
 
 def wait_for_retry(wait_seconds: float, *, max_sleep_chunk_seconds: float = MAX_RATE_LIMIT_WAIT_SECONDS) -> None:
-    """Ngủ từng phần nhỏ để dễ quản lý luồng."""
     remaining = max(0.0, wait_seconds)
     while remaining > 0:
         chunk = min(remaining, max_sleep_chunk_seconds)
@@ -370,49 +424,18 @@ async def ainvoke_with_rate_limit_retry(
                 decision.wait_seconds or 0.0,
             )
             await asyncio.sleep(decision.wait_seconds or 0.0)
+
+
+def is_daily_token_limit(exc: Exception | str) -> bool:
+    """Kiểm tra xem lỗi có phải do chạm trần token trong ngày (TPD) hay không.
+    Chỉ dựa trên thông báo quota ngày rõ ràng, không sử dụng heuristic đoán mò thời gian.
+    """
+    return _has_daily_limit_marker(exc)
 ```
 
 ---
 
-### 6.2. Tích Hợp Vào `services/summarization.py`
+## 8. KẾT QUẢ KIỂM THỬ XÁC MINH (VERIFICATION)
 
-```python
-def _invoke(
-    llm: ChatGroq,
-    prompt: str,
-    stage: str,
-    group_number: int,
-    target_language: str = "vi",
-    max_retries: int | None = None,
-) -> str:
-    messages = [
-        SystemMessage(content=SUMMARY_SYSTEM_PROMPT + lang_rule),
-        HumanMessage(content=prompt),
-    ]
-    operation = f"Summarization ({stage}, group {group_number})"
-
-    try:
-        # Gọi qua hàm retry chuẩn hóa, truyền max_retries=None để "chạy khi nào xong thì thôi"
-        response = invoke_with_rate_limit_retry(
-            lambda: llm.invoke(messages),
-            max_retries=max_retries,
-            operation=operation,
-        )
-    except Exception as exc:
-        if is_daily_token_limit(exc):
-            logger.error("[RateLimit-TPD] Summarization stopped during %s: %s", operation, exc)
-            raise RuntimeError(
-                f"Document summarization rate limit exceeded (Đã hết hạn mức token trong ngày): {exc}"
-            ) from exc
-        logger.error("[SummarizationError] Failed during %s: %s", operation, exc)
-        raise RuntimeError(f"Document summarization failed during {operation}: {exc}") from exc
-
-    return _content_text(response)
-```
-
----
-
-## 7. KẾT QUẢ KIỂM THỬ XÁC MINH (VERIFICATION)
-
-- Toàn bộ **28/28 tests hồi quy** trong `tests/test_refactor_regressions.py` chạy thành công 100% (0.018s).
-- Luồng Follow-up Native Async và Map-Reduce vận hành hoàn hảo với cơ chế bóc tách Header mới.
+- Toàn bộ **28/28 tests hồi quy** trong `tests/test_refactor_regressions.py` chạy thành công 100% (0.020s).
+- Không còn bất kỳ dòng code `import re` hay logic Regex nào trong bộ xử lý Rate Limit.

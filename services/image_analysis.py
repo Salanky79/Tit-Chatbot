@@ -16,6 +16,7 @@ from services.token_limit_handler import (
     invoke_with_rate_limit_retry,
     is_daily_token_limit,
 )
+from services.language import get_current_language, response_language_instruction, tr
 
 
 SUPPORTED_IMAGE_TYPES = {
@@ -33,7 +34,7 @@ except ValueError:
     VISION_RATE_LIMIT_MAX_RETRIES = 3
 
 
-def analyze_image(image_path: str, question: str, llm=None) -> str:
+def analyze_image(image_path: str, question: str, llm=None, response_language: str | None = None) -> str:
     """Answer a question about an uploaded image with a Groq vision model.
 
     Tách context theo tác vụ:
@@ -60,7 +61,7 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         max_chars = MAX_IMAGE_QUESTION_TOKENS * 3
         clean_question = (
             clean_question[:max_chars]
-            + " [câu hỏi được rút gọn để đảm bảo ngân sách token]"
+            + " [question shortened to fit the token budget]"
         )
 
     if llm is None:
@@ -71,10 +72,11 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         )
 
     data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    language_instruction = response_language_instruction(response_language or get_current_language())
     prompt = (
         "Answer the user's question using the image. Describe visible evidence and "
         "readable text when relevant. If details are unclear or unreadable, say so; "
-        "do not guess. Respond in the same language as the question.\n\n"
+        f"do not guess. {language_instruction}\n\n"
         f"Question: {clean_question or 'Describe this image.'}"
     )
     try:
@@ -90,7 +92,7 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         log_token_usage(str(vision_model), "Image Analysis", response)
     except Exception as exc:
         if is_daily_token_limit(exc):
-            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
+            return format_tool_limit_notice("Image analysis", language=response_language or get_current_language())
         raise RuntimeError(f"Vision model could not analyze the image: {exc}") from exc
 
     content = getattr(response, "content", response)

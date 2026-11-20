@@ -19,6 +19,7 @@ from prompts.followups import FOLLOWUP_PROMPT
 from utils.token_utils import estimate_tokens, truncate_text_to_tokens
 from utils.usage_logging import log_token_usage
 from services.token_limit_handler import ainvoke_with_rate_limit_retry
+from services.language import normalize_language, response_language_instruction
 
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,7 @@ async def generate_followup_questions(
     user_message: str,
     assistant_answer: str,
     model_name: str | None = None,
+    response_language: str = "vi",
 ) -> list[str]:
     """
     Hàm async chính tạo 2 câu hỏi gợi ý tiếp theo dựa trên tin nhắn người dùng và câu trả lời của bot.
@@ -212,8 +214,12 @@ async def generate_followup_questions(
         #     "parsed": FollowupSuggestions,   # Dữ liệu đã được Pydantic ép kiểu thành công (hoặc None)
         #     "parsing_error": Exception|None  # Lỗi nếu mô hình trả về JSON sai định dạng
         # }
+        language_instruction = response_language_instruction(normalize_language(response_language) or "vi")
         response = await ainvoke_with_rate_limit_retry(
-            lambda: structured_model.ainvoke([HumanMessage(content=prompt)]),
+            lambda: structured_model.ainvoke([
+                SystemMessage(content=language_instruction),
+                HumanMessage(content=prompt),
+            ]),
             max_retries=FOLLOWUP_RATE_LIMIT_MAX_RETRIES,
             operation="Follow-up Suggestions",
         )

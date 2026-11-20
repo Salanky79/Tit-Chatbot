@@ -16,6 +16,7 @@ from langchain_groq import ChatGroq
 from langchain_core.callbacks import BaseCallbackHandler
 # Định dạng tin nhắn hệ thống (System Prompt) cho mô hình
 from langchain_core.messages import SystemMessage, BaseMessage, AIMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 # ToolNode: Node chạy các công cụ; tools_condition: Điều kiện rẽ nhánh kiểm tra xem LLM có gọi tool không
@@ -28,6 +29,7 @@ from tools import tools, SUMMARY_RESULT_PREFIX
 from services.context_manager import prepare_context_for_llm
 from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
+from services.language import response_language_instruction
 
 
 class AgentState(TypedDict, total=False):
@@ -168,16 +170,18 @@ def build_agent(model_name: str) -> Any:
     # Khai báo các công cụ (tools) cho mô hình để LLM có thể chủ động kích hoạt Function Calling
     llm_with_tools = llm.bind_tools(tools)
 
-    def chatbot_node(state: AgentState) -> dict[str, Any]:
+    def chatbot_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         """
         Chọn các lượt hội thoại hoàn chỉnh cần thiết, bỏ tool results cũ,
         rồi giới hạn prompt theo ngân sách cấu hình trước khi gọi LLM.
         """
         existing_summary = state.get("conversation_summary", "")
 
+        response_language = (config.get("configurable") or {}).get("response_language", "vi")
+        localized_system_prompt = f"{SYSTEM_PROMPT}\n\n{response_language_instruction(response_language)}"
         final_messages, updated_summary = prepare_context_for_llm(
             messages=state.get("messages", []),
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=localized_system_prompt,
             tools=tools,
             existing_summary=existing_summary,
             model_name=selected_model,

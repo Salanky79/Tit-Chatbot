@@ -2621,6 +2621,7 @@
 
     let pendingFile = null;
     let threadId = localStorage.getItem("thread_id");
+    let currentResponseLanguage = navigator.language?.toLowerCase().startsWith("en") ? "en" : "vi";
 
     if (!threadId) {
         threadId = crypto.randomUUID();
@@ -2656,7 +2657,7 @@
 
         const speechRecognition = new SpeechRecognition();
 
-        speechRecognition.lang = "en-US";
+        speechRecognition.lang = currentResponseLanguage === "en" ? "en-US" : "vi-VN";
         speechRecognition.continuous = true;
         speechRecognition.interimResults = true;
 
@@ -2742,6 +2743,7 @@
 
     function startDictation() {
         try {
+            recognition.lang = currentResponseLanguage === "en" ? "en-US" : "vi-VN";
             recognition.start();
         } catch (error) {
             console.error("Could not start dictation:", error);
@@ -2946,7 +2948,7 @@
 
     // Gửi yêu cầu sinh gợi ý câu hỏi tiếp theo (Follow-up) chạy ngầm song song với UI
     // Không làm trễ hoặc chặn tương tác của người dùng sau khi chatbot trả lời xong
-    async function fetchParallelFollowups(userMessage, assistantAnswer, botElement, model) {
+    async function fetchParallelFollowups(userMessage, assistantAnswer, botElement, model, responseLanguage) {
         // Hủy request gợi ý đang chờ (nếu có) trước khi tạo request mới
         if (followupAbortController) {
             followupAbortController.abort();
@@ -2960,7 +2962,8 @@
                 body: JSON.stringify({
                     user_message: userMessage,
                     assistant_answer: assistantAnswer,
-                    model: model
+                    model: model,
+                    response_language: responseLanguage
                 }),
                 signal: followupAbortController.signal
             });
@@ -3508,10 +3511,13 @@
                 },
                 body: JSON.stringify({
                     message: submittedMessage,
+                    language_text: message,
                     thread_id: targetThreadId,
                     model: selectedModel
                 })
             });
+
+            currentResponseLanguage = response.headers.get("Content-Language") || currentResponseLanguage;
 
             if (!response.ok) {
                 let errorText = "Request failed.";
@@ -3588,7 +3594,7 @@
             // Kích hoạt luồng Follow-up chạy song song ngầm (người dùng không phải chờ đợi)
             const finalAnswer = (botElement.dataset.raw || "").trim();
             if (finalAnswer && !finalAnswer.startsWith("**Something went wrong:**")) {
-                fetchParallelFollowups(submittedMessage, finalAnswer, botElement, selectedModel);
+                fetchParallelFollowups(submittedMessage, finalAnswer, botElement, selectedModel, currentResponseLanguage);
             }
         }
     }

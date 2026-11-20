@@ -31,6 +31,7 @@ from langchain_core.messages import (
 
 from agent import get_agent, delete_user_checkpoints
 from services.followups import FOLLOWUPS_ENABLED, generate_followup_questions
+from services.language import reset_current_language, resolve_language, set_current_language, tr
 from services.token_limit_handler import (
     handle_partial_stream,
     is_daily_token_limit,
@@ -964,10 +965,12 @@ def _chat_event_generator(
     user_id: str | None,
     user_message: str,
     selected_model: str,
+    response_language: str,
     config: dict[str, Any],
 ) -> Iterator[str]:
     set_current_thread_id(thread_id)
     set_current_user_id(user_id or "")
+    language_token = set_current_language(response_language)
 
     final_answer = ""
 
@@ -1006,7 +1009,7 @@ def _chat_event_generator(
                 f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
                 f"Recovering partial answer (length: {len(final_answer)} chars)."
             )
-            full_message = handle_partial_stream(final_answer, selected_model, language="vi")
+            full_message = handle_partial_stream(final_answer, selected_model, language=response_language)
 
             # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
             if final_answer.strip():
@@ -1033,16 +1036,19 @@ def _chat_event_generator(
             if is_rate_limit(e):
                 logger.error(f"[RateLimit-TPM] Model '{selected_model}' hit Groq rate limit: {e}")
                 yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
+                    "error": tr("rate_limit", response_language, model=selected_model)
                 })
             elif is_model_unavailable:
                 logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
                 yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
+                    "error": tr("model_unavailable", response_language, model=selected_model)
                 })
             else:
                 logger.error(f"[ChatError] Error during chat streaming: {e}")
-                yield sse_data({"error": str(e)})
+                yield sse_data({"error": tr("generic_error", response_language)})
+
+    finally:
+        reset_current_language(language_token)
 
     # Kết thúc stream ngay lập tức khi chatbot trả lời xong (0ms delay cho người dùng)
     yield sse_data({"done": True})
@@ -1053,8 +1059,9 @@ async def chat_stream(request: Request):
     try:
         data = await request.json()
     except Exception:
+        language = resolve_language(None, accept_language=request.headers.get("accept-language"))
         return JSONResponse(
-            {"error": "Invalid JSON body."},
+            {"error": tr("invalid_json", language)},
             status_code=400
         )
 
@@ -1063,8 +1070,12 @@ async def chat_stream(request: Request):
     selected_model = data.get("model", "openai/gpt-oss-20b")
 
     if not user_message.strip():
+        language = resolve_language(
+            data.get("language_text"), explicit=data.get("response_language"),
+            accept_language=request.headers.get("accept-language"),
+        )
         return JSONResponse(
-            {"error": "Message is required."},
+            {"error": tr("message_required", language)},
             status_code=400
         )
 
@@ -1074,18 +1085,32 @@ async def chat_stream(request: Request):
     # Kiểm tra quyền sở hữu cuộc trò chuyện nếu thread_id đã tồn tại
     conv = get_conversation(thread_id)
     if not _can_access_conversation(conv, user):
+        language = resolve_language(
+            data.get("language_text") or user_message,
+            explicit=data.get("response_language"),
+            previous=(conv.get("language") if isinstance(conv, dict) else getattr(conv, "language", None)),
+            accept_language=request.headers.get("accept-language"),
+        )
         return JSONResponse(
-            {"error": "Bạn không có quyền gửi tin nhắn trong cuộc trò chuyện này."},
+            {"error": tr("conversation_forbidden", language)},
             status_code=403
         )
 
+    response_language = resolve_language(
+        data.get("language_text") or user_message,
+        explicit=data.get("response_language"),
+        previous=(conv.get("language") if isinstance(conv, dict) else getattr(conv, "language", None)),
+        accept_language=request.headers.get("accept-language"),
+    )
+
     agent = get_agent(selected_model)
-    create_or_update_conversation(thread_id, user_message, user_id=user_id)
+    create_or_update_conversation(thread_id, user_message, user_id=user_id, language=response_language)
     save_chat_message(thread_id, "user", user_message, user_id=user_id)
 
     config = {
         "configurable": {
-            "thread_id": thread_id
+            "thread_id": thread_id,
+            "response_language": response_language,
         }
     }
 
@@ -1096,13 +1121,15 @@ async def chat_stream(request: Request):
             user_id=user_id,
             user_message=user_message,
             selected_model=selected_model,
+            response_language=response_language,
             config=config,
         ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
+            "X-Accel-Buffering": "no",
+            "Content-Language": response_language,
         }
     )
 
@@ -1111,10 +1138,11 @@ class FollowupRequest(BaseModel):
     user_message: str = ""
     assistant_answer: str = ""
     model: str = "openai/gpt-oss-20b"
+    response_language: str | None = None
 
 
 @app.post("/chat/followups")
-async def chat_followups(payload: FollowupRequest):
+async def chat_followups(payload: FollowupRequest, request: Request):
     """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions).
 
     - Gọi service Native Async để chờ API LLM mà không chiếm worker thread.
@@ -1138,6 +1166,10 @@ async def chat_followups(payload: FollowupRequest):
             user_message=user_message,
             assistant_answer=assistant_answer,
             model_name=selected_model,
+            response_language=resolve_language(
+                user_message, explicit=payload.response_language,
+                accept_language=request.headers.get("accept-language"),
+            ),
         )
         return {
             "success": True,

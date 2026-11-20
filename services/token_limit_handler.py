@@ -19,13 +19,14 @@ from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, Sequence, TypeVar
+from services.language import get_current_language, normalize_language, tr
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
-_VIETNAMESE_LANGUAGES = {"vi", "vietnamese", "tiếng việt", "tieng viet"}
 
 
+# Đọc cấu hình số thực từ biến môi trường với giá trị mặc định và ngưỡng tối thiểu.
 def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
     try:
         value = float(os.getenv(name, str(default)))
@@ -34,32 +35,34 @@ def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
     return value if math.isfinite(value) and value >= minimum else default
 
 
+# Các hằng số cấu hình thời gian chờ tối đa và exponential backoff khi bị rate limit.
 MAX_RATE_LIMIT_WAIT_SECONDS = _float_setting("MAX_RATE_LIMIT_WAIT_SECONDS", 60.0, 1.0)
 RATE_LIMIT_BACKOFF_BASE_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_BASE_SECONDS", 1.0, 0.1)
 RATE_LIMIT_BACKOFF_JITTER_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_JITTER_SECONDS", 0.5, 0.0)
 
 
-@dataclass(frozen=True) # frozen để đảm bảo tính bất biến của quyết định retry, tránh thay đổi ngoài ý muốn
+# Đóng gói quyết định retry bất biến (hành động, số giây chờ, lý do, nguồn dữ liệu).
+@dataclass(frozen=True)
 class RetryDecision:
     """One normalized decision for a failed provider request."""
 
-    action: Literal[ # hành động quyết định sau khi phân loại lỗi
+    action: Literal[
         "fail_fast_tpd",
         "retry",
         "exceeded_max_retries",
         "exceeded_max_wait",
         "not_rate_limit",
     ]
-    wait_seconds: float | None # số giây chờ trước khi retry, None nếu không retry
-    reason: str # lý do quyết định, dùng để log hoặc debug
-    source: Literal[ # nguồn thông tin quyết định retry, dùng để log hoặc debug
+    wait_seconds: float | None
+    reason: str
+    source: Literal[
         "retry-after",
         "x-ratelimit-reset-tokens",
         "backoff",
         "none",
     ]
 
-# dò tìm header và chống lặp vô hạn
+# Duyệt đệ quy chuỗi exception (__cause__, __context__) an toàn, chống lặp vô hạn.
 def _exception_chain(error: BaseException) -> Iterator[BaseException]:
     """Walk wrapped exceptions safely, including unusual cyclic cause/context links."""
     pending = [error]
@@ -67,23 +70,25 @@ def _exception_chain(error: BaseException) -> Iterator[BaseException]:
     while pending:
         current = pending.pop()
         current_id = id(current)
-        if current_id in seen_ids: # tránh lặp vô hạn nếu có vòng lặp trong __cause__ hoặc __context__
+        if current_id in seen_ids:
             continue
         seen_ids.add(current_id)
         yield current
-        # Prefer explicit cause while still checking context for provider details.
+        # Thêm __context__ và __cause__ vào ngăn xếp để duyệt tiếp
         if current.__context__ is not None:
             pending.append(current.__context__)
         if current.__cause__ is not None:
             pending.append(current.__cause__)
 
-# Normalize exception text for explicit quota/rate-limit markers and logging.
+
+# Gom và chuẩn hóa toàn bộ chuỗi thông báo lỗi thành chữ thường để nhận diện từ khóa.
 def _exception_text(error: BaseException | str) -> str:
     if isinstance(error, BaseException):
         return " ".join(str(item) for item in _exception_chain(error)).lower()
     return str(error).lower()
 
-# trích xuất tất cả header từ chuỗi exception, bao gồm cả header trực tiếp và header trong response nếu có
+
+# Trích xuất danh sách headers từ tất cả response hoặc exception con trong chuỗi lỗi.
 def _response_headers(error: BaseException) -> list[Mapping[str, Any]]:
     headers_list: list[Mapping[str, Any]] = []
     for item in _exception_chain(error):
@@ -95,7 +100,8 @@ def _response_headers(error: BaseException) -> list[Mapping[str, Any]]:
                 headers_list.append(headers)
     return headers_list
 
-# trích xuất giá trị header từ mapping, không phân biệt chữ hoa/chữ thường, bỏ qua giá trị None
+
+# Lấy giá trị header theo tên không phân biệt hoa thường và loại bỏ khoảng trắng thừa.
 def _header_value(headers: Mapping[str, Any], name: str) -> str | None:
     target = name.casefold()
     for key, value in headers.items():
@@ -103,7 +109,8 @@ def _header_value(headers: Mapping[str, Any], name: str) -> str | None:
             return str(value).strip()
     return None
 
-# Parse duration strings like "7.66s" or "1m30.5s" into seconds.
+
+# Đổi chuỗi thời gian của provider (vd: '7.66s', '1m30.5s') sang số giây kiểu float.
 def _parse_duration(value: str) -> float | None:
     """Parse structured provider durations such as 7.66s or 1m30.5s."""
     clean = value.strip().lower()
@@ -123,7 +130,8 @@ def _parse_duration(value: str) -> float | None:
         return None
     return total_seconds if math.isfinite(total_seconds) and total_seconds >= 0 else None
 
-# Parse Retry-After header values, which can be either a number of seconds or an HTTP date.
+
+# Đổi giá trị header Retry-After (dạng số giây hoặc chuẩn HTTP-date) sang số giây chờ.
 def _parse_retry_after(value: str, server_date: str | None) -> float | None:
     clean_value = value.strip()
     # Nếu là số giây thuần (ví dụ: '5')
@@ -134,6 +142,7 @@ def _parse_retry_after(value: str, server_date: str | None) -> float | None:
     if seconds is not None:
         return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
+    # Nếu là định dạng ngày tháng HTTP-date (RFC 7231)
     try:
         target = email.utils.parsedate_to_datetime(clean_value)
         if target.tzinfo is None:
@@ -150,6 +159,7 @@ def _parse_retry_after(value: str, server_date: str | None) -> float | None:
         return None
 
 
+# Tìm thời gian chờ từ header Retry-After hoặc x-ratelimit-reset-tokens trong chuỗi lỗi.
 def _header_retry_delay(error: BaseException) -> tuple[float, str] | None:
     for headers in _response_headers(error):
         retry_after = _header_value(headers, "Retry-After")
@@ -167,6 +177,7 @@ def _header_retry_delay(error: BaseException) -> tuple[float, str] | None:
     return None
 
 
+# Trích xuất thời gian chờ (delay) và tên nguồn từ HTTP headers của exception nếu có.
 def extract_retry_delay(error: BaseException | str) -> tuple[float, str] | None:
     """Return a delay from structured HTTP headers, if the exception exposes one."""
     if isinstance(error, BaseException):
@@ -174,6 +185,7 @@ def extract_retry_delay(error: BaseException | str) -> tuple[float, str] | None:
     return None
 
 
+# Kiểm tra xem lỗi có chứa từ khóa tường minh về giới hạn token ngày (TPD) hay không.
 def _has_daily_limit_marker(error: BaseException | str) -> bool:
     text = _exception_text(error)
     return any(marker in text for marker in (
@@ -181,6 +193,7 @@ def _has_daily_limit_marker(error: BaseException | str) -> bool:
     ))
 
 
+# Nhận diện lỗi rate limit qua HTTP status 429 hoặc các từ khóa rate limit phổ biến.
 def _is_rate_limit_exception(error: BaseException | str) -> bool:
     text = _exception_text(error)
     if any(marker in text for marker in (
@@ -195,6 +208,7 @@ def _is_rate_limit_exception(error: BaseException | str) -> bool:
     )
 
 
+# Phân tích lỗi và đưa ra quyết định có retry hay không, thời gian chờ và nguồn tính toán.
 def decide_rate_limit_retry(
     error: BaseException | str,
     *,
@@ -207,15 +221,17 @@ def decide_rate_limit_retry(
     ``attempt`` is one-based. ``max_retries`` counts retries after the initial call;
     ``None`` intentionally means retry without an attempt limit.
     """
-    # 1. Nếu là TPD (Hết hạn ngày) -> FAIL-FAST NGAY LẬP TỨC
+    # 1. Nếu là lỗi hết hạn mức ngày (TPD) thì dừng ngay lập tức (fail-fast).
     if _has_daily_limit_marker(error):
         return RetryDecision("fail_fast_tpd", None, "Daily token quota exhausted.", "none")
 
     delay = extract_retry_delay(error)
+    # 2. Nếu không phải lỗi rate limit (429/TPM) thì không retry.
     if not _is_rate_limit_exception(error):
         return RetryDecision("not_rate_limit", None, "Error is not a rate limit.", "none")
 
     retries_used = max(0, attempt - 1)
+    # 3. Nếu đã vượt quá số lần retry tối đa cho phép thì dừng.
     if max_retries is not None and retries_used >= max(0, max_retries):
         return RetryDecision(
             "exceeded_max_retries", None,
@@ -223,6 +239,7 @@ def decide_rate_limit_retry(
             delay[1] if delay else "none",
         )
 
+    # 4. Tính toán thời gian chờ: ưu tiên header, nếu không có thì exponential backoff kèm jitter.
     if delay is None:
         exponent = max(0, attempt - 1)
         wait_seconds = min(RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** min(exponent, 20)), max_wait_seconds)
@@ -234,17 +251,20 @@ def decide_rate_limit_retry(
     else:
         wait_seconds, source = delay
 
-    # Avoid a hot retry loop if a provider sends a zero-second hint.
+    # 5. Đảm bảo thời gian chờ tối thiểu 0.25s để tránh vòng lặp retry quá nhanh.
     wait_seconds = max(0.25, wait_seconds)
+    # 6. Nếu thời gian chờ yêu cầu vượt ngưỡng cho phép thì không chờ tiếp.
     if max_retries is not None and wait_seconds > max_wait_seconds:
         return RetryDecision(
             "exceeded_max_wait", wait_seconds,
             f"Server requested {wait_seconds:.2f}s, above configured maximum {max_wait_seconds:.2f}s.",
             source,
         )
+    # 7. Cho phép retry với thời gian chờ đã xác định.
     return RetryDecision("retry", wait_seconds, "Transient rate limit; retry is allowed.", source)
 
 
+# Tạm dừng luồng theo từng khoảng ngắn (chunk) để chờ retry an toàn.
 def wait_for_retry(wait_seconds: float, *, max_sleep_chunk_seconds: float = MAX_RATE_LIMIT_WAIT_SECONDS) -> None:
     """Wait the full requested delay in chunks; chunks avoid one opaque long sleep."""
     remaining = max(0.0, wait_seconds)
@@ -254,6 +274,7 @@ def wait_for_retry(wait_seconds: float, *, max_sleep_chunk_seconds: float = MAX_
         remaining -= chunk
 
 
+# Thực thi hàm sync với cơ chế tự động retry khi gặp lỗi rate limit (dùng time.sleep).
 def invoke_with_rate_limit_retry(
     invoke: Callable[[], T],
     *,
@@ -268,6 +289,7 @@ def invoke_with_rate_limit_retry(
         try:
             return invoke()
         except Exception as exc:
+            # Không retry nếu output stream đã bắt đầu gửi token về client
             if can_retry is not None and not can_retry():
                 logger.warning("[%s] Skipping retry because output has already started.", operation)
                 raise
@@ -286,6 +308,7 @@ def invoke_with_rate_limit_retry(
             wait_for_retry(decision.wait_seconds or 0.0)
 
 
+# Thực thi hàm async với cơ chế tự động retry non-blocking khi gặp rate limit (dùng asyncio.sleep).
 async def ainvoke_with_rate_limit_retry(
     invoke: Callable[[], Awaitable[T]],
     *,
@@ -314,10 +337,7 @@ async def ainvoke_with_rate_limit_retry(
             await asyncio.sleep(decision.wait_seconds or 0.0)
 
 
-def _is_vietnamese(language: str) -> bool:
-    return language.lower() in _VIETNAMESE_LANGUAGES
-
-
+# Ngoại lệ mang theo các nhóm tóm tắt đã hoàn thành khi chạm trần token ngày.
 class DailyTokenLimitInterrupted(Exception):
     """Exception mang theo kết quả của các nhóm đã hoàn thành trước khi chạm trần token ngày."""
 
@@ -333,6 +353,7 @@ class DailyTokenLimitInterrupted(Exception):
         self.original_error = original_error
 
 
+# Kiểm tra xem ngoại lệ có phải do chạm trần token trong ngày (TPD / daily quota) hay không.
 def is_daily_token_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải do chạm trần token trong ngày (TPD / daily quota) hay không.
 
@@ -341,11 +362,13 @@ def is_daily_token_limit(exc: Exception | str) -> bool:
     return _has_daily_limit_marker(exc)
 
 
+# Kiểm tra nhanh xem ngoại lệ có phải là lỗi rate limit từ Groq hay không.
 def is_rate_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải là bất kỳ dạng rate limit nào từ Groq (TPM, RPM, TPD)."""
     return _is_rate_limit_exception(exc)
 
 
+# Xử lý câu trả lời Stream chat dở dang kèm thông báo lịch sự khi chạm trần token ngày.
 def handle_partial_stream(
     accumulated_text: str,
     model_name: str,
@@ -356,117 +379,54 @@ def handle_partial_stream(
     - Nếu đã có accumulated_text -> giữ nguyên và gắn thông báo đuôi.
     - Nếu accumulated_text rỗng -> trả về câu thông báo lịch sự hướng dẫn chọn model khác.
     """
-    is_vi = _is_vietnamese(language)
     clean_accumulated = (accumulated_text or "").strip()
 
     if clean_accumulated:
-        if is_vi:
-            notice = (
-                f"\n\n---\n"
-                f"*⚠️ **Thông báo gián đoạn:** Câu trả lời tạm dừng do mô hình `{model_name}` "
-                f"đã đạt hạn mức token trong ngày (TPD limit) của Groq API. "
-                f"Phần nội dung phía trên là kết quả đã được xử lý thành công. "
-                f"Bạn có thể chọn mô hình khác ở danh sách góc dưới để tiếp tục trò chuyện.*"
-            )
-        else:
-            notice = (
-                f"\n\n---\n"
-                f"*⚠️ **Notice:** The response was interrupted because model `{model_name}` "
-                f"reached its daily token limit (TPD limit) on Groq API. "
-                f"The content above is what was successfully generated. "
-                f"You can switch to another model from the bottom selector to continue.*"
-            )
-        return f"{clean_accumulated}{notice}"
+        return f"{clean_accumulated}{tr('daily_stream_partial', language, model=model_name)}"
 
-    # Trường hợp chưa sinh được chữ nào
-    if is_vi:
-        return (
-            f"*⚠️ **Thông báo:** Mô hình `{model_name}` hiện tại đã đạt giới hạn hạn mức token trong ngày "
-            f"(Daily Token Limit) của Groq API. "
-            f"Bạn vui lòng chuyển sang mô hình khác (ví dụ: Qwen 3.8 27B hoặc GPT-OSS 120B) ở góc dưới "
-            f"để tiếp tục trò chuyện nhé!*"
-        )
-    return (
-        f"*⚠️ **Notice:** Model `{model_name}` has reached its daily token limit on Groq API. "
-        f"Please select another model from the bottom selector to continue chatting!*"
-    )
+    return tr("daily_stream_empty", language, model=model_name)
 
 
+# Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
 def assemble_partial_summary(
     completed_groups: Sequence[tuple[int, str]],
     total_groups: int,
     filename: str = "",
     language: str = "auto",
+    notice_language: str | None = None,
 ) -> str:
     """Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
 
     Bắt đầu bằng tiền tố hợp lệ để agent.py trả thẳng kết quả cho người dùng qua emit_summary.
     """
-    is_vi = _is_vietnamese(language) or language.lower() == "auto"
-    safe_filename = filename.strip() or "tài liệu"
+    summary_language = normalize_language(language) or get_current_language()
+    user_language = normalize_language(notice_language) or get_current_language()
+    safe_filename = filename.strip() or tr("daily_summary_empty", summary_language)
 
     # Sắp xếp theo đúng thứ tự nhóm ban đầu (1-based index)
     sorted_groups = sorted(completed_groups, key=lambda item: item[0])
     completed_count = len(sorted_groups)
 
-    if is_vi:
-        prefix = f'Bản tóm tắt của tài liệu "{safe_filename}" (Một phần đã hoàn thành: {completed_count}/{total_groups} phần nội dung):\n\n'
-        body_parts = []
-        for idx, summary_text in sorted_groups:
-            body_parts.append(f"### [Phần {idx}/{total_groups}]\n{summary_text.strip()}")
-
-        body = "\n\n".join(body_parts)
-        footer = (
-            f"\n\n---\n"
-            f"*⚠️ **Lưu ý:** Quá trình tóm tắt tài liệu tạm dừng do mô hình đã đạt giới hạn hạn mức token trong ngày "
-            f"(TPD limit) của Groq API. Trên đây là bản tóm tắt đầy đủ của {completed_count}/{total_groups} phần "
-            f"tài liệu đã hoàn thành. Các phần còn lại chưa thể xử lý. "
-            f"Bạn có thể chọn mô hình khác ở góc dưới để tiếp tục.*"
-        )
-        return f"{prefix}{body}{footer}"
-
-    # Tiếng Anh
-    prefix = f'Summary of "{safe_filename}" (Partial draft: {completed_count}/{total_groups} sections completed):\n\n'
-    body_parts = []
-    for idx, summary_text in sorted_groups:
-        body_parts.append(f"### [Section {idx}/{total_groups}]\n{summary_text.strip()}")
-
-    body = "\n\n".join(body_parts)
-    footer = (
-        f"\n\n---\n"
-        f"*⚠️ **Notice:** Document summarization paused because the model reached its daily token limit (TPD limit) on Groq API. "
-        f"The sections above represent the {completed_count}/{total_groups} sections successfully completed. "
-        f"You can switch to another model from the bottom selector to continue.*"
+    prefix = tr("daily_summary_prefix", summary_language, filename=safe_filename,
+                completed=completed_count, total=total_groups)
+    body = "\n\n".join(
+        tr("daily_summary_section", summary_language, index=idx, total=total_groups,
+           text=summary_text.strip())
+        for idx, summary_text in sorted_groups
     )
+    footer = tr("daily_summary_footer", user_language, completed=completed_count, total=total_groups)
     return f"{prefix}{body}{footer}"
 
 
+# Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày.
 def format_tool_limit_notice(
     tool_name: str,
     partial_info: str = "",
     language: str = "vi",
 ) -> str:
     """Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày."""
-    is_vi = _is_vietnamese(language)
     clean_partial = partial_info.strip()
-
-    if is_vi:
-        msg = (
-            f"⚠️ Tính năng `{tool_name}` tạm thời không thể hoàn thành do mô hình "
-            f"đã đạt giới hạn hạn mức token trong ngày của Groq API. "
-        )
-        if clean_partial:
-            msg += f"\n\nDưới đây là thông tin thu thập được trước khi gián đoạn:\n{clean_partial}"
-        else:
-            msg += "\n\nBạn vui lòng thử lại sau hoặc chọn mô hình khác để tiếp tục."
-        return msg
-
-    msg = (
-        f"⚠️ Feature `{tool_name}` could not complete because the model "
-        f"reached its daily token limit on Groq API. "
-    )
+    msg = tr("daily_tool_notice", language, tool=tool_name)
     if clean_partial:
-        msg += f"\n\nHere is the information gathered before interruption:\n{clean_partial}"
-    else:
-        msg += "\n\nPlease try again later or switch to another model."
-    return msg
+        return msg + tr("daily_tool_partial", language, partial=clean_partial)
+    return msg + tr("daily_tool_retry", language)

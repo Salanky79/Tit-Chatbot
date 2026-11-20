@@ -462,6 +462,7 @@ def create_or_update_conversation(
     thread_id: str,
     first_message: str | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> Any:
     """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``.
 
@@ -483,6 +484,8 @@ def create_or_update_conversation(
         title = stripped[:40] + ("..." if len(stripped) > 40 else "")
 
     set_fields: dict[str, Any] = {"updated_at": now}
+    if language in {"vi", "en"}:
+        set_fields["language"] = language
     set_on_insert: dict[str, Any] = {
         "thread_id": thread_id,
         "title": title,
