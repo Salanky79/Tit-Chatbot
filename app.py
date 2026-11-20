@@ -7,7 +7,6 @@ load_dotenv()
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-import asyncio
 import json
 import logging
 import uuid
@@ -18,6 +17,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 import uvicorn
+from pydantic import BaseModel
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -1107,34 +1107,34 @@ async def chat_stream(request: Request):
     )
 
 
-@app.post("/chat/followups")
-async def chat_followups(request: Request):
-    """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions) bất đồng bộ, chạy song song ngầm.
+class FollowupRequest(BaseModel):
+    user_message: str = ""
+    assistant_answer: str = ""
+    model: str = "openai/gpt-oss-20b"
 
+
+@app.post("/chat/followups")
+async def chat_followups(payload: FollowupRequest):
+    """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions).
+
+    - Gọi service Native Async để chờ API LLM mà không chiếm worker thread.
     - Không chặn luồng trả lời chính (/chat/stream), giúp giảm thời gian chờ của người dùng về 0ms.
-    - Chạy trong thread pool qua asyncio.to_thread để giữ FastAPI Event Loop hoàn toàn non-blocking.
     """
     if not FOLLOWUPS_ENABLED:
         return {"success": True, "suggestions": []}
 
-    try:
-        data = await request.json()
-    except Exception:
-        return JSONResponse({"error": "Invalid JSON body."}, status_code=400)
-
-    user_message = (data.get("user_message") or "").strip()
-    assistant_answer = (data.get("assistant_answer") or "").strip()
-    selected_model = data.get("model", "openai/gpt-oss-20b")
+    # Kiểm tra dữ liệu đầu vào dùng cho sinh gợi ý: nếu thiếu câu hỏi hoặc câu trả lời thì không sinh gợi ý
+    # payload là một đối tượng FollowupRequest được FastAPI tự động parse từ JSON body của request.
+    user_message = (payload.user_message or "").strip()
+    assistant_answer = (payload.assistant_answer or "").strip()
+    selected_model = payload.model or "openai/gpt-oss-20b"
 
     # Kiểm tra ngữ cảnh: nếu thiếu câu hỏi hoặc câu trả lời thì không sinh gợi ý
     if not user_message or not assistant_answer:
         return {"success": True, "suggestions": []}
 
     try:
-        # Sử dụng asyncio.to_thread để chạy hàm đồng bộ gọi LLM trên worker thread riêng biệt,
-        # giải phóng Main Thread của FastAPI để tiếp tục phục vụ các request khác
-        questions = await asyncio.to_thread(
-            generate_followup_questions,
+        questions = await generate_followup_questions(
             user_message=user_message,
             assistant_answer=assistant_answer,
             model_name=selected_model,

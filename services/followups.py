@@ -149,13 +149,15 @@ def _validated_prompts(parsed: object) -> list[str]:
 # HÀM CHÍNH SINH CÂU HỎI GỢI Ý (MAIN FUNCTION)
 # ==============================================================================
 
-def generate_followup_questions(
+async def generate_followup_questions(
     user_message: str,
     assistant_answer: str,
     model_name: str | None = None,
 ) -> list[str]:
     """
-    Hàm chính tạo 2 câu hỏi gợi ý tiếp theo dựa trên tin nhắn người dùng và câu trả lời của bot.
+    Hàm async chính tạo 2 câu hỏi gợi ý tiếp theo dựa trên tin nhắn người dùng và câu trả lời của bot.
+
+    Gọi structured model bằng ``ainvoke`` để chờ Groq I/O bất đồng bộ, không chiếm worker thread.
 
     Tham số:
     - user_message: Câu hỏi hoặc tin nhắn vừa rồi của người dùng.
@@ -201,14 +203,14 @@ def generate_followup_questions(
             assistant_answer=clean_answer,
         )
 
-        # 6. Gửi prompt đến LLM và nhận kết quả
+        # 6. Gửi prompt bằng client async của ChatGroq, không chiếm worker thread
         # Khi dùng include_raw=True, response trả về sẽ là một dictionary có cấu trúc:
         # {
         #     "raw": AIMessage(...),           # Tin nhắn phản hồi thô từ Groq (chứa token usage, metadata)
         #     "parsed": FollowupSuggestions,   # Dữ liệu đã được Pydantic ép kiểu thành công (hoặc None)
         #     "parsing_error": Exception|None  # Lỗi nếu mô hình trả về JSON sai định dạng
         # }
-        response = structured_model.invoke([
+        response = await structured_model.ainvoke([
             HumanMessage(content=prompt)
         ])
 
