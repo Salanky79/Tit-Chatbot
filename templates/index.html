@@ -2520,7 +2520,8 @@
             // Công thức nội dòng Inline Math ($ ... $)
             content = content.replace(/\$([^\$\n\r]+?)\$/g, function(match, formula) {
                 // Bỏ qua giá tiền tệ như $100 hoặc $50.5
-                if (/^\s*\d+([.,]\d+)?\s*$/.test(formula)) return match;
+                const cleanFormula = formula.trim().replace(",", ".");
+                if (!isNaN(cleanFormula) && cleanFormula !== "") return match;
                 const token = `@@MATH_INLINE_${mathItems.length}@@`;
                 mathItems.push({ token, formula: formula.trim(), display: false });
                 return token;
@@ -2854,7 +2855,8 @@
     }
 
     function isImageFile(file) {
-        return file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name);
+        const ext = (file.name || "").split(".").pop().toLowerCase();
+        return file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext);
     }
 
     function addMessage(role, content = "") {
@@ -2976,45 +2978,6 @@
                 console.warn("Follow-up suggestions skipped or failed:", err);
             }
         }
-    }
-
-    function detectLikelyTool(message) {
-        const text = message.toLowerCase();
-
-        const mathPattern = /(\d+\s*[\+\-\*\/]\s*\d+)|calculate|calculation|math|solve/;
-        const imagePattern = /image|photo|picture|chart|diagram|ảnh|hình/;
-        const ragPattern = /document|pdf|file|uploaded|summarize|summary|according to|based on/;
-        const memorySavePattern = /remember that|save this|store this|keep in memory|memorize|nhớ|ghi nhớ|lưu lại/;
-        const memoryRecallPattern = /what do you remember|recall|my memory|remember about me|nhớ gì|tôi là ai/;
-
-        const webSearchPattern =
-            /latest|current|today|now|recent|news|search web|web search|internet|online|price|version|update|2025|2026|who is|what is happening|trending|release|new model|current ceo|latest version/;
-
-        if (memorySavePattern.test(text)) {
-            return "Memory Save";
-        }
-
-        if (memoryRecallPattern.test(text)) {
-            return "Memory Recall";
-        }
-
-        if (imagePattern.test(text)) {
-            return "Image Analysis";
-        }
-
-        if (ragPattern.test(text)) {
-            return "Document Search";
-        }
-
-        if (webSearchPattern.test(text)) {
-            return "Web Search";
-        }
-
-        if (mathPattern.test(text)) {
-            return "Calculator";
-        }
-
-        return null;
     }
 
     function addToolProgress(toolName) {
@@ -3444,14 +3407,6 @@
         sendBtn.disabled = true;
         statusText.textContent = `Thinking with ${selectedModel}...`;
 
-        const likelyTool = detectLikelyTool(submittedMessage);
-        let toolProgress = null;
-
-        if (likelyTool) {
-            toolProgress = addToolProgress(likelyTool);
-            statusText.textContent = `Using ${likelyTool}...`;
-        }
-
         const botElement = addMessage("assistant", "");
 
         let firstTokenReceived = false;
@@ -3465,11 +3420,6 @@
             if (data.token !== undefined && data.token !== null) {
                 if (!firstTokenReceived) {
                     firstTokenReceived = true;
-
-                    if (likelyTool && toolProgress) {
-                        completeToolProgress(toolProgress, likelyTool);
-                    }
-
                     statusText.textContent = `Generating with ${selectedModel}...`;
                 }
 
@@ -3481,10 +3431,6 @@
             }
 
             if (data.error) {
-                if (likelyTool && toolProgress) {
-                    completeToolProgress(toolProgress, likelyTool);
-                }
-
                 botElement.dataset.raw = (botElement.dataset.raw || "") + "\n\n**Error:** " + data.error;
                 renderMarkdown(botElement, botElement.dataset.raw);
                 statusText.textContent = "Ready";
@@ -3492,10 +3438,6 @@
             }
 
             if (data.done) {
-                if (likelyTool && toolProgress && !firstTokenReceived) {
-                    completeToolProgress(toolProgress, likelyTool);
-                }
-
                 statusText.textContent = "Ready";
             }
         }
@@ -3571,10 +3513,6 @@
 
         } catch (error) {
             console.error("Streaming error:", error);
-
-            if (likelyTool && toolProgress) {
-                completeToolProgress(toolProgress, likelyTool);
-            }
 
             botElement.dataset.raw = "**Something went wrong:** " + error.message;
             renderMarkdown(botElement, botElement.dataset.raw);

@@ -236,7 +236,7 @@ class AdminConversationTests(unittest.TestCase):
         self.assertEqual(result["page"], 2)
         query = conversations.find.call_args.args[0]
         self.assertEqual(query["user_id"], user_id)
-        self.assertEqual(query["title"], {"$regex": "help\\.\\*", "$options": "i"})
+        self.assertNotIn("title", query)
         cursor.skip.assert_called_once_with(20)
         cursor.limit.assert_called_once_with(20)
 
@@ -314,6 +314,8 @@ class UserDeletionTests(unittest.TestCase):
                 "sessions",
                 "conversations",
                 "chat_messages",
+                "summary_jobs",
+                "summary_job_checkpoints",
                 "long_term_memory",
             )
         }
@@ -330,11 +332,23 @@ class UserDeletionTests(unittest.TestCase):
 
         self.assertEqual(
             events,
-            ["sessions", "conversations", "chat_messages", "long_term_memory", "users"],
+            [
+                "summary_jobs",
+                "sessions",
+                "conversations",
+                "chat_messages",
+                "long_term_memory",
+                "users",
+            ],
         )
         expected_owner_filter = {"user_id": {"$in": [user_id, str(user_id)]}}
-        for collection in collections.values():
-            collection.delete_many.assert_called_once_with(expected_owner_filter)
+        for name, collection in collections.items():
+            if name == "summary_jobs":
+                collection.delete_many.assert_called_once_with({"context.user_id": str(user_id)})
+            elif name == "summary_job_checkpoints":
+                collection.delete_many.assert_not_called()
+            else:
+                collection.delete_many.assert_called_once_with(expected_owner_filter)
         self.assertEqual(deleted["id"], str(user_id))
 
     def test_chroma_cleanup_filters_by_user_id(self) -> None:

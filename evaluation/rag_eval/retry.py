@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
-import re
 import time
 from typing import Any, Callable, TypeVar
 
 T = TypeVar("T")
-_RETRY_AFTER = re.compile(r"try again in\s+([0-9]+(?:\.[0-9]+)?)\s*s", re.IGNORECASE)
+
+
+def _parse_retry_hint(message: str) -> float | None:
+    lower = message.casefold()
+    marker = "try again in "
+    if marker in lower:
+        idx = lower.find(marker) + len(marker)
+        chunk = lower[idx:].strip()
+        num_chars = []
+        for c in chunk:
+            if c.isdigit() or c == ".":
+                num_chars.append(c)
+            elif c in ("s", " ", ","):
+                break
+            else:
+                break
+        if num_chars:
+            try:
+                return float("".join(num_chars))
+            except ValueError:
+                return None
+    return None
 
 
 def retry_with_backoff(
@@ -26,10 +46,9 @@ def retry_with_backoff(
             last_error = exc
             if attempt + 1 >= max_attempts:
                 break
-            message = str(exc)
-            match = _RETRY_AFTER.search(message)
-            if match:
-                hint = float(match.group(1)) + 0.5
+            hint_val = _parse_retry_hint(str(exc))
+            if hint_val is not None:
+                hint = hint_val + 0.5
                 wait_seconds = max(hint, float(2 ** attempt))
             else:
                 wait_seconds = float(2 ** attempt)

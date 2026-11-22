@@ -23,9 +23,9 @@ Trước khi refactor, hệ thống bộ nhớ dài hạn gặp 4 điểm nghẽ
 
 ---
 
-## 1.2. Hợp Nhất Tầng Cơ Sở Dữ Liệu (`storage/database.py`)
+## 1.2. Hợp Nhất Tầng Cơ Sở Dữ Liệu (`storage/database.py`) & Kiến Trúc Zero-Regex Semantic Search
 
-Xoá bỏ hoàn toàn `search_memory` và `find_memory_candidates`. Thay thế bằng **hàm lõi duy nhất**:
+Xoá bỏ hoàn toàn cơ chế Regex (`$regex`, `re.escape`, `re.split`). Thay thế bằng **hàm lõi Semantic Vector Search kết hợp Fallback All**:
 
 ```python
 def get_user_memories(
@@ -35,23 +35,27 @@ def get_user_memories(
 ) -> dict[str, Any]:
 ```
 
-### Quy trình truy vấn theo từng lớp (Cascading Retrieval):
-1. **Truy vấn rỗng (`query=""`):** Agent chủ động đọc toàn bộ ký ức (`source: "all_requested"`).
-2. **Regex nguyên cụm:** Tìm kiếm chính xác an toàn theo regex an toàn (`source: "regex_exact"`).
-3. **Regex từng từ (Tokenized regex):** Tách từ khóa để tìm khớp bất kỳ từ nào (`source: "regex_words"`).
-4. **Tự động Fallback toàn bộ:** Nếu regex không ra kết quả, tự động trả về toàn bộ ký ức còn hoạt động để LLM tự đọc và suy luận (`source: "fallback_no_regex_match"`), được kiểm soát nghiêm ngặt bởi cờ `allow_full_fallback`.
+### Quy trình truy vấn ngữ nghĩa 3 tầng (Semantic Cascading Retrieval):
+1. **Truy vấn rỗng (`query=""`):** Agent chủ động đọc toàn bộ hồ sơ ký ức của người dùng (`source: "all_requested"`).
+2. **Tìm kiếm Ngữ nghĩa Đa ngữ (Vector Cosine Similarity):**
+   - Sinh vector nhúng 384 chiều bằng mô hình multilingual CPU `paraphrase-multilingual-MiniLM-L12-v2`.
+   - Tính Cosine Similarity giữa vector câu hỏi và các vector ký ức đã lưu trong MongoDB (`embedding: list[float]`).
+   - Lọc và sắp xếp các ký ức có điểm tương đồng $\ge 0.38$ (ngưỡng phân biệt chính xác giữa câu hỏi định danh và dữ liệu không liên quan), trả về Top-K sát nghĩa nhất (`source: "semantic_match"`).
+   - Hỗ trợ hoàn hảo câu hỏi tiếng Anh tra cứu dữ liệu tiếng Việt (cross-lingual).
+3. **Tự động Fallback toàn bộ (Fallback All-to-LLM):**
+   - Nếu không có ký ức nào đạt ngưỡng tương đồng (câu hỏi quá trừu tượng hoặc diễn đạt khác biệt), hệ thống tự động trả về **TOÀN BỘ** ký ức còn hoạt động để LLM tự đọc bằng mắt và suy luận ngữ nghĩa (`source: "fallback_no_semantic_match"`), được kiểm soát nghiêm ngặt bởi cờ `allow_full_fallback`.
 
 ### Chuẩn hóa dữ liệu trả về dạng JSON:
 ```json
 {
   "status": "ok | empty | full_read_already_used | unauthenticated",
-  "source": "regex_exact | regex_words | all_requested | fallback_no_regex_match | none",
+  "source": "semantic_match | all_requested | fallback_no_semantic_match | none",
   "memories": [
     {
       "memory_id": "650000000000000000000001",
-      "memory": "Nghề nghiệp là Kỹ sư phần mềm.",
+      "memory": "Tên người dùng là Sơn.",
       "version": 1,
-      "updated_at": "2026-11-19T20:40:00"
+      "updated_at": "2026-11-22T21:08:18"
     }
   ]
 }
@@ -61,7 +65,7 @@ def get_user_memories(
 
 ## 1.3. Tầng Công Cụ Agent (`tools.py`) & Cơ Chế Phòng Thủ Đa Lớp
 
-Gộp `recall_memory` và `search_memory_candidates` thành **1 tool duy nhất: `get_user_memories`**.
+Gộp toàn bộ chức năng vào **công cụ chuẩn: `get_user_memories`** kết hợp **Docstring Intent-Driven**:
 
 ### 1.3.1. Bản chất đoạn code duyệt `messages` và điểm dừng `HumanMessage`
 ```python
@@ -86,7 +90,7 @@ for message in reversed(messages):
 
 ### 1.3.2. Cơ chế Chống Lặp Vô Hạn (One-Full-Read Guard)
 - **Khi nào `allow_full_fallback` trở thành `False`?**
-  Khi `full_read_already_used == True`, nghĩa là trong câu hỏi hiện tại của người dùng, tool phát hiện lần gọi trước đó đã từng trả về toàn bộ ký ức (`source` là `"all_requested"` hoặc `"fallback_no_regex_match"`).
+  Khi `full_read_already_used == True`, nghĩa là trong câu hỏi hiện tại của người dùng, tool phát hiện lần gọi trước đó đã từng trả về toàn bộ ký ức (`source` là `"all_requested"` hoặc `"fallback_no_semantic_match"`).
 - **Tại sao Prompt đã dặn mà Code vẫn phải chặn? (Nguyên tắc Defense-in-Depth):**
   - **Prompt (Rào chắn mềm - Soft Constraint):** Hướng dẫn mô hình cách tư duy đúng đắn trong 95% trường hợp.
   - **Code Python (Rào chắn cứng - Hard Constraint):** Đề phòng 5% trường hợp LLM bị "ngáo" hoặc nhầm lẫn dẫn tới gọi lặp lại. Code là barie thép chặn đứng vòng lặp, bảo vệ ví tiền API.
@@ -104,14 +108,20 @@ $\rightarrow$ **Triệt tiêu 100% rủi ro LLM đoán mò hoặc hallucinate ID
 
 ---
 
-## 1.4. Tầng Hướng Dẫn Mô Hình (`prompts/agent.py`)
+## 1.4. Tầng Hướng Dẫn Mô Hình (`prompts/agent.py`) - Triết Lý Intent-Driven
 
-Loại bỏ quy tắc bắt người dùng chọn candidate, thay bằng **Quy trình 5 bước tự chủ (Autonomous Reasoning)**:
-1. Khi cần nhớ lại/sửa/xoá: Luôn gọi `get_user_memories`.
-2. Nếu tool trả về regex matches: LLM tự đọc nội dung để đánh giá ngữ nghĩa. Không bao giờ hỏi người dùng chọn.
-3. Nếu regex không khớp: Tool đã tự động trả về toàn bộ ký ức. LLM tự đọc và đối soát ngữ nghĩa.
-4. Nếu thông tin mơ hồ không thể xác định an toàn: Không sửa/xoá bất kỳ bản ghi nào và giải thích lịch sự với người dùng. Tuyệt đối không phơi ID hoặc danh sách candidate.
-5. Kết quả truy xuất bộ nhớ là **ngữ cảnh ngầm (internal reasoning)**. Không bao giờ hiển thị ID, Version hay list thô cho người dùng.
+Loại bỏ toàn bộ các câu lệnh hard-code như *"chỉ khi có từ 'nhớ'..."* hay các mô tả kỹ thuật regex trong prompt. Thay bằng **Khung Nhận Thức Tự Chủ (Cognitive Framework)**:
+1. **Ghi nhớ tự động (Autonomous Memory Persistence):** Khi người dùng chia sẻ bất kỳ thông tin nhận dạng, đặc điểm, sở thích hay nghề nghiệp nào trong ngữ cảnh tự nhiên, Agent chủ động gọi `remember_this` mà không cần người dùng ra lệnh *"nhớ rằng"*.
+2. **Bắt buộc tra cứu khi hỏi danh tính (Mandatory Identity Recall):** Khi người dùng hỏi *"Tôi tên là gì?"*, *"Bạn nhớ gì về tôi?"*, *"Tôi là ai?"*, Agent BẮT BUỘC gọi `get_user_memories` trước khi trả lời. Tuyệt đối không được trả lời không biết khi chưa kiểm tra bộ nhớ.
+3. **Suy luận trên ngữ cảnh (Semantic Reasoning):** Ký ức trả về là tri thức nền. LLM đọc, tổng hợp và trả lời tự nhiên; không bao giờ phơi bày ID, Version hay JSON thô ra màn hình.
+
+---
+
+## 1.5. Loại Bỏ Hoàn Toàn Regex Khỏi Frontend UI (`templates/index.html`)
+
+Trước đây, Frontend dùng hàm `detectLikelyTool` chứa regex `/nhớ|ghi nhớ/` để "đoán mò" công cụ, dẫn đến lỗi khi người dùng hỏi *"bạn có nhớ tên tôi là gì ko"* thì UI lại nhảy ra huy hiệu `✓ Memory Save completed`.
+- **Giải pháp:** Xóa bỏ hoàn toàn hàm `detectLikelyTool` và các biểu thức regex ở JavaScript.
+- Tiến trình của tool được điều khiển 100% dựa trên trạng thái thực tế do Server gửi về qua SSE.
 
 ---
 

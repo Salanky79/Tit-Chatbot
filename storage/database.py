@@ -11,8 +11,8 @@ Collections:
     - long_term_memory: bộ nhớ dài hạn do user yêu cầu lưu
 """
 
+import logging
 from datetime import datetime, timezone, timedelta
-import re
 import secrets
 from types import SimpleNamespace
 from typing import Any
@@ -21,6 +21,8 @@ import bcrypt
 from bson import ObjectId
 
 from storage.mongo_client import get_collection, ensure_indexes
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +134,10 @@ def create_user(
     email = (email or "").strip().lower()
     full_name = (full_name or "").strip()
 
+    ALLOWED_USERNAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
     if not username or len(username) < 3:
         raise ValueError("Tên đăng nhập phải có ít nhất 3 ký tự.")
-    if not re.match(r"^[a-zA-Z0-9_.-]+$", username):
+    if not all(char in ALLOWED_USERNAME_CHARS for char in username):
         raise ValueError("Tên đăng nhập chỉ được chứa chữ cái, chữ số, dấu gạch dưới, gạch ngang và dấu chấm.")
     if not email or "@" not in email or "." not in email:
         raise ValueError("Định dạng email không hợp lệ.")
@@ -233,26 +236,21 @@ def list_users(*, page: int = 1, page_size: int = 25, search: str = "") -> dict[
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     users = get_collection("users")
-    query: dict[str, Any] = {}
     clean_search = (search or "").strip()[:100]
+    cursor = users.find({}, {"hashed_password": 0}).sort("created_at", -1)
+    all_users = [_public_user(user) for user in cursor]
     if clean_search:
-        escaped = re.escape(clean_search)
-        query["$or"] = [
-            {"username": {"$regex": escaped, "$options": "i"}},
-            {"email": {"$regex": escaped, "$options": "i"}},
-            {"full_name": {"$regex": escaped, "$options": "i"}},
+        term = clean_search.casefold()
+        all_users = [
+            u for u in all_users
+            if term in u.get("username", "").casefold()
+            or term in u.get("email", "").casefold()
+            or term in u.get("full_name", "").casefold()
         ]
-
-    total = users.count_documents(query)
-    # Projection loại hash mật khẩu ngay tại MongoDB, trước khi dựng response.
-    cursor = (
-        users.find(query, {"hashed_password": 0})
-        .sort("created_at", -1)
-        .skip((page - 1) * page_size)
-        .limit(page_size)
-    )
+    total = len(all_users)
+    items = all_users[(page - 1) * page_size : page * page_size]
     return {
-        "items": [_public_user(user) for user in cursor],
+        "items": items,
         "page": page,
         "page_size": page_size,
         "total": total,
@@ -593,11 +591,9 @@ def list_admin_conversations(
         return {"items": [], "page": page, "page_size": page_size, "total": 0}
 
     query: dict[str, Any] = {"user_id": oid, "is_guest": {"$ne": True}}
-    clean_search = (search or "").strip()[:100]
-    if clean_search:
-        query["title"] = {"$regex": re.escape(clean_search), "$options": "i"}
-
     conversations = get_collection("conversations")
+    clean_search = (search or "").strip()[:100]
+
     total = conversations.count_documents(query)
     cursor = (
         conversations.find(
@@ -615,8 +611,12 @@ def list_admin_conversations(
         .skip((page - 1) * page_size)
         .limit(page_size)
     )
+    all_items = list(cursor)
+    if clean_search:
+        term = clean_search.casefold()
+        all_items = [c for c in all_items if term in (c.get("title") or "").casefold()]
     return {
-        "items": list(cursor),
+        "items": all_items,
         "page": page,
         "page_size": page_size,
         "total": total,
@@ -803,8 +803,33 @@ def get_admin_conversation_messages(
 
 
 # ---------------------------------------------------------------------------
-# Long-term memory APIs
+# Long-term memory APIs (Semantic Search + Fallback All, 100% Zero-Regex)
 # ---------------------------------------------------------------------------
+
+def _generate_embedding(text: str) -> list[float]:
+    """Tạo vector nhúng 384 chiều đa ngữ (MiniLM-L12-v2) không dùng regex."""
+    if not text or not text.strip():
+        return []
+    try:
+        from services.rag import get_embeddings
+        emb = get_embeddings()
+        return emb.embed_query(text.strip())
+    except Exception as exc:
+        logger.warning(f"Could not generate embedding for memory: {exc}")
+        return []
+
+
+def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    """Tính độ tương đồng Cosine giữa 2 vector số thực thuần."""
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = sum(a * a for a in vec_a) ** 0.5
+    norm_b = sum(b * b for b in vec_b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return float(dot / (norm_a * norm_b))
+
 
 def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     """Lưu một đoạn bộ nhớ dài hạn vào collection ``long_term_memory``.
@@ -828,11 +853,13 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
 
     coll = get_collection("long_term_memory")
     now = _now()
+    clean_mem = memory.strip()
     doc: dict[str, Any] = {
         "user_id": oid,
-        "memory": memory.strip(),
+        "memory": clean_mem,
+        "embedding": _generate_embedding(clean_mem),
         "is_deleted": False,
-        "version": 1, # tránh race_condition khi update
+        "version": 1,  # tránh race_condition khi update
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
@@ -848,11 +875,11 @@ def get_user_memories(
     query: str = "",
     allow_full_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Return regex matches, or all active memories when no regex match exists.
+    """Return semantic matches, or all active memories when no semantic match exists.
 
-    The result is intended for the agent to interpret semantically. It always
-    includes the identifiers and versions required by the update/delete tools.
-    Every query is scoped to the signed-in user and excludes soft-deleted rows.
+    Hoàn toàn loại bỏ Regex: dùng Cosine Similarity vector đa ngữ.
+    Nếu query không rỗng mà điểm số tương đồng không đạt ngưỡng -> Fallback đẩy TOÀN BỘ
+    ký ức cho LLM đọc và suy luận ngữ nghĩa.
     """
     oid = _to_object_id(user_id)
     if not oid:
@@ -868,11 +895,12 @@ def get_user_memories(
     projection = {
         "_id": 1,
         "memory": 1,
+        "embedding": 1,
         "version": 1,
         "updated_at": 1,
     }
 
-    def _format_docs(cursor) -> list[dict[str, Any]]:
+    def _format_docs(docs) -> list[dict[str, Any]]:
         return [
             {
                 "memory_id": str(doc["_id"]),
@@ -882,7 +910,7 @@ def get_user_memories(
                 if hasattr(doc.get("updated_at"), "isoformat")
                 else doc.get("updated_at"),
             }
-            for doc in cursor
+            for doc in docs
         ]
 
     def _all_memories(source: str) -> dict[str, Any]:
@@ -896,7 +924,7 @@ def get_user_memories(
             "memories": memories,
         }
 
-    # An empty query is the explicit full-memory read requested by the agent.
+    # 1. An empty query is the explicit full-memory read requested by the agent.
     if not clean_query:
         if not allow_full_fallback:
             return {
@@ -906,44 +934,42 @@ def get_user_memories(
             }
         return _all_memories("all_requested")
 
-    exact_matches = _format_docs(
-        coll.find(
-            {
-                **base_filter,
-                "memory": {"$regex": re.escape(clean_query), "$options": "i"},
-            },
-            projection,
-        ).sort([("updated_at", -1), ("created_at", -1)])
-    )
-    if exact_matches:
-        return {"status": "ok", "source": "regex_exact", "memories": exact_matches}
+    # 2. Semantic Search using Vector Cosine Similarity
+    all_docs = list(coll.find(base_filter, projection))
+    if not all_docs:
+        return {"status": "empty", "source": "none", "memories": []}
 
-    # Keep the existing token-level regex fallback, but let the LLM judge the
-    # returned memories instead of treating them as definitive matches.
-    words = [word for word in re.split(r"[\s,;?]+", clean_query) if len(word) >= 2]
-    if len(words) > 1:
-        pattern = "|".join(re.escape(word) for word in words)
-        word_matches = _format_docs(
-            coll.find(
-                {
-                    **base_filter,
-                    "memory": {"$regex": pattern, "$options": "i"},
-                },
-                projection,
-            ).sort([("updated_at", -1), ("created_at", -1)])
-        )
-        if word_matches:
-            return {"status": "ok", "source": "regex_words", "memories": word_matches}
+    query_vec = _generate_embedding(clean_query)
+    scored_docs: list[tuple[float, dict[str, Any]]] = []
+    SIMILARITY_THRESHOLD = 0.38
 
-    # No regex result: send every active memory to the LLM for semantic review,
-    # unless this request already used its one full-memory fallback.
+    for doc in all_docs:
+        doc_vec = doc.get("embedding")
+        if not doc_vec:
+            doc_vec = _generate_embedding(doc.get("memory", ""))
+            if doc_vec:
+                coll.update_one({"_id": doc["_id"]}, {"$set": {"embedding": doc_vec}})
+        score = _cosine_similarity(query_vec, doc_vec)
+        if score >= SIMILARITY_THRESHOLD:
+            scored_docs.append((score, doc))
+
+    if scored_docs:
+        scored_docs.sort(key=lambda item: item[0], reverse=True)
+        top_matches = [doc for _, doc in scored_docs[:5]]
+        return {
+            "status": "ok",
+            "source": "semantic_match",
+            "memories": _format_docs(top_matches),
+        }
+
+    # 3. Fallback khi semantic search không đạt ngưỡng: Đẩy toàn bộ ký ức cho LLM
     if not allow_full_fallback:
         return {
             "status": "full_read_already_used",
             "source": "none",
             "memories": [],
         }
-    return _all_memories("fallback_no_regex_match")
+    return _all_memories("fallback_no_semantic_match")
 
 
 def update_memory_by_id(
@@ -962,6 +988,7 @@ def update_memory_by_id(
 
     coll = get_collection("long_term_memory")
     now = _now()
+    clean_mem = new_memory.strip()
 
     filter_q = {
         "_id": mem_oid,
@@ -971,7 +998,8 @@ def update_memory_by_id(
     }
     update_q = {
         "$set": {
-            "memory": new_memory.strip(),
+            "memory": clean_mem,
+            "embedding": _generate_embedding(clean_mem),
             "updated_at": now,
         },
         "$inc": {"version": 1},

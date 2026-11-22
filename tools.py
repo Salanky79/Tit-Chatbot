@@ -2,7 +2,6 @@ from contextvars import ContextVar
 from typing import Annotated, Any
 import json
 import math
-import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -143,8 +142,12 @@ def search_uploaded_documents(query: str) -> str:
 
 def _clean_source_name(name: str) -> str:
     """Normalize a source name by removing UUID prefix and unifying whitespace/underscores."""
-    cleaned = re.sub(r'^[a-f0-9\-]{36}_', '', name, flags=re.IGNORECASE)
-    return re.sub(r'[\s_]+', ' ', cleaned).strip().casefold()
+    cleaned = name
+    if len(cleaned) > 37 and cleaned[36] == "_":
+        prefix = cleaned[:36]
+        if all(c in "0123456789abcdefABCDEF-" for c in prefix) and prefix.count("-") == 4:
+            cleaned = cleaned[37:]
+    return " ".join(cleaned.replace("_", " ").split()).strip().casefold()
 
 
 def _select_uploaded_name(
@@ -278,21 +281,17 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
 # ---------------------------------------------------------------------------
 @tool
 def remember_this(memory: str) -> str:
-    """Save an important fact, preference, identity, or detail to the user's permanent long-term memory.
+    """Save persistent facts, personal attributes, preferences, or identity details to long-term memory.
 
     CRITICAL: This memory is permanently saved for the CURRENT USER across ALL their chat
-    conversations. When saved here, it can be recalled in any other chat of this user.
+    conversations. When saved here, it is automatically available in all future chats of this user.
 
-    Use this tool whenever the user explicitly asks you to remember or store something,
-    for example:
-    - "Nhớ rằng tôi tên là Sơn."
-    - "Remember that my name is Nam."
-    - "Tôi thích giao diện dark mode và lập trình Python."
-    - "Keep in mind that my birthday is March 15."
-    - "Lưu lại điều này: tôi đang học Đại học Công nghệ (UET)."
+    Use this tool whenever the user shares persistent personal information about themselves
+    (such as their name, identity, profession, preferences, habits, or background) in any
+    conversational style, or whenever they want a fact remembered for the future.
 
-    The memory string should be a concise, self-contained statement
-    capturing the key fact (e.g. "Tên người dùng là Sơn.").
+    The memory string should be a concise, self-contained factual statement
+    (e.g. 'Tên người dùng là Sơn.').
     Returns a confirmation message on success.
     """
     user_id = get_current_user_id() or None
@@ -324,12 +323,13 @@ def get_user_memories(
     state: Annotated[dict[str, Any], InjectedState],
     query: str = "",
 ) -> str:
-    """Retrieve this user's long-term memories for the agent to inspect.
+    """Retrieve this user's long-term memories using semantic search and profile reasoning.
 
-    A non-empty query first uses safe regex matching. If that finds no entries,
-    all active memories are returned for semantic review by the LLM. Use an
-    empty query to explicitly retrieve all active memories. The memory list is
-    for internal agent reasoning; never present it as a choice list to the user.
+    A non-empty query searches memories by semantic concept. If no close semantic
+    match is found, all active memories are automatically returned for the agent's review.
+    Pass an empty query ("") to inspect all active memories directly.
+
+    The memory list is for internal agent reasoning; never present it as a raw choice list to the user.
     """
     # Read only messages from the current user turn, not previous checkpointed
     # turns, so the one-full-read guard resets naturally on the next request.
@@ -339,12 +339,12 @@ def get_user_memories(
         if isinstance(message, HumanMessage):
             break
         if not isinstance(message, ToolMessage) or getattr(message, "name", None) != "get_user_memories":
-            continue # nếu không phải là ToolMessage của get_user_memories thì bỏ qua
+            continue
         try:
             prior_result = json.loads(message.content) if isinstance(message.content, str) else {}
         except (TypeError, json.JSONDecodeError):
             prior_result = {}
-        if prior_result.get("source") in {"all_requested", "fallback_no_regex_match"}: # query rỗng hoặc không tìm thấy regex, đã đọc toàn bộ memory
+        if prior_result.get("source") in {"all_requested", "fallback_no_semantic_match", "fallback_no_regex_match"}:
             full_read_already_used = True
             break
 

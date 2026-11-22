@@ -5,14 +5,13 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Any, Callable, Iterator
 
 from .retry import retry_with_backoff
 
 
 def _safe_component(value: str) -> str:
-    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    value = "".join(c if (c.isalnum() or c in "_.-") else "_" for c in value).strip("._")
     if not value:
         raise ValueError("run_id must contain at least one safe filename character")
     return value[:80]
