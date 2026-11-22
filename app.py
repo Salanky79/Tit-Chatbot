@@ -78,6 +78,7 @@ from services.rag import (
     delete_user_documents,
 )
 from services.image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
+from services.language import resolve_request_language, set_current_language, is_vietnamese
 from tools import set_current_thread_id, set_current_user_id
 
 
@@ -965,9 +966,11 @@ def _chat_event_generator(
     user_message: str,
     selected_model: str,
     config: dict[str, Any],
+    user_lang: str = "vi",
 ) -> Iterator[str]:
     set_current_thread_id(thread_id)
     set_current_user_id(user_id or "")
+    set_current_language(user_lang)
 
     final_answer = ""
 
@@ -1006,7 +1009,7 @@ def _chat_event_generator(
                 f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
                 f"Recovering partial answer (length: {len(final_answer)} chars)."
             )
-            full_message = handle_partial_stream(final_answer, selected_model, language="vi")
+            full_message = handle_partial_stream(final_answer, selected_model)
 
             # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
             if final_answer.strip():
@@ -1032,14 +1035,20 @@ def _chat_event_generator(
 
             if is_rate_limit(e):
                 logger.error(f"[RateLimit-TPM] Model '{selected_model}' hit Groq rate limit: {e}")
-                yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
-                })
+                err_msg = (
+                    f"⚠️ Mô hình '{selected_model}' đang tạm thời chạm giới hạn tốc độ theo phút (TPM). Vui lòng thử lại sau 15–30 giây."
+                    if is_vietnamese(user_lang)
+                    else f"⚠️ Model '{selected_model}' has temporarily reached its per-minute rate limit (TPM). Please try again in 15–30 seconds."
+                )
+                yield sse_data({"error": err_msg})
             elif is_model_unavailable:
                 logger.error(f"[ModelUnavailable] Model '{selected_model}' requires terms or is inaccessible: {e}")
-                yield sse_data({
-                    "error": f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
-                })
+                err_msg = (
+                    f"⚠️ Mô hình '{selected_model}' yêu cầu chấp thuận điều khoản sử dụng tại console.groq.com."
+                    if is_vietnamese(user_lang)
+                    else f"⚠️ Model '{selected_model}' requires accepting terms of use at console.groq.com."
+                )
+                yield sse_data({"error": err_msg})
             else:
                 logger.error(f"[ChatError] Error during chat streaming: {e}")
                 yield sse_data({"error": str(e)})
@@ -1089,6 +1098,9 @@ async def chat_stream(request: Request):
         }
     }
 
+    user_lang = resolve_request_language(request.headers)
+    set_current_language(user_lang)
+
     return StreamingResponse(
         _chat_event_generator(
             agent=agent,
@@ -1097,6 +1109,7 @@ async def chat_stream(request: Request):
             user_message=user_message,
             selected_model=selected_model,
             config=config,
+            user_lang=user_lang,
         ),
         media_type="text/event-stream",
         headers={

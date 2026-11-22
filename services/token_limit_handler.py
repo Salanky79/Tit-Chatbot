@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, Sequence, TypeVar
 
+from services.language import is_vietnamese
+
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
-
-_VIETNAMESE_LANGUAGES = {"vi", "vietnamese", "tiếng việt", "tieng viet"}
 
 
 def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
@@ -314,10 +314,17 @@ async def ainvoke_with_rate_limit_retry(
             await asyncio.sleep(decision.wait_seconds or 0.0)
 
 
-def _is_vietnamese(language: str) -> bool:
-    return language.lower() in _VIETNAMESE_LANGUAGES
+def format_tool_display_name(tool_name: str) -> str:
+    """Format technical tool identifiers (snake_case) into a clean, human-readable display string.
+
+    Tự động chuẩn hóa mọi tên tool (ví dụ 'analyze_uploaded_image' -> 'Analyze Uploaded Image'),
+    không cần duy trì bất kỳ từ điển hardcode nào, hỗ trợ không giới hạn số lượng công cụ.
+    """
+    clean = (tool_name or "").strip().replace("_", " ").strip()
+    return clean.title() if clean else "Tool"
 
 
+# Ngoại lệ mang theo các nhóm tóm tắt đã hoàn thành khi chạm trần token ngày.
 class DailyTokenLimitInterrupted(Exception):
     """Exception mang theo kết quả của các nhóm đã hoàn thành trước khi chạm trần token ngày."""
 
@@ -333,6 +340,7 @@ class DailyTokenLimitInterrupted(Exception):
         self.original_error = original_error
 
 
+# Kiểm tra xem ngoại lệ có phải do chạm trần token trong ngày (TPD / daily quota) hay không.
 def is_daily_token_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải do chạm trần token trong ngày (TPD / daily quota) hay không.
 
@@ -341,22 +349,25 @@ def is_daily_token_limit(exc: Exception | str) -> bool:
     return _has_daily_limit_marker(exc)
 
 
+# Kiểm tra nhanh xem ngoại lệ có phải là lỗi rate limit từ Groq hay không.
 def is_rate_limit(exc: Exception | str) -> bool:
     """Kiểm tra xem lỗi có phải là bất kỳ dạng rate limit nào từ Groq (TPM, RPM, TPD)."""
     return _is_rate_limit_exception(exc)
 
 
+# Xử lý câu trả lời Stream chat dở dang kèm thông báo lịch sự khi chạm trần token ngày.
 def handle_partial_stream(
     accumulated_text: str,
     model_name: str,
-    language: str = "vi",
+    language: str | None = None,
 ) -> str:
     """Xử lý câu trả lời Stream chat đang làm dở khi chạm trần token ngày.
 
+    - Tự động lấy ngôn ngữ từ ContextVar của request nếu không truyền tham số language.
     - Nếu đã có accumulated_text -> giữ nguyên và gắn thông báo đuôi.
     - Nếu accumulated_text rỗng -> trả về câu thông báo lịch sự hướng dẫn chọn model khác.
     """
-    is_vi = _is_vietnamese(language)
+    is_vi = is_vietnamese(language)
     clean_accumulated = (accumulated_text or "").strip()
 
     if clean_accumulated:
@@ -392,17 +403,18 @@ def handle_partial_stream(
     )
 
 
+# Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
 def assemble_partial_summary(
     completed_groups: Sequence[tuple[int, str]],
     total_groups: int,
     filename: str = "",
-    language: str = "auto",
+    language: str | None = None,
 ) -> str:
     """Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
 
     Bắt đầu bằng tiền tố hợp lệ để agent.py trả thẳng kết quả cho người dùng qua emit_summary.
     """
-    is_vi = _is_vietnamese(language) or language.lower() == "auto"
+    is_vi = is_vietnamese(language)
     safe_filename = filename.strip() or "tài liệu"
 
     # Sắp xếp theo đúng thứ tự nhóm ban đầu (1-based index)
@@ -425,7 +437,7 @@ def assemble_partial_summary(
         )
         return f"{prefix}{body}{footer}"
 
-    # Tiếng Anh
+    # Tiếng Anh và quốc tế
     prefix = f'Summary of "{safe_filename}" (Partial draft: {completed_count}/{total_groups} sections completed):\n\n'
     body_parts = []
     for idx, summary_text in sorted_groups:
@@ -441,18 +453,20 @@ def assemble_partial_summary(
     return f"{prefix}{body}{footer}"
 
 
+# Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày.
 def format_tool_limit_notice(
     tool_name: str,
     partial_info: str = "",
-    language: str = "vi",
+    language: str | None = None,
 ) -> str:
     """Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày."""
-    is_vi = _is_vietnamese(language)
+    is_vi = is_vietnamese(language)
     clean_partial = partial_info.strip()
+    display_tool = format_tool_display_name(tool_name)
 
     if is_vi:
         msg = (
-            f"⚠️ Tính năng `{tool_name}` tạm thời không thể hoàn thành do mô hình "
+            f"⚠️ Tính năng `{display_tool}` tạm thời không thể hoàn thành do mô hình "
             f"đã đạt giới hạn hạn mức token trong ngày của Groq API. "
         )
         if clean_partial:
@@ -462,7 +476,7 @@ def format_tool_limit_notice(
         return msg
 
     msg = (
-        f"⚠️ Feature `{tool_name}` could not complete because the model "
+        f"⚠️ Feature `{display_tool}` could not complete because the model "
         f"reached its daily token limit on Groq API. "
     )
     if clean_partial:

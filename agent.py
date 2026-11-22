@@ -24,7 +24,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from storage.mongo_client import get_client
 from prompts.agent import SYSTEM_PROMPT
-from tools import tools, SUMMARY_RESULT_PREFIX
+from tools import tools, SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI
 from services.context_manager import prepare_context_for_llm
 from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
@@ -87,7 +87,10 @@ def route_after_tools(state: AgentState) -> str:
         len(recent) == 1
         and getattr(recent[0], "name", None) == SUMMARY_TOOL_NAME
         and isinstance(recent[0].content, str)
-        and recent[0].content.startswith(SUMMARY_RESULT_PREFIX)
+        and (
+            recent[0].content.startswith(SUMMARY_RESULT_PREFIX)
+            or recent[0].content.startswith(SUMMARY_RESULT_PREFIX_VI)
+        )
     ):
         return "emit_summary"
     return "chatbot"

@@ -90,7 +90,7 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
         log_token_usage(str(vision_model), "Image Analysis", response)
     except Exception as exc:
         if is_daily_token_limit(exc):
-            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
+            return format_tool_limit_notice("analyze_uploaded_image")
         raise RuntimeError(f"Vision model could not analyze the image: {exc}") from exc
 
     content = getattr(response, "content", response)

@@ -247,7 +247,7 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
         answer = analyze_image(selected["image_path"], question)
     except Exception as exc:
         if is_daily_token_limit(exc):
-            return format_tool_limit_notice("Phân tích hình ảnh", language="vi")
+            return format_tool_limit_notice("analyze_uploaded_image")
         return f'Could not analyze "{selected["source"]}": {exc}'
     return f'Image analysis of "{selected["source"]}":\n\n{answer}'
 

@@ -3504,7 +3504,8 @@
             const response = await fetch("/chat/stream", {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "X-Language": navigator.language || "vi"
                 },
                 body: JSON.stringify({
                     message: submittedMessage,
