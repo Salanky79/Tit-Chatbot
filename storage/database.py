@@ -312,6 +312,15 @@ def delete_user(user_id: str | ObjectId) -> dict:
 
     # Tài khoản có thể dùng ObjectId hoặc chuỗi ID trong dữ liệu cũ.
     owner_filter = {"user_id": {"$in": [query_id, str(query_id)]}}
+    summary_jobs = get_collection("summary_jobs")
+    job_ids = [
+        job["_id"]
+        for job in summary_jobs.find({"context.user_id": str(query_id)}, {"_id": 1})
+    ]
+    if job_ids:
+        get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
+    summary_jobs.delete_many({"context.user_id": str(query_id)})
+
     for collection_name in (
         "sessions",
         "conversations",
@@ -654,6 +663,15 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     res = conv_coll.delete_one(query)
     if res.deleted_count > 0:
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
+        job_filter: dict[str, Any] = {"context.thread_id": thread_id}
+        if user_id is not None:
+            job_filter["context.user_id"] = str(user_id)
+        summary_jobs = get_collection("summary_jobs")
+        job_ids = [job["_id"] for job in summary_jobs.find(job_filter, {"_id": 1})]
+        if job_ids:
+            get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
+        summary_jobs.delete_many(job_filter)
+
         # long_term_memory gắn với user_id, không xóa theo thread_id đơn lẻ
         return True
     return False

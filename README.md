@@ -208,7 +208,9 @@ Khi người dùng yêu cầu tóm tắt toàn bộ file (ví dụ sách, tiểu
    - **Cơ chế Thích ứng (Single-Pass Stuffing):** Nếu tài liệu vừa và nhỏ ($\le 4.500$ tokens input budget, như bài tiểu luận ngắn), hệ thống thực hiện tóm tắt trong **1 lượt gọi LLM duy nhất**, hoàn thành chỉ trong ~4-6 giây.
    - **Pha Map-Reduce Đệ quy & Rate Limit Resilience:** Với tài liệu dài vượt ngân sách, hệ thống chia thành các nhóm map và tóm tắt đệ quy:
      * **Chạm ngưỡng 8.000 TPM:** Tự động trích xuất thời gian chờ qua regex (`_parse_wait_time`), ngủ `time.sleep(wait_seconds)` và retry tự động cho đến khi hoàn thành ("chạy khi nào xong thì thôi").
-     * **Chạm trần 200.000 TPD (Tokens Per Day):** Hệ thống nhận diện lỗi hết quota ngày và fail-fast ngay lập tức, trả về thông báo lỗi trực quan rõ ràng.
+     * **Hết quota của model:** Thử các model dự phòng theo `SUMMARIZATION_FALLBACK_MODELS`; nếu tất cả đều không khả dụng, lưu job ở trạng thái tạm dừng để tiếp tục sau.
+   - **Checkpoint & Resume:** Lưu kết quả từng nhóm Map/Reduce trong MongoDB. Khi người dùng tiếp tục cùng tài liệu, hệ thống chỉ chạy các nhóm chưa có kết quả. Khóa job dựa trên nội dung, ngôn ngữ và cấu hình pipeline, không phụ thuộc model.
+   - **Model failover:** Ưu tiên model đang chọn trong chat, sau đó lần lượt thử model dự phòng đã cấu hình. Các kết quả đã lưu vẫn được dùng khi đổi model.
    - **Ghi nhận Token Sử dụng:** Mọi lượt gọi Map và Reduce đều ghi log token qua `log_token_usage`.
 4. **Trả thẳng kết quả tại Đồ thị (`emit_summary_node`):** Sau khi `summarize_uploaded_document` trả về kết quả có tiền tố `Summary of `, `route_after_tools` chuyển thẳng sang `emit_summary_node` và kết thúc graph (`END`), hoàn toàn bỏ qua lượt gọi LLM thứ 2. Tiết kiệm ~20 giây và ~5.000 tokens TPM của mô hình 120B!
 5. **Dịch tức thì ở lượt tiếp theo (Turn-2 Zero-Reprocessing Translation):**
@@ -413,10 +415,7 @@ Trong môi trường Groq Free Tier, các mô hình lớn như `openai/gpt-oss-1
 
 2. **Giới hạn 200.000 TPD (Tokens Per Day) — Giới hạn tổng hạn ngạch theo ngày:**
    - **Bản chất:** Được tính toán theo **cửa sổ trượt 24 giờ (24-hour rolling window)**. Hạn mức sẽ không hồi phục toàn bộ cùng một lúc sau 24h, mà các token đã tiêu thụ sẽ được hoàn lại dần dần khi từng request tương ứng trôi qua mốc 24 giờ.
-   - **Giải pháp Fail-fast:**
-     * Khi kiểm tra thấy lỗi chứa các từ khóa `tokens per day`, `tpd`, `per day` hoặc thời gian chờ vượt quá 3 phút:
-     * Hệ thống nhận diện đây là cạn kiệt quota ngày chứ không phải nghẽn phút.
-     * Lập tức dừng retry (fail-fast), ghi log `[RateLimit-TPD]` và ném ra ngoại lệ `RuntimeError("Document summarization rate limit exceeded (Đã hết hạn mức 200.000 token trong ngày): ...")` để thông báo minh bạch cho người dùng, tránh việc server treo ngủ chờ đợi vô nghĩa.
+   - **Chính sách failover:** Khi model hiện tại hết quota ngày hoặc không khả dụng, `_invoke` thử lần lượt các model trong `SUMMARIZATION_FALLBACK_MODELS`. Nếu không model nào xử lý được, tác vụ được lưu ở trạng thái tạm dừng cùng checkpoint để tiếp tục sau.
 
 ---
 
@@ -610,7 +609,8 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
 - Hàm `_invoke`:
   * Tự động điều chỉnh quy tắc ngôn ngữ theo `target_language` (`auto`, `Vietnamese`, `English`).
   * Đo lường token qua `log_token_usage`.
-  * Bắt lỗi Rate Limit 429: Phân biệt chính xác giữa 8.000 TPM (nghẽn phút $\rightarrow$ tự động sleep và retry trong vòng lặp) và 200.000 TPD (hết quota ngày $\rightarrow$ fail-fast dừng ngay).
+  * Bắt lỗi Rate Limit 429: Retry lỗi TPM theo chính sách hiện có; với lỗi quota ngày hoặc model không khả dụng, thử các model dự phòng đã cấu hình.
+  * Resume: Lưu checkpoint Map/Reduce vào MongoDB, dùng lại kết quả khi tiếp tục cùng tài liệu và ngôn ngữ.
 - Hàm `summarize_documents`:
   * Tự thích ứng: Nếu tài liệu $\le 3.500$ tokens, tóm tắt trực tiếp trong 1 pass duy nhất.
   * Nếu tài liệu dài: chạy Map tuần tự kiểm soát quota TPM, sau đó Reduce đệ quy đa tầng.
@@ -821,7 +821,10 @@ Tạo file `.env` tại thư mục gốc với các thông số cấu hình:
 GROQ_API_KEY=gsk_your_groq_api_key_here
 GROQ_MODEL=openai/gpt-oss-20b
 GROQ_VISION_MODEL=qwen/qwen3.8-27b
+# Used when no chat model is available to the summarization tool
 SUMMARIZATION_MODEL=openai/gpt-oss-120b
+# Comma-separated backup models used when the active summarization model fails
+SUMMARIZATION_FALLBACK_MODELS=qwen/qwen3.8-27b,openai/gpt-oss-20b
 
 # ===========================================================================
 # Web Search Tool (Tavily Search API)

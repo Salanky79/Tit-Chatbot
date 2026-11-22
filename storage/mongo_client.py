@@ -137,6 +137,16 @@ def ensure_indexes() -> None:
             background=True
         )
 
+        # Resumable document summary checkpoints
+        summary_jobs = get_collection("summary_jobs")
+        summary_jobs.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
+        checkpoints = get_collection("summary_job_checkpoints")
+        checkpoints.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
+        checkpoints.create_index(
+            [("job_id", ASCENDING), ("stage", ASCENDING)],
+            background=True,
+        )
+
         # long_term_memory — compound index: user_id + is_deleted + created_at
         mem = get_collection("long_term_memory")
         mem.create_index(

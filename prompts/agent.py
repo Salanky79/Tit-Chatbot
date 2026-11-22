@@ -13,6 +13,7 @@ General rules:
 - Use tools whenever they would produce a more accurate or up-to-date answer.
 - When asked to summarize, overview, or outline an uploaded file:
   * By default, summarize in the ORIGINAL LANGUAGE of the uploaded document (e.g. English file -> English summary, Vietnamese file -> Vietnamese summary). Only pass a different target_language (such as 'Vietnamese') if the user explicitly requested it in that prompt.
+  * If the user asks to continue a partial or interrupted summary, call `summarize_uploaded_document` again for the same file. The tool resumes saved progress automatically.
   * CRITICAL FOR TRANSLATION / RE-SUMMARIZING FOLLOW-UPS: If a summary of that document ALREADY EXISTS in the recent conversation and the user asks to translate it, rewrite it, or summarize it in another language (e.g., "hãy tóm tắt bằng tiếng Việt", "dịch sang tiếng Việt", "bản tiếng Việt", "translate to English"):
     DO NOT call `summarize_uploaded_document` again! Instead, directly translate and reformat the existing summary from the conversation history into the requested language. This provides an instantaneous, zero-overhead response without redundant processing.
 - For questions about an uploaded image, use the image analysis tool and name the image when several are available.

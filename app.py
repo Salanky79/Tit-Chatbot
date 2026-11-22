@@ -29,7 +29,7 @@ from langchain_core.messages import (
     ToolMessage
 )
 
-from agent import get_agent, delete_user_checkpoints
+from agent import get_agent, delete_user_checkpoints, normalize_model_name
 from services.followups import FOLLOWUPS_ENABLED, generate_followup_questions
 from services.token_limit_handler import (
     handle_partial_stream,
@@ -79,7 +79,7 @@ from services.rag import (
 )
 from services.image_analysis import MAX_IMAGE_BYTES, SUPPORTED_IMAGE_TYPES
 from services.language import resolve_request_language, set_current_language, is_vietnamese
-from tools import set_current_thread_id, set_current_user_id
+from tools import set_current_thread_id, set_current_user_id, set_current_model_name
 
 
 app = FastAPI() # tạo ứng dụng backend FastAPI
@@ -970,6 +970,7 @@ def _chat_event_generator(
 ) -> Iterator[str]:
     set_current_thread_id(thread_id)
     set_current_user_id(user_id or "")
+    set_current_model_name(selected_model)
     set_current_language(user_lang)
 
     final_answer = ""
@@ -1069,7 +1070,7 @@ async def chat_stream(request: Request):
 
     user_message = data.get("message", "")
     thread_id = data.get("thread_id", "default")
-    selected_model = data.get("model", "openai/gpt-oss-20b")
+    selected_model = normalize_model_name(data.get("model", "openai/gpt-oss-20b"))
 
     if not user_message.strip():
         return JSONResponse(

@@ -35,6 +35,7 @@ load_dotenv()
 # Ngữ cảnh theo từng request (ContextVar) — an toàn tuyệt đối khi nhiều người dùng chat đồng thời
 _current_thread_id: ContextVar[str] = ContextVar("current_thread_id", default="default")
 _current_user_id: ContextVar[str] = ContextVar("current_user_id", default="")
+_current_model_name: ContextVar[str] = ContextVar("current_model_name", default="")
 
 # Tiền tố của kết quả tóm tắt THÀNH CÔNG. agent.py dựa vào đây để trả thẳng bản tóm tắt
 # cho người dùng mà không gọi LLM lần nữa (lỗi / câu hỏi làm rõ không có tiền tố này).
@@ -50,12 +51,20 @@ def set_current_user_id(user_id: str | None) -> None:
     _current_user_id.set(user_id or "")
 
 
+def set_current_model_name(model_name: str | None) -> None:
+    _current_model_name.set(model_name or "")
+
+
 def get_current_thread_id() -> str:
     return _current_thread_id.get()
 
 
 def get_current_user_id() -> str:
     return _current_user_id.get()
+
+
+def get_current_model_name() -> str:
+    return _current_model_name.get()
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +194,9 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     - 'auto' (default): Keep the document's original language (e.g., English file -> English summary, Vietnamese file -> Vietnamese summary).
     - 'Vietnamese': If the user explicitly requested Vietnamese for an English document.
     - 'English': If the user explicitly requested English.
+
+    If the same document has an interrupted summary in this conversation, this
+    tool automatically resumes from saved progress instead of starting over.
     """
     user_id = get_current_user_id() or None
     sources = list_document_sources(get_current_thread_id(), user_id=user_id)
@@ -202,7 +214,16 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
 
     try:
         chunks = get_document_chunks(selected, get_current_thread_id(), user_id=user_id)
-        summary = summarize_documents(chunks, target_language=target_language)
+        summary = summarize_documents(
+            chunks,
+            target_language=target_language,
+            job_context={
+                "user_id": str(user_id or ""),
+                "thread_id": get_current_thread_id(),
+                "source": selected,
+                "model": get_current_model_name(),
+            },
+        )
     except Exception as exc:
         if is_daily_token_limit(exc):
             return assemble_partial_summary([], 1, filename=selected, language=target_language)
