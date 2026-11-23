@@ -469,16 +469,18 @@ def create_or_update_conversation(
     thread_id: str,
     first_message: str | None = None,
     user_id: str | None = None,
+    is_temporary: bool = False,
 ) -> Any:
     """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``.
 
     - Nếu chưa tồn tại: insert với ``title`` lấy từ ``first_message`` (40 ký tự đầu).
     - Nếu đã tồn tại: cập nhật ``updated_at`` (và gắn ``user_id`` nếu chưa có).
+    - Temporary (is_temporary=True): gắn ``is_temporary=True`` và đặt TTL (30 ngày) để tự dọn dẹp.
     - Guest (user_id=None): gắn ``is_guest=True`` và ``expires_at`` = 24h sau để TTL tự dọn.
 
     Returns:
         Object-like với các thuộc tính ``thread_id``, ``title``,
-        ``created_at``, ``updated_at``, ``user_id``.
+        ``created_at``, ``updated_at``, ``user_id``, ``is_temporary``.
     """
     coll = get_collection("conversations")
     now = _now()
@@ -497,15 +499,23 @@ def create_or_update_conversation(
         "is_pinned": False,
     }
 
+    if is_temporary:
+        set_on_insert["is_temporary"] = True
+        set_fields["is_temporary"] = True
+        expiry = now + timedelta(days=30)
+        set_on_insert["expires_at"] = expiry
+        set_fields["expires_at"] = expiry
+
     oid = _to_object_id(user_id)
     if oid:
-        # Người dùng đã đăng nhập: gắn user_id (ObjectId), không có expires_at
+        # Người dùng đã đăng nhập: gắn user_id (ObjectId)
         set_fields["user_id"] = oid
         set_on_insert["is_guest"] = False
     else:
         # Guest: đánh dấu và đặt TTL 24h để MongoDB tự dọn
         set_on_insert["is_guest"] = True
-        set_on_insert["expires_at"] = now + timedelta(hours=24)
+        if not is_temporary:
+            set_on_insert["expires_at"] = now + timedelta(hours=24)
 
     coll.update_one(
         {"thread_id": thread_id},
@@ -545,7 +555,7 @@ def list_conversations(
         return []  # Guest không có lịch sử conversation
 
     coll = get_collection("conversations")
-    query = {"user_id": oid, "is_guest": {"$ne": True}}
+    query = {"user_id": oid, "is_guest": {"$ne": True}, "is_temporary": {"$ne": True}}
 
     try:
         cursor = (
@@ -647,6 +657,29 @@ def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool 
     return new_pinned
 
 
+def update_conversation_title(
+    thread_id: str,
+    new_title: str,
+    user_id: str | None = None
+) -> bool:
+    """Cập nhật tiêu đề cuộc trò chuyện, có kiểm tra quyền sở hữu user_id."""
+    if not thread_id or not isinstance(new_title, str) or not new_title.strip():
+        return False
+
+    clean_title = new_title.strip()[:100]
+    coll = get_collection("conversations")
+    query: dict[str, Any] = {"thread_id": thread_id}
+    if user_id is not None:
+        oid = _to_object_id(user_id)
+        query["user_id"] = {"$in": [oid, str(oid)]} if oid else user_id
+
+    res = coll.update_one(
+        query,
+        {"$set": {"title": clean_title, "updated_at": _now()}}
+    )
+    return res.matched_count > 0
+
+
 def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     """Xóa cuộc trò chuyện và toàn bộ tin nhắn liên quan.
     Nếu truyền user_id, chỉ xóa nếu cuộc trò chuyện thuộc về user_id đó.
@@ -671,6 +704,13 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
         if job_ids:
             get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
         summary_jobs.delete_many(job_filter)
+
+        # Dọn dẹp tài liệu vật lý và vector ChromaDB gắn với thread_id này
+        try:
+            from services.rag import delete_thread_documents
+            delete_thread_documents(thread_id)
+        except Exception as exc:
+            logger.warning("Không thể dọn tài liệu của thread %s: %s", thread_id, exc)
 
         # long_term_memory gắn với user_id, không xóa theo thread_id đơn lẻ
         return True
@@ -713,10 +753,14 @@ def save_chat_message(
     }
     if oid:
         doc["user_id"] = oid
-    msg_coll.insert_one(doc)
 
     # Cập nhật updated_at của conversation
     conv_coll = get_collection("conversations")
+    conv_doc = conv_coll.find_one({"thread_id": thread_id}, {"is_temporary": 1, "expires_at": 1})
+    if conv_doc and conv_doc.get("is_temporary") and conv_doc.get("expires_at"):
+        doc["expires_at"] = conv_doc["expires_at"]
+
+    msg_coll.insert_one(doc)
     update_fields: dict[str, Any] = {"updated_at": now}
     if oid:
         update_fields["user_id"] = oid
@@ -850,6 +894,11 @@ def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
     oid = _to_object_id(user_id)
     if not oid:
         return "Memory is only available for signed-in users. Please sign in to save memories."
+
+    if thread_id:
+        conv = get_conversation(thread_id)
+        if conv and conv.get("is_temporary"):
+            return "Temporary Chat is active: memory is not persisted."
 
     coll = get_collection("long_term_memory")
     now = _now()

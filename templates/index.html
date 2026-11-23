@@ -358,6 +358,10 @@
         .history-action-btn.pin-btn.is-pinned {
             color: var(--accent-soft);
         }
+        .history-action-btn.rename-btn:hover {
+            background: rgba(255, 255, 255, 0.16);
+            color: var(--accent-soft, #a5b4fc);
+        }
         .history-action-btn.delete-btn:hover {
             background: rgba(255, 107, 107, 0.2);
             color: #ff6b6b;
@@ -2305,6 +2309,103 @@
         .tit-sclera { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.7)); }
         .orbit-core:hover .tit-sclera { fill: #ff9aa3; }
         .tit-logo.redeye .tit-sclera { fill: #ff1f35; filter: drop-shadow(0 0 2.5px rgba(255, 31, 53, 1)); }
+
+        /* ---------- Temporary Chat Styles ---------- */
+        .temp-chat-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            user-select: none;
+            line-height: 1;
+            margin-right: 8px;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .temp-chat-toggle:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.32);
+            transform: translateY(-1px);
+        }
+
+        .temp-chat-toggle.active {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.55);
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.18);
+        }
+
+        .temp-chat-toggle .temp-spy-icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            display: block;
+        }
+
+        @media (max-width: 640px) {
+            .temp-chat-toggle .temp-label {
+                display: none;
+            }
+            .temp-chat-toggle {
+                padding: 6px;
+                margin-right: 2px;
+            }
+        }
+
+        .welcome.temporary-mode {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 70px 20px 40px;
+            text-align: center;
+        }
+
+        .temporary-hero-icon {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 22px;
+            color: #ffffff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            animation: tempPulse 2.8s ease-in-out infinite alternate;
+        }
+
+        @keyframes tempPulse {
+            0% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(255, 255, 255, 0.05); }
+            100% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px 4px rgba(255, 255, 255, 0.12); }
+        }
+
+        .welcome-title.temp-title {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin: 0 0 12px;
+            color: var(--text-main);
+        }
+
+        .welcome-subtitle.temp-subtitle {
+            max-width: 560px;
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            margin: 0 auto;
+        }
     </style>
 </head>
 
@@ -2349,9 +2450,16 @@
                     <line x1="3" y1="18" x2="21" y2="18"></line>
                 </svg>
             </button>
-            <div class="topbar-title">Tit Chatbot</div>
+            <div class="topbar-title" onclick="newChat()" style="cursor: pointer;" title="Về trang chủ / Cuộc trò chuyện mới">Tit Chatbot</div>
         </div>
         <div class="topbar-right">
+            <button class="temp-chat-toggle" id="tempChatToggle" onclick="toggleTemporaryChat()" aria-label="Trò chuyện tạm thời" title="Bật/Tắt trò chuyện tạm thời (Temporary chat)">
+                <svg class="temp-spy-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2.5c-3.1 0-5.1 1.2-6.1 3.8l-3.3 1.2c-.4.1-.6.5-.6.9 0 .6.4 1 1 1h18c.6 0 1-.4 1-1 0-.4-.2-.8-.6-.9l-3.3-1.2c-1-2.6-3-3.8-6.1-3.8zm-4.2 4c.6-1.6 1.9-2.3 4.2-2.3s3.6.7 4.2 2.3H7.8z"/>
+                    <path d="M5.5 12.5a3.5 3.5 0 0 0-3.5 3.5c0 1.9 1.6 3.5 3.5 3.5 1.6 0 3-1.1 3.4-2.6.4-.1.7-.1 1.1-.1.4 0 .7 0 1.1.1.4 1.5 1.8 2.6 3.4 2.6 1.9 0 3.5-1.6 3.5-3.5a3.5 3.5 0 0 0-3.5-3.5c-1.5 0-2.8.9-3.3 2.2-.4 0-.8-.1-1.2-.1s-.8.1-1.2.1c-.5-1.3-1.8-2.2-3.3-2.2z"/>
+                </svg>
+                <span class="temp-label">Temporary chat</span>
+            </button>
             <div class="status" id="status">Ready</div>
             <div id="topbarUserArea"></div>
         </div>
@@ -2621,7 +2729,26 @@
     }
 
     let pendingFile = null;
+    let isTemporaryChat = false;
     let threadId = localStorage.getItem("thread_id");
+
+    function toggleTemporaryChat() {
+        isTemporaryChat = !isTemporaryChat;
+        const btn = document.getElementById("tempChatToggle");
+        if (btn) {
+            btn.classList.toggle("active", isTemporaryChat);
+        }
+        renderWelcome();
+        if (messageInput) messageInput.focus();
+    }
+
+    function updateTemporaryChatVisibility() {
+        const tempBtn = document.getElementById("tempChatToggle");
+        if (!tempBtn) return;
+        const hasMessages = Boolean(chatContainer && chatContainer.querySelector(".message"));
+        tempBtn.style.display = hasMessages ? "none" : "inline-flex";
+        tempBtn.classList.toggle("active", isTemporaryChat);
+    }
 
     if (!threadId) {
         threadId = crypto.randomUUID();
@@ -2785,6 +2912,9 @@
 
         if (welcome) welcome.style.display = "none";
         if (cards) cards.style.display = "none";
+
+        const tempBtn = document.getElementById("tempChatToggle");
+        if (tempBtn) tempBtn.style.display = "none";
     }
 
     function handleKeyDown(event) {
@@ -3046,6 +3176,8 @@
 
                 const pinIconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="${conv.is_pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-2l-1.8-1.8a2 2 0 0 1-.6-1.4V6h1V4H6v2h1v5.8a2 2 0 0 1-.6 1.4L5 15v2z"></path></svg>`;
 
+                const dotsIconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`;
+
                 const trashIconSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
 
                 item.innerHTML = `
@@ -3054,6 +3186,9 @@
                     <div class="history-item-actions">
                         <button class="history-action-btn pin-btn ${conv.is_pinned ? 'is-pinned' : ''}" title="${conv.is_pinned ? 'Bỏ ghim' : 'Ghim lên đầu'}" aria-label="${conv.is_pinned ? 'Bỏ ghim' : 'Ghim'}">
                             ${pinIconSvg}
+                        </button>
+                        <button class="history-action-btn rename-btn" title="Đổi tên cuộc trò chuyện" aria-label="Đổi tên">
+                            ${dotsIconSvg}
                         </button>
                         <button class="history-action-btn delete-btn" title="Xóa cuộc trò chuyện" aria-label="Xóa">
                             ${trashIconSvg}
@@ -3068,6 +3203,14 @@
                     pinBtn.onclick = (e) => {
                         e.stopPropagation();
                         togglePinConversation(conv.thread_id);
+                    };
+                }
+
+                const renameBtn = item.querySelector(".rename-btn");
+                if (renameBtn) {
+                    renameBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        renameConversationPrompt(conv.thread_id, conv.title || "Đoạn chat mới");
                     };
                 }
 
@@ -3148,8 +3291,30 @@
         }
     }
 
+    async function renameConversationPrompt(id, currentTitle) {
+        const newTitle = prompt("Nhập tên mới cho cuộc trò chuyện:", currentTitle);
+        if (!newTitle || !newTitle.trim() || newTitle.trim() === currentTitle) return;
+        try {
+            const res = await fetch(`/conversations/${id}/title`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: newTitle.trim() })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                await loadConversations();
+            } else {
+                alert(data.error || "Không thể đổi tên cuộc trò chuyện.");
+            }
+        } catch (err) {
+            console.error("Failed to rename conversation:", err);
+            alert("Lỗi kết nối khi đổi tên cuộc trò chuyện.");
+        }
+    }
+
     async function loadConversation(selectedThreadId) {
         clearPendingAttachment();
+        isTemporaryChat = false;
         threadId = selectedThreadId;
         localStorage.setItem("thread_id", threadId);
 
@@ -3171,9 +3336,7 @@
             const data = await response.json();
 
             if (!data.messages || data.messages.length === 0) {
-                const w = document.getElementById("welcome");
-                const welcomeVisible = w && w.style.display !== "none" && !chatContainer.querySelector(".message");
-                if (!welcomeVisible) renderWelcome();
+                renderWelcome();
                 await loadConversations();
                 return;
             }
@@ -3187,10 +3350,12 @@
                 );
             });
 
+            updateTemporaryChatVisibility();
             await loadConversations();
 
         } catch (error) {
             console.error("Failed to load conversation:", error);
+            renderWelcome();
         }
     }
 
@@ -3221,6 +3386,24 @@
     };
 
     function welcomeMarkup() {
+        if (isTemporaryChat) {
+            return `
+                <div class="welcome temporary-mode" id="welcome">
+                    <div class="welcome-aura"></div>
+                    <div class="temporary-hero-icon" aria-hidden="true">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2.5c-3.1 0-5.1 1.2-6.1 3.8l-3.3 1.2c-.4.1-.6.5-.6.9 0 .6.4 1 1 1h18c.6 0 1-.4 1-1 0-.4-.2-.8-.6-.9l-3.3-1.2c-1-2.6-3-3.8-6.1-3.8zm-4.2 4c.6-1.6 1.9-2.3 4.2-2.3s3.6.7 4.2 2.3H7.8z"/>
+                            <path d="M5.5 12.5a3.5 3.5 0 0 0-3.5 3.5c0 1.9 1.6 3.5 3.5 3.5 1.6 0 3-1.1 3.4-2.6.4-.1.7-.1 1.1-.1.4 0 .7 0 1.1.1.4 1.5 1.8 2.6 3.4 2.6 1.9 0 3.5-1.6 3.5-3.5a3.5 3.5 0 0 0-3.5-3.5c-1.5 0-2.8.9-3.3 2.2-.4 0-.8-.1-1.2-.1s-.8.1-1.2.1c-.5-1.3-1.8-2.2-3.3-2.2z"/>
+                        </svg>
+                    </div>
+                    <h1 class="welcome-title temp-title">Temporary chat</h1>
+                    <p class="welcome-subtitle temp-subtitle">
+                        This chat can reference memory, plugins, and custom instructions, but it won't appear in your history
+                    </p>
+                </div>
+            `;
+        }
+
         const titleHtml = WELCOME_TITLE
             .split(" ")
             .map((word, i) => `<span class="w" style="--i:${i}">${escapeHtml(word)}</span>`)
@@ -3288,6 +3471,17 @@
 
     function renderWelcome() {
         chatContainer.innerHTML = welcomeMarkup();
+        updateTemporaryChatVisibility();
+        if (noticeText) {
+            noticeText.textContent = isTemporaryChat
+                ? "For safety, we may keep a copy of this chat for up to 30 days."
+                : "Tit can make mistakes. Check important info.";
+        }
+        if (messageInput) {
+            messageInput.placeholder = isTemporaryChat
+                ? "Ask anything in temporary chat..."
+                : "Ask anything, or attach a file and ask about it...";
+        }
     }
 
     // Cards: click / keyboard to use the prompt, plus a cursor-following spotlight
@@ -3362,6 +3556,7 @@
                 const formData = new FormData();
                 formData.append("file", attachment);
                 formData.append("thread_id", targetThreadId);
+                formData.append("is_temporary", isTemporaryChat ? "true" : "false");
 
                 const uploadResponse = await fetch("/upload", {
                     method: "POST",
@@ -3390,7 +3585,9 @@
             addMessage("assistant", uploadResult.message);
             sendBtn.disabled = false;
             statusText.textContent = "Ready";
-            await loadConversations();
+            if (!isTemporaryChat) {
+                await loadConversations();
+            }
             return;
         }
 
@@ -3452,7 +3649,8 @@
                 body: JSON.stringify({
                     message: submittedMessage,
                     thread_id: targetThreadId,
-                    model: selectedModel
+                    model: selectedModel,
+                    is_temporary: isTemporaryChat
                 })
             });
 
@@ -3522,7 +3720,14 @@
             statusText.textContent = "Ready";
             messageInput.focus();
 
-            await loadConversations();
+            if (!isTemporaryChat) {
+                await loadConversations();
+            } else {
+                localStorage.removeItem("thread_id");
+                if (noticeText) {
+                    noticeText.textContent = "For safety, we may keep a copy of this chat for up to 30 days.";
+                }
+            }
 
             // Kích hoạt luồng Follow-up chạy song song ngầm (người dùng không phải chờ đợi)
             const finalAnswer = (botElement.dataset.raw || "").trim();
@@ -3547,6 +3752,12 @@
     async function newChat() {
         clearPendingAttachment();
         threadId = crypto.randomUUID();
+        isTemporaryChat = false;
+        const tempBtn = document.getElementById("tempChatToggle");
+        if (tempBtn) {
+            tempBtn.classList.remove("active");
+            tempBtn.style.display = "inline-flex";
+        }
 
         if (currentUser) {
             // Đã đăng nhập: lưu thread_id để khôi phục khi reload

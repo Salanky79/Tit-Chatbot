@@ -1,7 +1,8 @@
 """Regression checks for the behavior-preserving cleanup."""
 
+import asyncio
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from bson import ObjectId
 
@@ -9,7 +10,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from agent import delete_user_checkpoints, route_after_tools
-from app import _can_access_conversation, _chat_event_generator, admin_delete_user
+from app import _can_access_conversation, _chat_event_generator, admin_delete_user, rename_conversation
 from services.context_manager import prepare_context_for_llm, prune_old_tool_results
 from services.rag import delete_user_documents
 from storage.database import (
@@ -19,6 +20,7 @@ from storage.database import (
     list_user_thread_ids,
     list_admin_conversations,
     get_admin_conversation_messages,
+    update_conversation_title,
 )
 from services.token_limit_handler import is_daily_token_limit, is_rate_limit, extract_retry_delay
 from tools import (
@@ -266,6 +268,75 @@ class AdminConversationTests(unittest.TestCase):
         cursor.sort.assert_called_once_with("created_at", 1)
         cursor.skip.assert_called_once_with(50)
         cursor.limit.assert_called_once_with(50)
+
+
+class ConversationRenameTests(unittest.TestCase):
+    def test_update_conversation_title_rejects_empty_inputs(self) -> None:
+        self.assertFalse(update_conversation_title("", "New Title"))
+        self.assertFalse(update_conversation_title("thread-1", "   "))
+        self.assertFalse(update_conversation_title("thread-1", None))
+
+    def test_update_conversation_title_applies_update_with_ownership(self) -> None:
+        user_id = ObjectId()
+        conversations = MagicMock()
+        mock_result = MagicMock()
+        mock_result.matched_count = 1
+        conversations.update_one.return_value = mock_result
+
+        with patch("storage.database.get_collection", return_value=conversations):
+            success = update_conversation_title("thread-1", "Tiêu đề mới", user_id=str(user_id))
+
+        self.assertTrue(success)
+        conversations.update_one.assert_called_once()
+        filter_query = conversations.update_one.call_args.args[0]
+        update_query = conversations.update_one.call_args.args[1]
+
+        self.assertEqual(filter_query["thread_id"], "thread-1")
+        self.assertIn("user_id", filter_query)
+        self.assertEqual(update_query["$set"]["title"], "Tiêu đề mới")
+        self.assertIn("updated_at", update_query["$set"])
+
+    def test_update_conversation_title_returns_false_when_not_matched(self) -> None:
+        conversations = MagicMock()
+        mock_result = MagicMock()
+        mock_result.matched_count = 0
+        conversations.update_one.return_value = mock_result
+
+        with patch("storage.database.get_collection", return_value=conversations):
+            success = update_conversation_title("thread-not-found", "Tiêu đề mới")
+
+        self.assertFalse(success)
+
+    def test_rename_endpoint_handles_permission_and_success(self) -> None:
+        mock_req = MagicMock()
+        mock_req.json = AsyncMock(return_value={"title": "Tên mới"})
+
+        # Case 1: Conversation not found
+        with patch("app.get_conversation", return_value=None):
+            resp = asyncio.run(rename_conversation("thread-1", mock_req))
+            self.assertEqual(resp.status_code, 404)
+
+        # Case 2: Forbidden ownership
+        with patch("app.get_conversation", return_value={"thread_id": "thread-1", "user_id": "other-user"}), \
+             patch("app.get_current_user", return_value={"id": "my-user"}):
+            resp = asyncio.run(rename_conversation("thread-1", mock_req))
+            self.assertEqual(resp.status_code, 403)
+
+        # Case 3: Empty title
+        mock_empty_req = MagicMock()
+        mock_empty_req.json = AsyncMock(return_value={"title": "   "})
+        with patch("app.get_conversation", return_value={"thread_id": "thread-1", "user_id": "my-user"}), \
+             patch("app.get_current_user", return_value={"id": "my-user"}):
+            resp = asyncio.run(rename_conversation("thread-1", mock_empty_req))
+            self.assertEqual(resp.status_code, 400)
+
+        # Case 4: Success
+        with patch("app.get_conversation", return_value={"thread_id": "thread-1", "user_id": "my-user"}), \
+             patch("app.get_current_user", return_value={"id": "my-user"}), \
+             patch("app.update_conversation_title", return_value=True):
+            resp = asyncio.run(rename_conversation("thread-1", mock_req))
+            self.assertEqual(resp["success"], True)
+            self.assertEqual(resp["title"], "Tên mới")
 
 
 class UserDeletionTests(unittest.TestCase):

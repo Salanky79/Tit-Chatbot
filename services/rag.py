@@ -573,6 +573,46 @@ def delete_user_documents(user_id: str) -> dict[str, int]:
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
 
 
+def delete_thread_documents(thread_id: str) -> dict[str, int]:
+    """Xóa chunks Chroma và file tải lên gắn với một thread_id cụ thể."""
+    if not thread_id:
+        return {"chunks_deleted": 0, "files_deleted": 0}
+
+    thread_filter = {"thread_id": str(thread_id)}
+    collection = get_vectorstore()._collection
+    result = collection.get(where=thread_filter, include=["metadatas"])
+    metadatas = result.get("metadatas") or []
+    file_paths = set()
+    for metadata in metadatas:
+        metadata = metadata or {}
+        file_path = metadata.get("file_path") or metadata.get("image_path")
+        if file_path:
+            file_paths.add(str(file_path))
+
+    upload_root = Path("uploads").resolve()
+    deleted_files = 0
+    for file_path in file_paths:
+        candidate = Path(file_path).resolve()
+        if candidate.is_relative_to(upload_root) and candidate.is_file():
+            try:
+                candidate.unlink()
+                deleted_files += 1
+            except OSError:
+                import gc
+                gc.collect()
+                try:
+                    candidate.unlink()
+                    deleted_files += 1
+                except OSError as exc:
+                    logger.warning("Could not remove uploaded file %s: %s", candidate, exc)
+
+    chunk_count = len(result.get("ids") or [])
+    if chunk_count:
+        collection.delete(where=thread_filter)
+
+    return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
+
+
 def delete_admin_document(document_key: str) -> bool:
     """Xóa tài liệu bằng metadata filter mà không tải toàn collection vào Python.
 

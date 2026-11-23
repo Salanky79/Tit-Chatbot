@@ -45,6 +45,7 @@ from storage.database import (
     get_conversation,
     delete_conversation,
     toggle_pin_conversation,
+    update_conversation_title,
     create_user,
     authenticate_user,
     get_user_by_id,
@@ -749,6 +750,54 @@ async def pin_conversation(thread_id: str, request: Request):
         "message": "Đã ghim cuộc trò chuyện." if new_pinned else "Đã bỏ ghim cuộc trò chuyện."
     }
 
+
+@app.patch("/conversations/{thread_id}/title")
+async def rename_conversation(thread_id: str, request: Request):
+    """Cập nhật tiêu đề cuộc trò chuyện (Rename)."""
+    user = get_current_user(request)
+    conv = get_conversation(thread_id)
+    if not conv:
+        return JSONResponse(
+            {"success": False, "error": "Cuộc trò chuyện không tồn tại."},
+            status_code=404
+        )
+
+    if not _can_access_conversation(conv, user):
+        return JSONResponse(
+            {"success": False, "error": "Bạn không có quyền đổi tên cuộc trò chuyện này."},
+            status_code=403
+        )
+
+    try:
+        data = await request.json()
+        new_title = data.get("title", "")
+        if not isinstance(new_title, str) or not new_title.strip():
+            return JSONResponse(
+                {"success": False, "error": "Tiêu đề không được để trống."},
+                status_code=400
+            )
+    except Exception:
+        return JSONResponse(
+            {"success": False, "error": "Dữ liệu JSON không hợp lệ."},
+            status_code=400
+        )
+
+    user_id = user["id"] if user else None
+    success = update_conversation_title(thread_id, new_title.strip(), user_id=user_id)
+    if not success:
+        return JSONResponse(
+            {"success": False, "error": "Không thể cập nhật tiêu đề."},
+            status_code=400
+        )
+
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "title": new_title.strip()[:100],
+        "message": "Đã đổi tên cuộc trò chuyện thành công."
+    }
+
+
 # phân quyền truy cập cuộc trò chuyện dựa trên user_id của người dùng và thread_id của cuộc trò chuyện. Nếu người dùng không phải là chủ sở hữu của cuộc trò chuyện, họ sẽ nhận được lỗi 403 (Forbidden).
 @app.get("/history/{thread_id}")
 async def history(thread_id: str, request: Request):
@@ -797,7 +846,8 @@ async def remove_conversation(thread_id: str, request: Request):
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
-    thread_id: str = Form(...)
+    thread_id: str = Form(...),
+    is_temporary: str = Form(default="false"),
 ):
     try:
         allowed_extensions = {".pdf", ".docx", ".txt", ".md", ".py", ".csv"}
@@ -836,7 +886,11 @@ async def upload_document(
 
         user = get_current_user(request)
         user_id = user["id"] if user else None
-        create_or_update_conversation(thread_id, "Uploaded document", user_id=user_id)
+        is_temp_bool = str(is_temporary).strip().lower() in ("true", "1")
+        conv = get_conversation(thread_id)
+        if not is_temp_bool and conv and conv.get("is_temporary"):
+            is_temp_bool = True
+        create_or_update_conversation(thread_id, "Uploaded document", user_id=user_id, is_temporary=is_temp_bool)
 
         if suffix in SUPPORTED_IMAGE_TYPES:
             # Dùng chung UUID của file lưu trên disk để liên kết metadata Chroma với file gốc.
@@ -1089,8 +1143,12 @@ async def chat_stream(request: Request):
             status_code=403
         )
 
+    is_temporary = bool(data.get("is_temporary", False))
+    if not is_temporary and conv and conv.get("is_temporary"):
+        is_temporary = True
+
     agent = get_agent(selected_model)
-    create_or_update_conversation(thread_id, user_message, user_id=user_id)
+    create_or_update_conversation(thread_id, user_message, user_id=user_id, is_temporary=is_temporary)
     save_chat_message(thread_id, "user", user_message, user_id=user_id)
 
     config = {

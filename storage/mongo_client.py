@@ -136,6 +136,12 @@ def ensure_indexes() -> None:
             [("thread_id", ASCENDING), ("created_at", ASCENDING)],
             background=True
         )
+        # TTL index tự động xóa tin nhắn của các cuộc trò chuyện tạm thời / hết hạn
+        msgs.create_index(
+            [("expires_at", ASCENDING)],
+            expireAfterSeconds=0,
+            background=True,
+        )
 
         # Resumable document summary checkpoints
         summary_jobs = get_collection("summary_jobs")
