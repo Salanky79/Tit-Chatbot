@@ -257,7 +257,7 @@ async def auth_avatar(request: Request, file: UploadFile = File(...)):
     with open(target_path, "wb") as f:
         f.write(content)
 
-    avatar_url = f"/uploads/avatars/{safe_filename}"
+    avatar_url = f"/api/uploads/avatars/{safe_filename}"
     updated_user = update_user_profile(user["id"], avatar_url=avatar_url)
 
     return JSONResponse({

@@ -153,7 +153,14 @@
         /* ---------- Panels ---------- */
         .panel { margin: 18px 0; padding: 22px; }
         .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
-        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+        .toolbar { display: grid; align-items: stretch; gap: 10px; margin-bottom: 16px; }
+        .toolbar-users { grid-template-columns: minmax(0, 1fr) auto; }
+        .toolbar-search { grid-template-columns: minmax(0, 1fr) auto; }
+        .toolbar-documents { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(145px, 0.65fr) auto; }
+        .toolbar .field { min-width: 0; }
+        .toolbar input, .toolbar select { min-width: 0; width: 100%; }
+        .toolbar select { min-width: 145px; }
+        .toolbar .action { min-height: 44px; align-self: stretch; }
 
         .field { position: relative; flex: 1 1 220px; min-width: 180px; }
         .field svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; transition: color 0.25s; }
@@ -270,11 +277,16 @@
         .dialog-actions { display: flex; gap: 10px; }
         .dialog-actions .action { flex: 1; padding: 12px 16px; }
 
+        @media (max-width: 900px) {
+            .toolbar-documents { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
         @media (max-width: 720px) {
             body { padding: 16px; }
             h1 { font-size: 23px; }
             .kpis { grid-template-columns: 1fr; }
             .panel { padding: 16px; }
+            .toolbar-users, .toolbar-documents { grid-template-columns: minmax(0, 1fr); }
+            .toolbar .action { width: 100%; }
             table { min-width: 720px; }
             .pager { justify-content: space-between; }
             .pager span { min-width: 0; font-size: 12.5px; }
@@ -343,7 +355,7 @@
 
     <section class="panel reveal" style="--d: 230">
         <div class="panel-head"><h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Người dùng</h2></div>
-        <div class="toolbar">
+        <div class="toolbar toolbar-users">
             <div class="field">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input id="userSearch" type="search" placeholder="Tìm tên, username hoặc email" onkeydown="if(event.key==='Enter') loadUsers(1)">
@@ -368,7 +380,7 @@
             <div><h2>Lịch sử hội thoại</h2><div class="muted" id="historyUserTitle"></div></div>
             <button class="action" data-action="close-user-history">Đóng</button>
         </div>
-        <div class="toolbar">
+        <div class="toolbar toolbar-search">
             <div class="field">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input id="conversationSearch" type="search" placeholder="Tìm theo tiêu đề hội thoại" onkeydown="if(event.key==='Enter') loadUserConversations(1)">
@@ -398,7 +410,7 @@
 
     <section class="panel reveal" style="--d: 300">
         <div class="panel-head"><h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Tài liệu</h2></div>
-        <div class="toolbar">
+        <div class="toolbar toolbar-documents">
             <div class="field">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input id="docSearch" type="search" placeholder="Tìm theo tên tài liệu" onkeydown="if(event.key==='Enter') loadDocuments(1)">
@@ -545,7 +557,7 @@
         try {
             const search = document.getElementById("userSearch").value.trim();
             const params = new URLSearchParams({ search: search, page: page, page_size: pageSize });
-            const data = await requestJson(`/admin/api/users?${params}`);
+            const data = await requestJson(`/api/admin/users?${params}`);
             userPage = data.page;
             userTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
             if (!search) animateNumber("kpiUsers", data.total);
@@ -596,7 +608,7 @@
                 page,
                 page_size: conversationPageSize,
             });
-            const data = await requestJson(`/admin/api/users/${encodeURIComponent(requestedUserId)}/conversations?${params}`);
+            const data = await requestJson(`/api/admin/users/${encodeURIComponent(requestedUserId)}/conversations?${params}`);
             // Bỏ response cũ nếu Admin đã chọn user khác trong lúc request chạy.
             if (!selectedUser || selectedUser.id !== requestedUserId) return;
             conversationPage = data.page;
@@ -626,7 +638,7 @@
         document.getElementById("messageViewer").hidden = false;
         try {
             const params = new URLSearchParams({ page, page_size: messagePageSize });
-            const url = `/admin/api/users/${encodeURIComponent(requestedUserId)}/conversations/${encodeURIComponent(requestedThreadId)}/messages?${params}`;
+            const url = `/api/admin/users/${encodeURIComponent(requestedUserId)}/conversations/${encodeURIComponent(requestedThreadId)}/messages?${params}`;
             const data = await requestJson(url);
             // Không render message response nếu Admin đã đổi user hoặc thread.
             if (!selectedUser || selectedUser.id !== requestedUserId || selectedThreadId !== requestedThreadId) return;
@@ -676,7 +688,7 @@
         });
         if (!ok) return;
         try {
-            await requestJson(`/admin/api/users/${encodeURIComponent(userId)}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) });
+            await requestJson(`/api/admin/users/${encodeURIComponent(userId)}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive }) });
             showMessage(""); await loadUsers(userPage);
         } catch (error) { showMessage(error.message); }
     }
@@ -693,7 +705,7 @@
         const visibleUserCount = document.querySelectorAll("#usersBody tr.row-in").length;
         const refreshPage = userPage > 1 && visibleUserCount === 1 ? userPage - 1 : userPage;
         try {
-            await requestJson(`/admin/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+            await requestJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
             if (selectedUser?.id === userId) closeUserHistory();
             showMessage(`Đã xóa tài khoản @${username} và dữ liệu liên quan.`);
             await loadUsers(refreshPage);
@@ -714,7 +726,7 @@
                 file_type: document.getElementById("docType").value,
             };
             const params = new URLSearchParams({ ...filters, page: page, page_size: pageSize });
-            const data = await requestJson(`/admin/api/documents?${params}`);
+            const data = await requestJson(`/api/admin/documents?${params}`);
             documentPage = data.page;
             documentTotalPages = Math.max(1, Math.ceil(data.total / data.page_size));
             if (!filters.search && !filters.user_id && !filters.file_type) animateNumber("kpiDocs", data.total);
@@ -743,7 +755,7 @@
         });
         if (!ok) return;
         try {
-            await requestJson(`/admin/api/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+            await requestJson(`/api/admin/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
             showMessage(""); await loadDocuments(documentPage);
         } catch (error) { showMessage(error.message); }
     }

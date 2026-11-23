@@ -106,12 +106,12 @@ def startup_event() -> None:
         logger.warning("Could not initialize MongoDB indexes on startup: %s", exc)
 
 
-app.include_router(_auth_router)
+app.include_router(_auth_router, prefix="/api")
 app.include_router(_pages_router)
-app.include_router(_admin_router)
-app.include_router(_conversations_router)
-app.include_router(_documents_router)
-app.include_router(_chat_router)
+app.include_router(_admin_router, prefix="/api")
+app.include_router(_conversations_router, prefix="/api")
+app.include_router(_documents_router, prefix="/api")
+app.include_router(_chat_router, prefix="/api")
 
 
 if __name__ == "__main__":

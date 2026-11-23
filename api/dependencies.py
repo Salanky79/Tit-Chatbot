@@ -79,6 +79,9 @@ def _serialize_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
         d["created_at"] = d["created_at"].isoformat()
     if hasattr(d.get("updated_at"), "isoformat"):
         d["updated_at"] = d["updated_at"].isoformat()
+    avatar_url = d.get("avatar_url")
+    if isinstance(avatar_url, str) and avatar_url.startswith("/uploads/avatars/"):
+        d["avatar_url"] = f"/api{avatar_url}"
     return d
 
 
@@ -167,11 +170,12 @@ def _set_challenge_cookie(response: JSONResponse, secret: str, request: Request)
     response.set_cookie(
         key=AUTH_CHALLENGE_COOKIE, value=secret, httponly=True,
         secure=request.url.scheme == "https", samesite="lax",
-        max_age=15 * 60, path="/auth",
+        max_age=15 * 60, path="/api/auth",
     )
 
 
 def _clear_challenge_cookie(response: JSONResponse) -> None:
+    response.delete_cookie(key=AUTH_CHALLENGE_COOKIE, path="/api/auth")
     response.delete_cookie(key=AUTH_CHALLENGE_COOKIE, path="/auth")
 
 
