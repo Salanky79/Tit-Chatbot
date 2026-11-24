@@ -112,6 +112,8 @@ app.include_router(_admin_router, prefix="/api")
 app.include_router(_conversations_router, prefix="/api")
 app.include_router(_documents_router, prefix="/api")
 app.include_router(_chat_router, prefix="/api")
+# Alias tương thích ngược cho các URL ảnh đại diện cũ chưa có tiền tố /api
+app.add_api_route("/uploads/avatars/{filename}", get_avatar_file, methods=["GET"])
 
 
 if __name__ == "__main__":
