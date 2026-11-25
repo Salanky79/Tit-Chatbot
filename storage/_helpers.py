@@ -71,6 +71,23 @@ def _conv_to_obj(doc: dict[str, Any] | None) -> SimpleNamespace | None:
     return SimpleNamespace(**converted)
 
 
+VALID_BASE_STYLES = ("default", "professional", "friendly", "efficient", "creative")
+MAX_CUSTOM_INSTRUCTIONS_LEN = 1500
+
+
+def normalize_personalization(raw: Any) -> dict[str, str]:
+    """Chuẩn hóa cấu hình cá nhân hóa (base_style, custom_instructions) về giá trị an toàn."""
+    data = raw if isinstance(raw, dict) else {}
+    style = str(data.get("base_style") or "default").strip().lower()
+    if style not in VALID_BASE_STYLES:
+        style = "default"
+    instructions = str(data.get("custom_instructions") or "").strip()[:MAX_CUSTOM_INSTRUCTIONS_LEN]
+    return {
+        "base_style": style,
+        "custom_instructions": instructions,
+    }
+
+
 def _public_user(
     user: dict[str, Any], user_id: str | ObjectId | None = None
 ) -> dict[str, Any]:
@@ -85,6 +102,7 @@ def _public_user(
         # Mặc định này giữ cho tài khoản tạo trước tính năng Admin tiếp tục hoạt động.
         "role": user.get("role", "user"),
         "is_active": user.get("is_active", True),
+        "personalization": normalize_personalization(user.get("personalization")),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }

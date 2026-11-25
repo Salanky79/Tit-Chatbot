@@ -8,12 +8,15 @@ from bson import ObjectId
 
 from storage.mongo_client import get_collection as _mongo_get_collection
 from storage._helpers import (
+    MAX_CUSTOM_INSTRUCTIONS_LEN,
+    VALID_BASE_STYLES,
     _conv_to_obj as _conv_to_obj_impl,
     _now as _now_impl,
     _public_user as _public_user_impl,
     _to_object_id as _to_object_id_impl,
     database_callable,
     hash_password as _hash_password_impl,
+    normalize_personalization,
     verify_password as _verify_password_impl,
 )
 
@@ -334,3 +337,39 @@ def update_user_profile(
         user = users.find_one({"_id": query_id})
 
     return _public_user(user)
+
+
+def update_user_personalization(
+    user_id: str | ObjectId,
+    *,
+    base_style: str | None = None,
+    custom_instructions: str | None = None,
+) -> dict:
+    """Cập nhật cài đặt cá nhân hóa (base_style, custom_instructions) của người dùng."""
+    if not user_id:
+        raise ValueError("ID người dùng không hợp lệ.")
+
+    users = get_collection("users")
+    query_id = _to_object_id(user_id) or user_id
+    user = users.find_one({"_id": query_id})
+    if not user:
+        raise ValueError("Không tìm thấy thông tin người dùng.")
+
+    current = normalize_personalization(user.get("personalization"))
+    if base_style is not None:
+        clean_style = str(base_style).strip().lower()
+        if clean_style not in VALID_BASE_STYLES:
+            raise ValueError(
+                f"Phong cách trả lời không hợp lệ. Chọn một trong: {', '.join(VALID_BASE_STYLES)}."
+            )
+        current["base_style"] = clean_style
+
+    if custom_instructions is not None:
+        current["custom_instructions"] = str(custom_instructions).strip()[:MAX_CUSTOM_INSTRUCTIONS_LEN]
+
+    users.update_one(
+        {"_id": query_id},
+        {"$set": {"personalization": current, "updated_at": _now()}},
+    )
+    updated_user = users.find_one({"_id": query_id})
+    return _public_user(updated_user)

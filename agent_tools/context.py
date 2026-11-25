@@ -10,6 +10,8 @@ _current_project_memory_mode: ContextVar[str] = ContextVar("current_project_memo
 _current_project_chat_enabled: ContextVar[bool] = ContextVar("current_project_chat_enabled", default=False)
 _current_project_instructions: ContextVar[str] = ContextVar("current_project_instructions", default="")
 _current_project_context: ContextVar[str] = ContextVar("current_project_context", default="")
+_current_personalization_style: ContextVar[str] = ContextVar("current_personalization_style", default="default")
+_current_personalization_instructions: ContextVar[str] = ContextVar("current_personalization_instructions", default="")
 
 SUMMARY_RESULT_PREFIX = "Summary of "
 SUMMARY_RESULT_PREFIX_VI = "B\u1ea3n t\u00f3m t\u1eaft c\u1ee7a "
@@ -75,3 +77,17 @@ def get_current_project_instructions() -> str:
 def get_current_project_context() -> str:
     """Lấy ngữ cảnh Project đã nạp cho request hiện tại."""
     return _current_project_context.get()
+
+
+def set_current_personalization(base_style: str | None = None, custom_instructions: str | None = None) -> None:
+    """Đặt phong cách và hướng dẫn cá nhân cho request chat hiện tại."""
+    _current_personalization_style.set((base_style or "default").strip().lower() or "default")
+    _current_personalization_instructions.set((custom_instructions or "").strip())
+
+
+def get_current_personalization() -> dict[str, str]:
+    """Lấy cấu hình cá nhân hóa (base_style, custom_instructions) của request hiện tại."""
+    return {
+        "base_style": _current_personalization_style.get(),
+        "custom_instructions": _current_personalization_instructions.get(),
+    }

@@ -24,8 +24,14 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from storage.mongo_client import get_client
 from prompts.agent import SYSTEM_PROMPT
+from prompts.personalization import BASE_STYLE_PROMPTS, build_personalization_prompt_suffix
 from tools import tools, SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI
-from agent_tools.context import get_current_project_context, get_current_project_instructions, is_project_chat
+from agent_tools.context import (
+    get_current_personalization,
+    get_current_project_context,
+    get_current_project_instructions,
+    is_project_chat,
+)
 from services.context_manager import prepare_context_for_llm
 from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
@@ -202,6 +208,7 @@ def build_agent(model_name: str) -> Any:
 
         dynamic_system_prompt = SYSTEM_PROMPT
         if is_project_chat():
+            # Trong Project: chỉ áp dụng Project Instructions & Context, cách ly hoàn toàn với Personalization cá nhân.
             instructions = get_current_project_instructions().strip()
             project_context = get_current_project_context().strip()
             if instructions:
@@ -216,6 +223,13 @@ def build_agent(model_name: str) -> Any:
                     f"{project_context}\n"
                     "[End project context]"
                 )
+        else:
+            # Ngoài Project (chat cá nhân): áp dụng Base style & tone (~12-20 tokens) và Custom Instructions của user.
+            personalization = get_current_personalization()
+            dynamic_system_prompt += build_personalization_prompt_suffix(
+                personalization.get("base_style"),
+                personalization.get("custom_instructions"),
+            )
 
         final_messages, updated_summary = prepare_context_for_llm(
             messages=state.get("messages", []),

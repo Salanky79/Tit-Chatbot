@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import uuid
@@ -33,6 +34,7 @@ from api.dependencies import (
     save_chat_message,
     set_current_language,
     set_current_model_name,
+    set_current_personalization,
     set_current_project,
     set_project_prompt_context,
     set_current_thread_id,
@@ -44,6 +46,7 @@ router = APIRouter()
 set_current_thread_id = app_callable('set_current_thread_id', set_current_thread_id)
 set_current_user_id = app_callable('set_current_user_id', set_current_user_id)
 set_current_model_name = app_callable('set_current_model_name', set_current_model_name)
+set_current_personalization = app_callable('set_current_personalization', set_current_personalization)
 set_current_language = app_callable('set_current_language', set_current_language)
 is_vietnamese = app_callable('is_vietnamese', is_vietnamese)
 save_chat_message = app_callable('save_chat_message', save_chat_message)
@@ -231,6 +234,29 @@ def extract_text_from_chunk(chunk: Any) -> str:
     return ""
 
 
+def _apply_chat_context(
+    *,
+    thread_id: str,
+    user_id: str | None,
+    selected_model: str,
+    user_lang: str,
+    project_id: str | None,
+    project_memory_mode: str,
+    project_instructions: str,
+    project_context: str,
+    personalization: dict[str, Any] | None,
+) -> None:
+    """Thiết lập toàn bộ ContextVar cho request chat hiện tại."""
+    set_current_thread_id(thread_id)
+    set_current_user_id(user_id or "")
+    set_current_model_name(selected_model)
+    set_current_language(user_lang)
+    set_current_project(project_id, project_memory_mode)
+    set_project_prompt_context(project_instructions, project_context)
+    pers = personalization or {}
+    set_current_personalization(pers.get("base_style"), pers.get("custom_instructions"))
+
+
 def _chat_event_generator(
     agent: Any,
     thread_id: str,
@@ -243,17 +269,28 @@ def _chat_event_generator(
     project_memory_mode: str = "",
     project_instructions: str = "",
     project_context: str = "",
+    personalization: dict[str, Any] | None = None,
 ) -> Iterator[str]:
-    """Stream câu trả lời và đặt context Project cho agent tools."""
-    set_current_thread_id(thread_id)
-    set_current_user_id(user_id or "")
-    set_current_model_name(selected_model)
-    set_current_language(user_lang)
-    set_current_project(project_id, project_memory_mode)
-    set_project_prompt_context(project_instructions, project_context)
+    """Stream câu trả lời và giữ ContextVar xuyên suốt mọi lần yield qua threadpool."""
+    # Starlette iterate_in_threadpool chạy mỗi bước next() qua anyio.to_thread.run_sync (copy context mới mỗi lần).
+    # Gói agent.stream vào một stream_ctx cố định để user_id/project/personalization không bị reset sau yield đầu tiên.
+    stream_ctx = contextvars.copy_context()
+    stream_ctx.run(
+        _apply_chat_context,
+        thread_id=thread_id,
+        user_id=user_id,
+        selected_model=selected_model,
+        user_lang=user_lang,
+        project_id=project_id,
+        project_memory_mode=project_memory_mode,
+        project_instructions=project_instructions,
+        project_context=project_context,
+        personalization=personalization,
+    )
 
     final_answer = ""
     reasoning_splitter = _ReasoningTagSplitter()
+    stream_sentinel = object()
 
     try:
         inputs = {
@@ -262,11 +299,14 @@ def _chat_event_generator(
             ]
         }
 
-        for chunk, metadata in agent.stream(
-            inputs,
-            config=config,
-            stream_mode="messages"
-        ):
+        stream_iter = stream_ctx.run(
+            lambda: iter(agent.stream(inputs, config=config, stream_mode="messages"))
+        )
+        while True:
+            item = stream_ctx.run(next, stream_iter, stream_sentinel)
+            if item is stream_sentinel:
+                break
+            chunk, metadata = item
             if not should_stream_chunk(chunk, metadata):
                 continue
 
@@ -304,7 +344,7 @@ def _chat_event_generator(
                 f"[DailyTokenLimit] Model '{selected_model}' hit daily limit during stream. "
                 f"Recovering partial answer (length: {len(final_answer)} chars)."
             )
-            full_message = handle_partial_stream(final_answer, selected_model)
+            full_message = stream_ctx.run(handle_partial_stream, final_answer, selected_model)
 
             # Nếu trước đó đã stream một phần ra màn hình -> chỉ cần stream phần thông báo đuôi
             if final_answer.strip():
@@ -427,7 +467,18 @@ async def chat_stream(request: Request):
     }
 
     user_lang = resolve_request_language(request.headers)
-    set_current_language(user_lang)
+    personalization = user.get("personalization") if user else None
+    _apply_chat_context(
+        thread_id=thread_id,
+        user_id=user_id,
+        selected_model=selected_model,
+        user_lang=user_lang,
+        project_id=project_id,
+        project_memory_mode=project_memory_mode,
+        project_instructions=project_instructions,
+        project_context=project_context,
+        personalization=personalization,
+    )
 
     return StreamingResponse(
         _chat_event_generator(
@@ -442,6 +493,7 @@ async def chat_stream(request: Request):
             project_memory_mode=project_memory_mode,
             project_instructions=project_instructions,
             project_context=project_context,
+            personalization=personalization,
         ),
         media_type="text/event-stream",
         headers={

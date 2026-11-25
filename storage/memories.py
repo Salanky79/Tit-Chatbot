@@ -315,3 +315,34 @@ def delete_memory_by_id(
         return f"Lỗi xung đột phiên bản: Memory [{memory_id}] hiện là version {current_ver}, khác với version {version} bạn cung cấp."
 
     return f"Lỗi: Không thể xóa memory [{memory_id}]."
+
+
+def delete_user_memory_by_id_for_settings(user_id: str, memory_id: str) -> bool:
+    """Xóa mềm một bản ghi memory cá nhân từ giao diện Settings (không yêu cầu version)."""
+    user_oid = _to_object_id(user_id)
+    mem_oid = _to_object_id(memory_id)
+    if not user_oid or not mem_oid:
+        return False
+    now = _now()
+    res = get_collection("long_term_memory").update_one(
+        {"_id": mem_oid, "user_id": user_oid, "is_deleted": False},
+        {"$set": {"is_deleted": True, "deleted_at": now, "updated_at": now}, "$inc": {"version": 1}},
+    )
+    return res.matched_count == 1
+
+
+def delete_all_personal_memories(user_id: str) -> int:
+    """Xóa mềm toàn bộ bộ nhớ cá nhân (không đụng tới memory của Project) thuộc user_id."""
+    user_oid = _to_object_id(user_id)
+    if not user_oid:
+        return 0
+    now = _now()
+    res = get_collection("long_term_memory").update_many(
+        {
+            "user_id": user_oid,
+            "is_deleted": False,
+            "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+        },
+        {"$set": {"is_deleted": True, "deleted_at": now, "updated_at": now}, "$inc": {"version": 1}},
+    )
+    return int(res.modified_count)

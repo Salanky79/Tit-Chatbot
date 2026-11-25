@@ -64,7 +64,7 @@ from services.rag import (
     list_admin_documents,
 )
 from tools import (
-    set_current_model_name, set_current_thread_id, set_current_user_id,
+    set_current_model_name, set_current_personalization, set_current_thread_id, set_current_user_id,
     set_current_project, set_project_prompt_context,
 )
 

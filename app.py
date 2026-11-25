@@ -88,6 +88,7 @@ from api.chat import (
     chat_stream, extract_text_from_chunk, should_stream_chunk, sse_data,
 )
 from api.projects import router as _projects_router
+from api.personalization import router as _personalization_router
 
 logger = logging.getLogger(__name__)
 app = FastAPI()
@@ -114,6 +115,7 @@ app.include_router(_conversations_router, prefix="/api")
 app.include_router(_documents_router, prefix="/api")
 app.include_router(_chat_router, prefix="/api")
 app.include_router(_projects_router, prefix="/api")
+app.include_router(_personalization_router, prefix="/api")
 # Alias tương thích ngược cho các URL ảnh đại diện cũ chưa có tiền tố /api
 app.add_api_route("/uploads/avatars/{filename}", get_avatar_file, methods=["GET"])
 

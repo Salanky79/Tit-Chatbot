@@ -1650,9 +1650,71 @@
         #topbarUserArea { display: flex; align-items: center; gap: 10px; }
 
         .sidebar-user-section {
+            position: relative;
             margin-top: auto;
             padding-top: 14px;
             border-top: 1px solid var(--border-color);
+        }
+
+        /* User Account Popover Menu */
+        .user-account-menu {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: calc(100% + 8px);
+            background: #170d0f;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            padding: 6px;
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(255, 43, 61, 0.12);
+            z-index: 60;
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            animation: modalPopIn 0.2s var(--ease-out);
+        }
+        .user-account-menu.open { display: flex; }
+
+        .user-menu-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 10px;
+            border: 0;
+            border-radius: 9px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.18s, color 0.18s;
+        }
+        .user-menu-item:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: #fff;
+        }
+        .user-menu-item svg { flex-shrink: 0; opacity: 0.85; }
+        .user-menu-item-badge {
+            margin-left: auto;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+        }
+        .user-menu-divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 4px 6px;
+        }
+        .user-menu-item.danger { color: #ff9c9c; }
+        .user-menu-item.danger:hover {
+            background: rgba(255, 82, 82, 0.14);
+            color: #ffd0d0;
         }
 
         .auth-open-btn {
@@ -2042,6 +2104,191 @@
             cursor: pointer;
             transition: all 0.2s;
             line-height: 1;
+        }
+
+        /* ---------- Personalization 2-Column Settings Modal ---------- */
+        .pers-modal-container {
+            position: relative;
+            width: 100%;
+            max-width: 780px;
+            max-height: 88vh;
+            background: #0f0809;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 22px;
+            box-shadow: 0 32px 90px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 43, 61, 0.12);
+            animation: modalPopIn 0.3s var(--ease-spring);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .pers-modal-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .pers-modal-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #fff; margin: 0; }
+        .pers-modal-subtitle { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+        .pers-modal-body { display: flex; flex: 1; min-height: 0; }
+        .pers-nav {
+            width: 210px;
+            min-width: 210px;
+            padding: 14px 10px;
+            border-right: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.015);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .pers-nav-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+        .pers-nav-btn:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+        .pers-nav-btn.active {
+            background: rgba(255, 43, 61, 0.14);
+            border-color: rgba(255, 43, 61, 0.35);
+            color: #fff;
+        }
+        .pers-content { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+        .pers-section-title { font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 4px; }
+        .pers-section-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin: 0 0 12px; }
+        .pers-tone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
+        .pers-tone-card {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 11px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.025);
+            cursor: pointer;
+            text-align: left;
+            color: var(--text-secondary);
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        .pers-tone-card:hover { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.2); color: #fff; }
+        .pers-tone-card.active {
+            background: rgba(255, 43, 61, 0.13);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px rgba(255, 43, 61, 0.35);
+            color: #fff;
+        }
+        .pers-tone-card-head { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; color: inherit; }
+        .pers-tone-card-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+        .pers-scope-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11.5px;
+            color: var(--accent-soft);
+            background: rgba(255, 43, 61, 0.1);
+            border: 1px solid rgba(255, 43, 61, 0.24);
+            padding: 4px 10px;
+            border-radius: 999px;
+            margin-bottom: 10px;
+        }
+        .pers-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .pers-preset-chip {
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 11.5px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .pers-preset-chip:hover { border-color: var(--border-hover); color: #fff; background: rgba(255, 43, 61, 0.12); }
+        .pers-textarea {
+            width: 100%;
+            min-height: 110px;
+            resize: vertical;
+            padding: 11px 13px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #fff;
+            font-size: 13px;
+            line-height: 1.55;
+            font-family: inherit;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .pers-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 43, 61, 0.2); }
+        .pers-char-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+        .pers-summary-card {
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.025);
+            padding: 14px 16px;
+        }
+        .pers-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+        .pers-summary-body { font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+        .pers-summary-body ul { margin: 6px 0; padding-left: 18px; }
+        .pers-ai-update-box { display: flex; gap: 8px; }
+        .pers-ai-update-box input {
+            flex: 1;
+            padding: 9px 12px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #fff;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+        }
+        .pers-ai-update-box input:focus { border-color: var(--accent); }
+        .pers-facts-list { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; }
+        .pers-fact-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 11px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            font-size: 12.5px;
+            color: var(--text-secondary);
+        }
+        .pers-fact-item span { flex: 1; line-height: 1.45; }
+        .pers-btn-secondary {
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border-radius: 9px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .pers-btn-secondary:hover:not(:disabled) { color: #fff; border-color: var(--border-hover); background: rgba(255, 43, 61, 0.14); }
+        .pers-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+        @media (max-width: 720px) {
+            .pers-modal-body { flex-direction: column; }
+            .pers-nav { width: 100%; min-width: 0; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--border-color); }
+            .pers-nav-btn { justify-content: center; }
         }
 
         .auth-modal-close:hover {
@@ -4690,25 +4937,55 @@
                 : `<div class="sidebar-user-avatar">${escapeHtml(initial)}</div>`;
 
             sidebarSec.innerHTML = `
-                <div class="user-profile-card clickable" onclick="openProfileModal()" title="Bấm để chỉnh sửa hồ sơ & đổi ảnh đại diện" role="button" tabindex="0">
+                <div class="user-account-menu" id="userAccountMenu" role="menu" aria-label="Menu tài khoản">
+                    <button type="button" class="user-menu-item" role="menuitem" onclick="closeUserAccountMenu(); openPersonalizationModal('style')">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
+                            <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
+                            <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
+                            <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line>
+                        </svg>
+                        <span>Personalization</span>
+                    </button>
+                    <button type="button" class="user-menu-item" role="menuitem" onclick="closeUserAccountMenu(); openProfileModal()">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        <span>Profile</span>
+                    </button>
+                    <button type="button" class="user-menu-item" role="menuitem" onclick="closeUserAccountMenu(); handleClaimOfferClick()">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 12 20 22 4 22 4 12"></polyline>
+                            <rect x="2" y="7" width="20" height="5"></rect>
+                            <line x1="12" y1="22" x2="12" y2="7"></line>
+                            <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+                            <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+                        </svg>
+                        <span>Claim offer</span>
+                        <span class="user-menu-item-badge">Soon</span>
+                    </button>
+                    <div class="user-menu-divider"></div>
+                    <button type="button" class="user-menu-item danger" role="menuitem" onclick="closeUserAccountMenu(); handleSignOut()">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                        <span>Log out</span>
+                    </button>
+                </div>
+                <div class="user-profile-card clickable" onclick="toggleUserAccountMenu(event)" title="Tùy chọn tài khoản" role="button" tabindex="0" aria-haspopup="menu">
                     ${avatarHtml}
                     <div class="user-info">
                         <div class="user-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
                         <div class="user-handle" title="@${escapeHtml(currentUser.username)}">@${escapeHtml(currentUser.username)}</div>
                     </div>
-                    <div class="edit-badge" title="Chỉnh sửa hồ sơ">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 20h9"></path>
-                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                    <div class="edit-badge" title="Mở menu tài khoản">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="18 15 12 9 6 15"></polyline>
                         </svg>
                     </div>
-                    <button class="logout-btn" onclick="event.stopPropagation(); handleSignOut()" title="Đăng xuất" aria-label="Đăng xuất">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                            <polyline points="16 17 21 12 16 7"></polyline>
-                            <line x1="21" y1="12" x2="9" y2="12"></line>
-                        </svg>
-                    </button>
                 </div>
             `;
 
@@ -4719,7 +4996,7 @@
             // Liên kết chỉ cải thiện điều hướng; quyền truy cập vẫn được kiểm tra tại backend.
             topbarArea.innerHTML = `
                 ${currentUser.role === "admin" ? `<a class="topbar-user-pill" href="/admin" title="Open admin panel">Admin</a>` : ""}
-                <div class="topbar-user-pill clickable" onclick="openProfileModal()" title="Chỉnh sửa thông tin: ${escapeHtml(currentUser.username)}" role="button" tabindex="0">
+                <div class="topbar-user-pill clickable" onclick="openPersonalizationModal('style')" title="Personalization & Cài đặt: ${escapeHtml(currentUser.username)}" role="button" tabindex="0">
                     ${topbarAvatarHtml}
                     <span>${escapeHtml(displayName)}</span>
                 </div>
@@ -4746,6 +5023,341 @@
                     <span>Đăng nhập</span>
                 </button>
             `;
+        }
+    }
+
+    // ---------- User Account Menu & Personalization Settings ----------
+    let persSelectedStyle = "default";
+    let persMemoriesCache = [];
+    let persHasSummarized = false;
+    let persActiveTab = "style";
+
+    /** Bật/tắt menu tài khoản ở góc dưới sidebar. */
+    function toggleUserAccountMenu(event) {
+        if (event) event.stopPropagation();
+        const menu = document.getElementById("userAccountMenu");
+        if (!menu) return;
+        menu.classList.toggle("open");
+    }
+
+    /** Đóng menu tài khoản nếu đang mở. */
+    function closeUserAccountMenu() {
+        const menu = document.getElementById("userAccountMenu");
+        if (menu) menu.classList.remove("open");
+    }
+
+    /** Thông báo tính năng Claim offer đang phát triển. */
+    function handleClaimOfferClick() {
+        alert("Tính năng Claim offer sẽ sớm ra mắt trong phiên bản tiếp theo.");
+    }
+
+    document.addEventListener("click", (event) => {
+        const menu = document.getElementById("userAccountMenu");
+        const sec = document.getElementById("sidebarUserSection");
+        if (menu && menu.classList.contains("open") && sec && !sec.contains(event.target)) {
+            menu.classList.remove("open");
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeUserAccountMenu();
+            const persModal = document.getElementById("personalizationModal");
+            if (persModal && persModal.style.display === "flex") {
+                closePersonalizationModal();
+            }
+        }
+    });
+
+    function _setPersBanner(type, message) {
+        const errEl = document.getElementById("persErrorBanner");
+        const okEl = document.getElementById("persSuccessBanner");
+        if (errEl) {
+            errEl.style.display = type === "error" && message ? "flex" : "none";
+            errEl.textContent = type === "error" && message ? message : "";
+        }
+        if (okEl) {
+            okEl.style.display = type === "success" && message ? "flex" : "none";
+            okEl.textContent = type === "success" && message ? message : "";
+        }
+    }
+
+    /** Chọn một trong 5 Base style & tone cards. */
+    function selectBaseStyle(style) {
+        const normalized = (style || "default").toLowerCase();
+        persSelectedStyle = normalized;
+        document.querySelectorAll("#persToneGrid .pers-tone-card").forEach((card) => {
+            card.classList.toggle("active", card.dataset.style === normalized);
+        });
+    }
+
+    /** Cập nhật bộ đếm ký tự của Custom Instructions. */
+    function updatePersCharCount() {
+        const textarea = document.getElementById("persCustomInstructions");
+        const countEl = document.getElementById("persCharCount");
+        if (!textarea || !countEl) return;
+        countEl.textContent = `${textarea.value.length} / 1500`;
+    }
+
+    /** Chèn nhanh một mẫu quy tắc vào ô Custom Instructions. */
+    function appendCustomInstructionPreset(text) {
+        const textarea = document.getElementById("persCustomInstructions");
+        if (!textarea || !text) return;
+        const current = textarea.value.trim();
+        if (current.includes(text)) return;
+        const combined = current ? `${current}\n${text}` : text;
+        textarea.value = combined.slice(0, 1500);
+        updatePersCharCount();
+        textarea.focus();
+    }
+
+    /** Mở modal Personalization và đồng bộ dữ liệu từ server. */
+    function openPersonalizationModal(tab = "style") {
+        if (!currentUser) {
+            openAuthModal("signin");
+            return;
+        }
+        closeUserAccountMenu();
+        _setPersBanner(null, "");
+        persHasSummarized = false;
+
+        const existing = currentUser.personalization || {};
+        selectBaseStyle(existing.base_style || "default");
+        const textarea = document.getElementById("persCustomInstructions");
+        if (textarea) {
+            textarea.value = existing.custom_instructions || "";
+            updatePersCharCount();
+        }
+
+        const modal = document.getElementById("personalizationModal");
+        if (modal) modal.style.display = "flex";
+        switchPersonalizationTab(tab);
+        loadPersonalizationData();
+    }
+
+    /** Đóng modal Personalization. */
+    function closePersonalizationModal() {
+        const modal = document.getElementById("personalizationModal");
+        if (modal) modal.style.display = "none";
+    }
+
+    /** Chuyển giữa tab Phong cách & Hướng dẫn và tab Bộ nhớ (Memory). */
+    function switchPersonalizationTab(tab) {
+        persActiveTab = tab === "memory" ? "memory" : "style";
+        const navStyle = document.getElementById("persNavStyle");
+        const navMem = document.getElementById("persNavMemory");
+        const tabStyle = document.getElementById("persTabStyle");
+        const tabMem = document.getElementById("persTabMemory");
+
+        if (navStyle) navStyle.classList.toggle("active", persActiveTab === "style");
+        if (navMem) navMem.classList.toggle("active", persActiveTab === "memory");
+        if (tabStyle) tabStyle.style.display = persActiveTab === "style" ? "block" : "none";
+        if (tabMem) tabMem.style.display = persActiveTab === "memory" ? "block" : "none";
+
+        if (persActiveTab === "memory" && !persHasSummarized) {
+            refreshMemorySummary();
+        }
+    }
+
+    /** Tải cài đặt personalization và danh sách memory cá nhân từ API. */
+    async function loadPersonalizationData() {
+        try {
+            const res = await fetch("/api/personalization");
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể tải cài đặt Personalization.");
+            }
+            const pers = data.personalization || {};
+            selectBaseStyle(pers.base_style || "default");
+            const textarea = document.getElementById("persCustomInstructions");
+            if (textarea) {
+                textarea.value = pers.custom_instructions || "";
+                updatePersCharCount();
+            }
+            if (currentUser) currentUser.personalization = pers;
+            persMemoriesCache = Array.isArray(data.memories) ? data.memories : [];
+            renderPersFactsList(persMemoriesCache);
+            const countLabel = document.getElementById("persMemoryCountLabel");
+            if (countLabel && !persHasSummarized) {
+                countLabel.textContent = `${persMemoriesCache.length} mục bộ nhớ cá nhân đang hoạt động`;
+            }
+        } catch (err) {
+            _setPersBanner("error", err.message || "Lỗi tải dữ liệu Personalization.");
+        }
+    }
+
+    /** Lưu Base style & tone và Custom Instructions xuống MongoDB. */
+    async function savePersonalizationSettings() {
+        const btn = document.getElementById("persSaveBtn");
+        const textarea = document.getElementById("persCustomInstructions");
+        const customInstructions = textarea ? textarea.value : "";
+
+        _setPersBanner(null, "");
+        if (btn) btn.disabled = true;
+        try {
+            const res = await fetch("/api/personalization", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    base_style: persSelectedStyle,
+                    custom_instructions: customInstructions,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Lưu cài đặt thất bại.");
+            }
+            if (data.user) {
+                currentUser = data.user;
+            } else if (currentUser) {
+                currentUser.personalization = data.personalization;
+            }
+            _setPersBanner("success", data.message || "Đã lưu cài đặt Personalization!");
+        } catch (err) {
+            _setPersBanner("error", err.message || "Không thể lưu cài đặt.");
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    /** Hiển thị danh sách từng bản ghi long_term_memory gốc kèm nút xóa. */
+    function renderPersFactsList(memories) {
+        const listEl = document.getElementById("persFactsList");
+        if (!listEl) return;
+        const items = Array.isArray(memories) ? memories : [];
+        if (items.length === 0) {
+            listEl.innerHTML = `<div class="pers-fact-item"><span style="color: var(--text-muted);">Chưa có ghi nhớ cá nhân nào được lưu.</span></div>`;
+            return;
+        }
+        listEl.innerHTML = items.map((item) => {
+            const memId = escapeHtml(String(item.memory_id || ""));
+            const memText = escapeHtml(String(item.memory || ""));
+            return `
+                <div class="pers-fact-item">
+                    <span>${memText}</span>
+                    <button type="button" class="pers-btn-secondary" style="padding: 4px 9px;" onclick="deletePersonalMemory('${memId}')">Xóa</button>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function _renderPersMemoryResult(data) {
+        const bodyEl = document.getElementById("persMemorySummaryBody");
+        const countEl = document.getElementById("persMemoryCountLabel");
+        const memories = Array.isArray(data.memories) ? data.memories : [];
+        persMemoriesCache = memories;
+
+        if (countEl) {
+            countEl.textContent = `${memories.length} mục bộ nhớ cá nhân đang hoạt động`;
+        }
+        if (bodyEl) {
+            const summaryText = String(data.summary || "Chưa có thông tin bộ nhớ cá nhân nào được lưu.");
+            if (typeof renderMarkdown === "function") {
+                renderMarkdown(bodyEl, summaryText);
+            } else {
+                bodyEl.textContent = summaryText;
+            }
+        }
+        renderPersFactsList(memories);
+    }
+
+    /** Gọi LLM tóm tắt toàn bộ long_term_memory lọc theo user_id. */
+    async function refreshMemorySummary() {
+        const btn = document.getElementById("persSummarizeBtn");
+        const bodyEl = document.getElementById("persMemorySummaryBody");
+        _setPersBanner(null, "");
+        if (btn) btn.disabled = true;
+        if (bodyEl) bodyEl.textContent = "Đang dùng AI tổng hợp bộ nhớ của bạn...";
+        try {
+            const res = await fetch("/api/personalization/memory-summary", { method: "POST" });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể tóm tắt bộ nhớ.");
+            }
+            persHasSummarized = true;
+            _renderPersMemoryResult(data);
+        } catch (err) {
+            if (bodyEl) bodyEl.textContent = "Không thể tổng hợp bộ nhớ lúc này.";
+            _setPersBanner("error", err.message || "Lỗi tóm tắt bộ nhớ.");
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    /** Gửi lệnh tự nhiên để LLM thêm/sửa/xóa long_term_memory cá nhân. */
+    async function runAiMemoryUpdate() {
+        const input = document.getElementById("persMemoryAiInput");
+        const btn = document.getElementById("persAiUpdateBtn");
+        const instruction = input ? input.value.trim() : "";
+        if (!instruction) {
+            _setPersBanner("error", "Vui lòng nhập yêu cầu cập nhật bộ nhớ.");
+            return;
+        }
+        _setPersBanner(null, "");
+        if (btn) btn.disabled = true;
+        try {
+            const res = await fetch("/api/personalization/memory-ai-update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ instruction }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể cập nhật bộ nhớ bằng AI.");
+            }
+            persHasSummarized = true;
+            _renderPersMemoryResult(data);
+            if (input) input.value = "";
+            const actions = Array.isArray(data.applied_actions) ? data.applied_actions : [];
+            const msg = data.note || (actions.length ? `Đã cập nhật ${actions.length} mục bộ nhớ.` : "Đã kiểm tra và cập nhật bộ nhớ.");
+            _setPersBanner("success", msg);
+        } catch (err) {
+            _setPersBanner("error", err.message || "Lỗi cập nhật bộ nhớ bằng AI.");
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    /** Xóa một mục bộ nhớ cá nhân cụ thể theo memory_id. */
+    async function deletePersonalMemory(memoryId) {
+        if (!memoryId) return;
+        _setPersBanner(null, "");
+        try {
+            const res = await fetch(`/api/personalization/memories/${encodeURIComponent(memoryId)}`, {
+                method: "DELETE",
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể xóa mục bộ nhớ.");
+            }
+            persMemoriesCache = persMemoriesCache.filter((m) => String(m.memory_id) !== String(memoryId));
+            renderPersFactsList(persMemoriesCache);
+            await refreshMemorySummary();
+            _setPersBanner("success", "Đã xóa mục bộ nhớ.");
+        } catch (err) {
+            _setPersBanner("error", err.message || "Lỗi xóa mục bộ nhớ.");
+        }
+    }
+
+    /** Xóa toàn bộ bộ nhớ cá nhân sau khi người dùng xác nhận. */
+    async function clearAllPersonalMemories() {
+        if (!confirm("Bạn có chắc muốn xóa toàn bộ bộ nhớ cá nhân không?")) return;
+        _setPersBanner(null, "");
+        try {
+            const res = await fetch("/api/personalization/memories", { method: "DELETE" });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể xóa toàn bộ bộ nhớ.");
+            }
+            persHasSummarized = true;
+            _renderPersMemoryResult({
+                summary: "Chưa có thông tin bộ nhớ cá nhân nào được lưu.",
+                memories: [],
+                count: 0,
+            });
+            _setPersBanner("success", "Đã xóa toàn bộ bộ nhớ cá nhân.");
+        } catch (err) {
+            _setPersBanner("error", err.message || "Lỗi xóa bộ nhớ cá nhân.");
         }
     }
 
@@ -5560,6 +6172,149 @@
                 <span>Thêm vào Project</span>
             </button>
         </form>
+    </div>
+</div>
+
+<!-- Personalization 2-Column Settings Modal -->
+<div class="auth-modal-overlay" id="personalizationModal" style="display: none;">
+    <div class="auth-modal-backdrop" onclick="closePersonalizationModal()"></div>
+    <div class="pers-modal-container" role="dialog" aria-modal="true" aria-labelledby="personalizationModalTitle">
+        <div class="pers-modal-header">
+            <div>
+                <h2 class="pers-modal-title" id="personalizationModalTitle">Personalization</h2>
+                <div class="pers-modal-subtitle">Tùy biến phong cách trả lời, hướng dẫn riêng và bộ nhớ dài hạn của bạn</div>
+            </div>
+            <button class="auth-modal-close" style="position:static;" onclick="closePersonalizationModal()" aria-label="Đóng">&times;</button>
+        </div>
+        <div class="pers-modal-body">
+            <nav class="pers-nav" aria-label="Danh mục cài đặt">
+                <button type="button" class="pers-nav-btn active" id="persNavStyle" onclick="switchPersonalizationTab('style')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2l2.4 7.4L22 12l-7.6 2.6L12 22l-2.4-7.4L2 12l7.6-2.6z"></path>
+                    </svg>
+                    <span>Phong cách &amp; Hướng dẫn</span>
+                </button>
+                <button type="button" class="pers-nav-btn" id="persNavMemory" onclick="switchPersonalizationTab('memory')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v0A2.5 2.5 0 0 0 4.5 7v0A2.5 2.5 0 0 0 3 9.5v5A2.5 2.5 0 0 0 5.5 17v0A2.5 2.5 0 0 0 8 19.5v0A2.5 2.5 0 0 0 12 21V3a2.5 2.5 0 0 0-2.5-1z"></path>
+                        <path d="M14.5 2A2.5 2.5 0 0 1 17 4.5v0A2.5 2.5 0 0 1 19.5 7v0A2.5 2.5 0 0 1 21 9.5v5a2.5 2.5 0 0 1-2.5 2.5v0a2.5 2.5 0 0 1-2.5 2.5v0A2.5 2.5 0 0 1 12 21"></path>
+                    </svg>
+                    <span>Bộ nhớ (Memory)</span>
+                </button>
+            </nav>
+
+            <div class="pers-content">
+                <div class="auth-error-banner" id="persErrorBanner" style="display: none; margin-bottom: 0;"></div>
+                <div class="auth-success-banner" id="persSuccessBanner" style="display: none; margin-bottom: 0;"></div>
+
+                <!-- TAB 1: Style & Custom Instructions -->
+                <div id="persTabStyle">
+                    <div>
+                        <h3 class="pers-section-title">Base style and tone</h3>
+                        <p class="pers-section-desc">Chọn phong cách trả lời mặc định cho các cuộc trò chuyện cá nhân.</p>
+                        <div class="pers-tone-grid" id="persToneGrid">
+                            <button type="button" class="pers-tone-card" data-style="default" onclick="selectBaseStyle('default')">
+                                <div class="pers-tone-card-head">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M9 12h6"></path></svg>
+                                    <span>Default</span>
+                                </div>
+                                <div class="pers-tone-card-desc">Trung tính, rõ ràng.</div>
+                            </button>
+                            <button type="button" class="pers-tone-card" data-style="professional" onclick="selectBaseStyle('professional')">
+                                <div class="pers-tone-card-head">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path></svg>
+                                    <span>Professional</span>
+                                </div>
+                                <div class="pers-tone-card-desc">Chuyên nghiệp, trang trọng.</div>
+                            </button>
+                            <button type="button" class="pers-tone-card" data-style="friendly" onclick="selectBaseStyle('friendly')">
+                                <div class="pers-tone-card-head">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+                                    <span>Friendly</span>
+                                </div>
+                                <div class="pers-tone-card-desc">Thân thiện, trò chuyện tự nhiên.</div>
+                            </button>
+                            <button type="button" class="pers-tone-card" data-style="efficient" onclick="selectBaseStyle('efficient')">
+                                <div class="pers-tone-card-head">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                                    <span>Efficient</span>
+                                </div>
+                                <div class="pers-tone-card-desc">Ngắn gọn, đi thẳng vào đáp án.</div>
+                            </button>
+                            <button type="button" class="pers-tone-card" data-style="creative" onclick="selectBaseStyle('creative')">
+                                <div class="pers-tone-card-head">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4L22 12l-7.6 2.6L12 22l-2.4-7.4L2 12l7.6-2.6z"></path></svg>
+                                    <span>Creative</span>
+                                </div>
+                                <div class="pers-tone-card-desc">Vui vẻ, sáng tạo, thơ ca.</div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 20px;">
+                        <h3 class="pers-section-title">Custom Instructions — Hướng dẫn riêng</h3>
+                        <p class="pers-section-desc">Đặt quy tắc để trợ lý áp dụng xuyên suốt các cuộc trò chuyện cá nhân của bạn.</p>
+                        <div class="pers-scope-pill">
+                            <span>Chỉ áp dụng cho chat cá nhân — không ảnh hưởng tới các Project</span>
+                        </div>
+                        <div class="pers-presets">
+                            <button type="button" class="pers-preset-chip" onclick="appendCustomInstructionPreset('Trình bày ngắn gọn bằng gạch đầu dòng rõ ràng.')">+ Gạch đầu dòng</button>
+                            <button type="button" class="pers-preset-chip" onclick="appendCustomInstructionPreset('Khi viết code luôn giải thích ý nghĩa từng phần quan trọng.')">+ Code kèm giải thích</button>
+                            <button type="button" class="pers-preset-chip" onclick="appendCustomInstructionPreset('Luôn trả lời bằng tiếng Việt tự nhiên.')">+ Ưu tiên tiếng Việt</button>
+                            <button type="button" class="pers-preset-chip" onclick="appendCustomInstructionPreset('Giải thích đơn giản dễ hiểu cho người mới bắt đầu.')">+ Giải thích cho người mới</button>
+                        </div>
+                        <textarea class="pers-textarea" id="persCustomInstructions" maxlength="1500" placeholder="Ví dụ: Hãy luôn đưa ví dụ Python thực tế trước khi giải thích lý thuyết..." oninput="updatePersCharCount()"></textarea>
+                        <div class="pers-char-row">
+                            <span>Tiêm tự động vào chat cá nhân</span>
+                            <span id="persCharCount">0 / 1500</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+                        <button type="button" class="auth-submit-btn" style="width: auto; padding: 10px 22px;" id="persSaveBtn" onclick="savePersonalizationSettings()">
+                            <span>Lưu cài đặt</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Memory Summary & AI Update -->
+                <div id="persTabMemory" style="display: none;">
+                    <p class="pers-section-desc" style="margin-bottom: 14px;">
+                        Giúp LLM sử dụng thông tin hữu ích từ những cuộc trò chuyện trước, chẳng hạn trình độ lập trình, sở thích học tập hoặc dự án đang làm.
+                    </p>
+
+                    <div class="pers-summary-card">
+                        <div class="pers-summary-head">
+                            <div>
+                                <div class="pers-section-title" style="margin:0;">Memory Summary</div>
+                                <div style="font-size: 11.5px; color: var(--text-muted);" id="persMemoryCountLabel">Đang tải hồ sơ bộ nhớ...</div>
+                            </div>
+                            <button type="button" class="pers-btn-secondary" id="persSummarizeBtn" onclick="refreshMemorySummary()">
+                                Tóm tắt lại
+                            </button>
+                        </div>
+                        <div class="pers-summary-body" id="persMemorySummaryBody">Đang tổng hợp bộ nhớ của bạn...</div>
+                    </div>
+
+                    <div style="margin-top: 16px;">
+                        <h3 class="pers-section-title">Cập nhật bộ nhớ bằng AI</h3>
+                        <p class="pers-section-desc">Nhắn yêu cầu thay đổi (thêm mới, chỉnh sửa hoặc quên bớt) để LLM cập nhật trực tiếp vào bộ nhớ của bạn.</p>
+                        <div class="pers-ai-update-box">
+                            <input type="text" id="persMemoryAiInput" placeholder="VD: Tôi đang làm dự án FastAPI, hãy quên thông tin cũ về PHP..." onkeydown="if(event.key==='Enter'){event.preventDefault();runAiMemoryUpdate();}">
+                            <button type="button" class="pers-btn-secondary" id="persAiUpdateBtn" onclick="runAiMemoryUpdate()">Cập nhật bằng AI</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 16px;">
+                        <div class="pers-summary-head">
+                            <div class="pers-section-title" style="margin:0;">Danh sách ghi nhớ gốc</div>
+                            <button type="button" class="pers-btn-secondary" onclick="clearAllPersonalMemories()">Xóa tất cả</button>
+                        </div>
+                        <div class="pers-facts-list" id="persFactsList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
