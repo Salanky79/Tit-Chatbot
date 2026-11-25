@@ -113,6 +113,94 @@ def should_stream_chunk(chunk: Any, metadata: dict[str, Any] | None) -> bool:
 
     return True
 
+# lấy reasoning từ chunk stream của LLM nếu model trả riêng, hoặc từ thẻ <think>...</think> trong chunk.content
+def extract_reasoning_from_chunk(chunk: Any) -> str:
+    """Trích xuất chuỗi suy luận (reasoning) từ chunk stream của LLM nếu model trả riêng."""
+    additional_kwargs = getattr(chunk, "additional_kwargs", None) or {}
+    reasoning = additional_kwargs.get("reasoning_content") or additional_kwargs.get("reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        return reasoning
+
+    content = getattr(chunk, "content", None)
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") in {"thinking", "reasoning"}:
+                text = item.get("thinking") or item.get("reasoning") or item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+class _ReasoningTagSplitter:
+    """Tách thẻ <think>...</think> khi model trả reasoning thô lẫn vào chunk.content."""
+
+    _OPEN_TAG = "<think>"
+    _CLOSE_TAG = "</think>"
+
+    def __init__(self) -> None:
+        self._in_think = False
+        self._buffer = ""
+
+    @staticmethod
+    def _hold_partial_suffix(text: str, tag: str) -> tuple[str, str]:
+        """Giữ lại phần đuôi nếu khớp tiền tố của tag mở/đóng để đợi chunk kế tiếp."""
+        max_len = min(len(text), len(tag) - 1)
+        for length in range(max_len, 0, -1):
+            if tag.startswith(text[-length:]):
+                return text[:-length], text[-length:]
+        return text, ""
+
+    def feed(self, text: str) -> tuple[str, str]:
+        """Nhận một đoạn text stream và tách thành cặp (reasoning_part, answer_part)."""
+        if not text:
+            return "", ""
+        self._buffer += text
+        reasoning_parts: list[str] = []
+        answer_parts: list[str] = []
+
+        while self._buffer:
+            if not self._in_think:
+                idx = self._buffer.find(self._OPEN_TAG)
+                if idx != -1:
+                    if idx > 0:
+                        answer_parts.append(self._buffer[:idx])
+                    self._buffer = self._buffer[idx + len(self._OPEN_TAG):]
+                    self._in_think = True
+                    continue
+                emit, rest = self._hold_partial_suffix(self._buffer, self._OPEN_TAG)
+                if emit:
+                    answer_parts.append(emit)
+                self._buffer = rest
+                break
+            else:
+                idx = self._buffer.find(self._CLOSE_TAG)
+                if idx != -1:
+                    if idx > 0:
+                        reasoning_parts.append(self._buffer[:idx])
+                    self._buffer = self._buffer[idx + len(self._CLOSE_TAG):]
+                    self._in_think = False
+                    continue
+                emit, rest = self._hold_partial_suffix(self._buffer, self._CLOSE_TAG)
+                if emit:
+                    reasoning_parts.append(emit)
+                self._buffer = rest
+                break
+
+        return "".join(reasoning_parts), "".join(answer_parts)
+
+    def flush(self) -> tuple[str, str]:
+        """Đẩy nốt phần buffer còn lại khi luồng stream kết thúc."""
+        if not self._buffer:
+            return "", ""
+        leftover = self._buffer
+        self._buffer = ""
+        if self._in_think:
+            self._in_think = False
+            return leftover, ""
+        return "", leftover
+
 
 def extract_text_from_chunk(chunk: Any) -> str:
     content = getattr(chunk, "content", "")
@@ -165,6 +253,7 @@ def _chat_event_generator(
     set_project_prompt_context(project_instructions, project_context)
 
     final_answer = ""
+    reasoning_splitter = _ReasoningTagSplitter()
 
     try:
         inputs = {
@@ -181,11 +270,25 @@ def _chat_event_generator(
             if not should_stream_chunk(chunk, metadata):
                 continue
 
-            token = extract_text_from_chunk(chunk)
+            parsed_reasoning = extract_reasoning_from_chunk(chunk)
+            raw_text = extract_text_from_chunk(chunk)
+            tag_reasoning, token = reasoning_splitter.feed(raw_text) if raw_text else ("", "")
+
+            reasoning_token = parsed_reasoning + tag_reasoning
+            if reasoning_token:
+                # Chỉ stream reasoning live ra frontend; không lưu vào final_answer hay DB.
+                yield sse_data({"reasoning": reasoning_token})
 
             if token:
                 final_answer += token
                 yield sse_data({"token": token})
+
+        rem_reasoning, rem_token = reasoning_splitter.flush()
+        if rem_reasoning:
+            yield sse_data({"reasoning": rem_reasoning})
+        if rem_token:
+            final_answer += rem_token
+            yield sse_data({"token": rem_token})
 
         if final_answer.strip():
             save_chat_message(thread_id, "assistant", final_answer, user_id=user_id)

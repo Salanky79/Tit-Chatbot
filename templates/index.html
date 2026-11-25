@@ -1146,6 +1146,86 @@
             animation: msgIn 0.4s var(--ease-out) both;
         }
 
+        /* ---------- Live LLM Reasoning (Thinking box) ---------- */
+        .thinking-box {
+            max-width: 840px;
+            margin: 0 auto 10px;
+            padding-left: 50px;
+            box-sizing: border-box;
+        }
+
+        .thinking-card {
+            border: 1px solid var(--border-color);
+            border-left: 2px solid rgba(255, 43, 61, 0.6);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.025);
+            overflow: hidden;
+        }
+
+        .thinking-summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            user-select: none;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .thinking-summary:hover {
+            background: rgba(255, 255, 255, 0.03);
+            color: #fff;
+        }
+
+        .thinking-summary::-webkit-details-marker { display: none; }
+
+        .thinking-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+            animation: thinkingPulse 1.2s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+
+        .thinking-card.done .thinking-dot {
+            animation: none;
+            background: var(--text-muted);
+            box-shadow: none;
+            opacity: 0.7;
+        }
+
+        @keyframes thinkingPulse {
+            0%, 100% { opacity: 0.35; transform: scale(0.9); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+
+        .thinking-chevron {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--text-muted);
+            transition: transform 0.2s ease;
+        }
+
+        .thinking-card[open] .thinking-chevron { transform: rotate(180deg); }
+
+        .thinking-body {
+            padding: 6px 12px 10px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-muted);
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         .tool-progress-box {
             display: inline-flex;
             align-items: center;
@@ -1431,7 +1511,7 @@
 
             .message.user .message-content,
             .message.assistant .message-content { max-width: 86%; }
-            .followup-suggestions, .tool-progress { padding-left: 0; }
+            .followup-suggestions, .tool-progress, .thinking-box { padding-left: 0; }
 
             .model-select { max-width: 104px; font-size: 11px; padding: 0 6px; }
             .orbit { width: 140px; height: 140px; }
@@ -4157,6 +4237,78 @@
         const botElement = addMessage("assistant", "");
 
         let firstTokenReceived = false;
+        let thinkingCard = null;
+        let thinkingBody = null;
+        let thinkingLabel = null;
+        let thinkingStartedAt = 0;
+        let thinkingTimer = null;
+        let thinkingFinalized = false;
+
+        /**
+         * Khởi tạo khối hiển thị quá trình suy luận live ngay phía trên tin nhắn của bot.
+         */
+        function ensureThinkingBox() {
+            if (thinkingCard) return;
+            const wrapper = document.createElement("div");
+            wrapper.className = "thinking-box";
+
+            thinkingCard = document.createElement("details");
+            thinkingCard.className = "thinking-card";
+            thinkingCard.open = true;
+
+            const summary = document.createElement("summary");
+            summary.className = "thinking-summary";
+
+            const dot = document.createElement("span");
+            dot.className = "thinking-dot";
+
+            thinkingLabel = document.createElement("span");
+            thinkingLabel.textContent = "Đang suy luận...";
+
+            const chevron = document.createElement("span");
+            chevron.className = "thinking-chevron";
+            chevron.textContent = "▾";
+
+            thinkingBody = document.createElement("div");
+            thinkingBody.className = "thinking-body";
+
+            summary.appendChild(dot);
+            summary.appendChild(thinkingLabel);
+            summary.appendChild(chevron);
+            thinkingCard.appendChild(summary);
+            thinkingCard.appendChild(thinkingBody);
+            wrapper.appendChild(thinkingCard);
+
+            if (botElement && botElement.parentElement) {
+                botElement.parentElement.insertAdjacentElement("beforebegin", wrapper);
+            }
+
+            thinkingStartedAt = performance.now();
+            thinkingTimer = setInterval(() => {
+                if (thinkingFinalized || !thinkingLabel) return;
+                const elapsed = ((performance.now() - thinkingStartedAt) / 1000).toFixed(1);
+                thinkingLabel.textContent = `Đang suy luận... (${elapsed}s)`;
+            }, 150);
+        }
+
+        /**
+         * Đóng gọn khối suy luận ngay khi bot bắt đầu trả lời chính hoặc kết thúc stream.
+         */
+        function finalizeThinkingBox() {
+            if (!thinkingCard || thinkingFinalized) return;
+            thinkingFinalized = true;
+            if (thinkingTimer) {
+                clearInterval(thinkingTimer);
+                thinkingTimer = null;
+            }
+            const elapsed = Math.max(0.1, (performance.now() - thinkingStartedAt) / 1000).toFixed(1);
+            thinkingCard.classList.add("done");
+            thinkingCard.open = false;
+            if (thinkingLabel) {
+                thinkingLabel.textContent = `Đã suy luận trong ${elapsed} giây`;
+            }
+        }
+
         function handleStreamData(data) {
             if (!data) return;
 
@@ -4164,9 +4316,20 @@
                 addFollowupSuggestions(data.suggestions, botElement);
             }
 
+            if (data.reasoning !== undefined && data.reasoning !== null && data.reasoning !== "") {
+                ensureThinkingBox();
+                if (!thinkingFinalized) {
+                    statusText.textContent = `Reasoning with ${selectedModel}...`;
+                }
+                thinkingBody.textContent += data.reasoning;
+                thinkingBody.scrollTop = thinkingBody.scrollHeight;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
             if (data.token !== undefined && data.token !== null) {
                 if (!firstTokenReceived) {
                     firstTokenReceived = true;
+                    finalizeThinkingBox();
                     statusText.textContent = `Generating with ${selectedModel}...`;
                 }
 
@@ -4178,6 +4341,7 @@
             }
 
             if (data.error) {
+                finalizeThinkingBox();
                 botElement.dataset.raw = (botElement.dataset.raw || "") + "\n\n**Error:** " + data.error;
                 renderMarkdown(botElement, botElement.dataset.raw);
                 statusText.textContent = "Ready";
@@ -4185,6 +4349,7 @@
             }
 
             if (data.done) {
+                finalizeThinkingBox();
                 statusText.textContent = "Ready";
             }
         }
@@ -4267,6 +4432,7 @@
             renderMarkdown(botElement, botElement.dataset.raw);
 
         } finally {
+            finalizeThinkingBox();
             sendBtn.disabled = false;
             statusText.textContent = "Ready";
             messageInput.focus();

@@ -41,15 +41,21 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
     conversation_summary: str
 
-
+# kiểm tra nếu chưa in ra chữ nào thì mới chạy lại tư đầu
 class _OutputStartedTracker(BaseCallbackHandler):
-    """Track streamed model output so a late failure cannot replay visible tokens."""
+    """Track streamed model output (text or reasoning) so a late failure cannot replay visible tokens."""
 
     def __init__(self) -> None:
         self.output_started = False
 
     def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
         if token:
+            self.output_started = True
+            return
+        chunk = kwargs.get("chunk")
+        msg = getattr(chunk, "message", None)
+        additional_kwargs = getattr(msg, "additional_kwargs", None) or {}
+        if additional_kwargs.get("reasoning_content") or additional_kwargs.get("reasoning"):
             self.output_started = True
 
 
@@ -143,6 +149,20 @@ def normalize_model_name(model_name: str | None) -> str:
 
 
 
+# xây dựng format reasoning kwargs cho từng model Groq
+def _build_reasoning_kwargs(model_name: str) -> dict[str, Any]:
+    """Tạo tham số reasoning phù hợp với từng dòng model Groq (tránh lỗi 400)."""
+    kwargs: dict[str, Any] = {}
+    effort = os.getenv("GROQ_REASONING_EFFORT", "").strip().lower()
+    if model_name.startswith("openai/gpt-oss"):
+        # Nhóm gpt-oss tự stream delta.reasoning và nhận tham số reasoning_effort.
+        if effort in {"low", "medium", "high"}:
+            kwargs["reasoning_effort"] = effort
+    elif model_name.startswith("qwen/"):
+        # Nhóm Qwen tách reasoning sang additional_kwargs.reasoning_content khi đặt parsed.
+        kwargs["reasoning_format"] = os.getenv("GROQ_REASONING_FORMAT", "parsed").strip() or "parsed"
+    return kwargs
+
 
 def build_agent(model_name: str) -> Any:
     """
@@ -166,7 +186,8 @@ def build_agent(model_name: str) -> Any:
     llm = ChatGroq(
         model=selected_model,
         temperature=0.3,    # Giảm tính sáng tạo ngẫu nhiên, ưu tiên câu trả lời chính xác, bám sát sự thật
-        streaming=True       # Hỗ trợ stream phản hồi theo thời gian thực về giao diện
+        streaming=True,     # Hỗ trợ stream phản hồi theo thời gian thực về giao diện
+        **_build_reasoning_kwargs(selected_model),
     )
 
     # Khai báo các công cụ (tools) cho mô hình để LLM có thể chủ động kích hoạt Function Calling
