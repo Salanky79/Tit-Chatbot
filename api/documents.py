@@ -53,6 +53,8 @@ async def upload_document(
     project_id: str = Form(default=""),
 ):
     """Upload file cá nhân hoặc file dùng chung trong Project."""
+    file_path: str | None = None
+    written_to_disk = False
     try:
         allowed_extensions = {".pdf", ".docx", ".txt", ".md", ".py", ".csv"}
 
@@ -110,11 +112,7 @@ async def upload_document(
             is_temp_bool = True
         with open(file_path, "wb") as f:
             f.write(contents)
-
-        create_or_update_conversation(
-            thread_id, "Uploaded document", user_id=user_id,
-            is_temporary=is_temp_bool, project_id=project_id or None,
-        )
+        written_to_disk = True
 
         if suffix in SUPPORTED_IMAGE_TYPES:
             # Dùng chung UUID của file lưu trên disk để liên kết metadata Chroma với file gốc.
@@ -125,6 +123,10 @@ async def upload_document(
                 user_id=user_id,
                 document_id=file_id,
                 project_id=project_id or None,
+            )
+            create_or_update_conversation(
+                thread_id, "Uploaded document", user_id=user_id,
+                is_temporary=is_temp_bool, project_id=project_id or None,
             )
             if project_id:
                 register_project_file(project_id, file_id, thread_id, filename, file_path, "image", user_id)
@@ -141,6 +143,10 @@ async def upload_document(
             document_id=file_id,
             project_id=project_id or None,
         )
+        create_or_update_conversation(
+            thread_id, "Uploaded document", user_id=user_id,
+            is_temporary=is_temp_bool, project_id=project_id or None,
+        )
         if project_id:
             register_project_file(project_id, file_id, thread_id, filename, file_path, suffix.lstrip("."), user_id)
 
@@ -150,6 +156,11 @@ async def upload_document(
         })
 
     except Exception as e:
+        if written_to_disk and file_path:
+            try:
+                Path(file_path).unlink(missing_ok=True)
+            except OSError:
+                pass
         return JSONResponse(
             {
                 "success": False,

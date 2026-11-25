@@ -3637,14 +3637,18 @@
         }
     }
 
-    async function loadConversation(selectedThreadId, selectedProjectId = "") {
+    async function loadConversation(selectedThreadId, selectedProjectId = "", { skipProjectReload = false } = {}) {
         clearPendingAttachment();
         isTemporaryChat = false;
         activeProjectId = selectedProjectId || "";
         if (activeProjectId) localStorage.setItem("active_project_id", activeProjectId);
         else localStorage.removeItem("active_project_id");
-        activeProject = null;
-        if (activeProjectId) await loadProjects();
+        if (!skipProjectReload) {
+            activeProject = null;
+            if (activeProjectId) await loadProjects();
+        } else if (!activeProjectId) {
+            activeProject = null;
+        }
         updateProjectWorkspace();
         threadId = selectedThreadId;
         localStorage.setItem("thread_id", threadId);
@@ -3993,7 +3997,7 @@
 
                 try {
                     const errorData = await response.json();
-                    errorText = errorData.detail || errorData.message || errorText;
+                    errorText = errorData.error || errorData.detail || errorData.message || errorText;
                 } catch (error) {
                     console.error("Could not parse error response:", error);
                 }
@@ -4997,13 +5001,15 @@
 
     // Kh?i d?ng: ki?m tra auth tru?c, sau d� load d�ng tr?ng th�i
     // checkAuthStatus() c?n ho�n th�nh tru?c d? bi?t user d� dang nh?p chua
-    checkAuthStatus().then(() => {
+    checkAuthStatus().then(async () => {
         restoreAuthChallenge();
         renderWelcome();
-        loadProjects().then(() => loadConversations());
+        await loadProjects();
         // Ch? restore thread cu n?u d� dang nh?p (guest kh�ng c� l?ch s?)
         if (currentUser && threadId) {
-            loadConversation(threadId, activeProjectId);
+            await loadConversation(threadId, activeProjectId, { skipProjectReload: true });
+        } else {
+            await loadConversations();
         }
     });
 </script>

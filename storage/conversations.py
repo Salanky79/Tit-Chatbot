@@ -411,14 +411,23 @@ def get_admin_conversation_messages(
             "title": 1,
             "created_at": 1,
             "updated_at": 1,
+            "project_id": 1,
         },
     )
     if not conversation:
         return None
 
+    is_project_conv = bool(conversation.get("project_id"))
+    if isinstance(conversation.get("project_id"), ObjectId):
+        conversation["project_id"] = str(conversation["project_id"])
+
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
-    message_query = {"user_id": oid, "thread_id": thread_id}
+    message_query = (
+        {"thread_id": thread_id}
+        if is_project_conv
+        else {"user_id": oid, "thread_id": thread_id}
+    )
     messages = get_collection("chat_messages")
     total = messages.count_documents(message_query)
     cursor = (

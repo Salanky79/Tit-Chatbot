@@ -262,7 +262,10 @@ async def delete_project_file(project_id: str, document_id: str, request: Reques
     if not file_doc:
         return _error("File not found.", 404)
     from services.rag import delete_project_document
-    delete_project_document(project_id, document_id)
+    try:
+        delete_project_document(project_id, document_id)
+    except (OSError, RuntimeError) as exc:
+        return _error(f"Could not delete the file from disk: {exc}", 500)
     upload_root = Path("uploads").resolve()
     candidate = Path(file_doc.get("path", "")).resolve()
     if candidate.is_relative_to(upload_root) and candidate.is_file():

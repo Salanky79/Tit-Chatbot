@@ -577,6 +577,30 @@ def list_admin_documents() -> list[dict[str, Any]]:
     )
 
 
+def _unlink_upload_paths(file_paths: set[str] | list[str]) -> tuple[int, list[str]]:
+    """Safely unlink files under uploads/ with a GC retry for Windows file locks."""
+    upload_root = Path("uploads").resolve()
+    deleted_files = 0
+    failed_paths: list[str] = []
+    for file_path in file_paths:
+        candidate = Path(file_path).resolve()
+        if not candidate.is_relative_to(upload_root) or not candidate.is_file():
+            continue
+        try:
+            candidate.unlink()
+            deleted_files += 1
+        except OSError:
+            import gc
+            gc.collect()
+            try:
+                candidate.unlink()
+                deleted_files += 1
+            except OSError as retry_exc:
+                logger.warning("Could not remove uploaded file %s: %s", candidate, retry_exc)
+                failed_paths.append(str(candidate))
+    return deleted_files, failed_paths
+
+
 def delete_user_documents(user_id: str) -> dict[str, int]:
     """Xóa chunks Chroma và file tải lên thuộc về một user.
 
@@ -603,26 +627,7 @@ def delete_user_documents(user_id: str) -> dict[str, int]:
         if file_path:
             file_paths.add(str(file_path))
 
-    upload_root = Path("uploads").resolve()
-    deleted_files = 0
-    failed_paths: list[str] = []
-    for file_path in file_paths:
-        candidate = Path(file_path).resolve()
-        if not candidate.is_relative_to(upload_root) or not candidate.is_file():
-            continue
-        try:
-            candidate.unlink()
-            deleted_files += 1
-        except OSError as exc:
-            import gc
-            gc.collect()
-            try:
-                candidate.unlink()
-                deleted_files += 1
-            except OSError as retry_exc:
-                logger.warning("Could not remove uploaded file %s: %s", candidate, retry_exc)
-                failed_paths.append(str(candidate))
-
+    deleted_files, failed_paths = _unlink_upload_paths(file_paths)
     if failed_paths:
         raise RuntimeError(
             "Không thể xóa một số file tải lên; dữ liệu Chroma được giữ lại để thử lại."
@@ -650,22 +655,7 @@ def delete_thread_documents(thread_id: str) -> dict[str, int]:
         if file_path:
             file_paths.add(str(file_path))
 
-    upload_root = Path("uploads").resolve()
-    deleted_files = 0
-    for file_path in file_paths:
-        candidate = Path(file_path).resolve()
-        if candidate.is_relative_to(upload_root) and candidate.is_file():
-            try:
-                candidate.unlink()
-                deleted_files += 1
-            except OSError:
-                import gc
-                gc.collect()
-                try:
-                    candidate.unlink()
-                    deleted_files += 1
-                except OSError as exc:
-                    logger.warning("Could not remove uploaded file %s: %s", candidate, exc)
+    deleted_files, _ = _unlink_upload_paths(file_paths)
 
     chunk_count = len(result.get("ids") or [])
     if chunk_count:
@@ -676,7 +666,6 @@ def delete_thread_documents(thread_id: str) -> dict[str, int]:
 
 def delete_project_document(project_id: str, document_id: str) -> dict[str, int]:
     """Xóa một file Project cùng các vector chunks của file đó."""
-    """Delete one shared project file and its vector chunks."""
     if not project_id or not document_id:
         return {"chunks_deleted": 0, "files_deleted": 0}
     where_filter = {"$and": [{"project_id": str(project_id)}, {"document_id": str(document_id)}]}
@@ -687,16 +676,9 @@ def delete_project_document(project_id: str, document_id: str) -> dict[str, int]
         str(metadata.get("file_path") or metadata.get("image_path"))
         for metadata in metadatas if metadata and (metadata.get("file_path") or metadata.get("image_path"))
     }
-    upload_root = Path("uploads").resolve()
-    deleted_files = 0
-    for raw_path in paths:
-        candidate = Path(raw_path).resolve()
-        if candidate.is_relative_to(upload_root) and candidate.is_file():
-            try:
-                candidate.unlink()
-                deleted_files += 1
-            except OSError as exc:
-                logger.warning("Could not remove project upload %s: %s", candidate, exc)
+    deleted_files, failed_paths = _unlink_upload_paths(paths)
+    if failed_paths:
+        raise RuntimeError("Could not delete project file from disk; Chroma chunks were kept.")
     chunk_count = len(result.get("ids") or [])
     if chunk_count:
         collection.delete(where=where_filter)
@@ -705,7 +687,6 @@ def delete_project_document(project_id: str, document_id: str) -> dict[str, int]
 
 def delete_project_documents(project_id: str) -> dict[str, int]:
     """Xóa toàn bộ file và vector chunks thuộc một Project."""
-    """Delete all vector chunks and files owned by a project."""
     if not project_id:
         return {"chunks_deleted": 0, "files_deleted": 0}
     where_filter = {"project_id": str(project_id)}
@@ -716,16 +697,7 @@ def delete_project_documents(project_id: str) -> dict[str, int]:
         str(metadata.get("file_path") or metadata.get("image_path"))
         for metadata in metadatas if metadata and (metadata.get("file_path") or metadata.get("image_path"))
     }
-    upload_root = Path("uploads").resolve()
-    deleted_files = 0
-    for raw_path in paths:
-        candidate = Path(raw_path).resolve()
-        if candidate.is_relative_to(upload_root) and candidate.is_file():
-            try:
-                candidate.unlink()
-                deleted_files += 1
-            except OSError as exc:
-                logger.warning("Could not remove project upload %s: %s", candidate, exc)
+    deleted_files, _ = _unlink_upload_paths(paths)
     chunk_count = len(result.get("ids") or [])
     if chunk_count:
         collection.delete(where=where_filter)
@@ -791,6 +763,12 @@ def delete_admin_document(document_key: str) -> bool:
 
     # Xóa tất cả chunks theo metadata ngay trong Chroma, không tải danh sách IDs về app.
     collection.delete(where=where_filter)
+    # Đồng bộ xóa metadata trong project_files nếu tài liệu này thuộc một Project.
+    try:
+        from storage.mongo_client import get_collection
+        get_collection("project_files").delete_many({"document_id": document_key})
+    except Exception as exc:
+        logger.warning("Could not remove project_files record for %s: %s", document_key, exc)
     return True
 
 
