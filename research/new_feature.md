@@ -9,6 +9,7 @@ Tài liệu này ghi lại kế hoạch, thiết kế dữ liệu và cách tri�
 - [D. Quyền share và memory mode](#d-quyền-share-và-memory-mode)
 - [E. Luồng chạy hoàn chỉnh](#e-luồng-chạy-hoàn-chỉnh)
 - [F. Kiểm thử và giới hạn hiện tại](#f-kiểm-thử-và-giới-hạn-hiện-tại)
+- [G. Phase 2 — Cải tiến Workspace, Giữ Chat Cá Nhân & Thêm Chat Vào Project](#g-phase-2--cải-tiến-workspace-giữ-chat-cá-nhân--thêm-chat-vào-project)
 
 ---
 
@@ -348,6 +349,31 @@ Giới hạn implementation hiện tại:
 - Chỉ mời được email/username đã có tài khoản; lời mời hiển thị trong chatbot, chưa gửi email.
 - Cross-chat context được giới hạn theo số chat/message và kích thước để tránh đưa toàn bộ lịch sử vào prompt.
 - Không có test integration với MongoDB/Chroma thật cho Project permission và cleanup.
+
+---
+
+## G. Phase 2 — Cải tiến Workspace, Giữ Chat Cá Nhân & Thêm Chat Vào Project
+
+Phần này bổ sung 3 cải tiến trải nghiệm và nghiệp vụ cho hệ thống Projects:
+
+1. **Nút thoát Project trực quan:** Đặt nút **`Thoát Project`** ngay trên thanh workspace (`#projectWorkspaceBar` trong [templates/index.html](../templates/index.html#L2540)) gọi `exitProject()` để quay lại màn hình chat cá nhân bình thường.
+2. **Giữ song song 2 danh sách ở sidebar (kiểu ChatGPT):** Khi đang mở một Project, sidebar hiển thị đồng thời:
+   - `#projectChatSection` (`#projectConversationList`): Các cuộc trò chuyện thuộc Project đang mở (`GET /api/projects/{id}/conversations`).
+   - `#personalChatSection` (`#conversationList`): Danh sách các cuộc trò chuyện cá nhân (`GET /api/conversations`) luôn hiển thị để người dùng mở lại hoặc bấm **Thêm vào Project** bất kỳ lúc nào.
+3. **Tính năng Add cuộc trò chuyện cá nhân vào Project (chỉ `owner` / `editor`):**
+   - **Backend Storage:** `assign_conversation_to_project()` trong [storage/conversations.py](../storage/conversations.py#L304) kiểm tra thread thuộc sở hữu của user hiện tại, không phải guest/temporary chat, chưa thuộc Project nào khác, và xác thực `can_edit_project(project_id, user_id)` (chặn hoàn toàn `chat_only`) trước khi gắn `project_id` vào `conversations`, `chat_messages`, `summary_jobs` và cập nhật `projects.updated_at`.
+   - **Đồng bộ RAG & File dùng chung:** `migrate_thread_documents_to_project()` trong [services/rag.py](../services/rag.py#L775) cập nhật metadata `project_id` và `scope="project"` cho toàn bộ chunks ChromaDB của thread đó, rồi API đăng ký vào collection `project_files` qua `register_project_file()` để các thành viên khác có thể tìm, tóm tắt và tải file đính kèm.
+   - **Backend Endpoint:** `POST /api/conversations/{thread_id}/project` trong [api/conversations.py](../api/conversations.py#L222) nhận `{"project_id": "..."}` và trả về số lượng file đã đồng bộ (`files_migrated`).
+   - **Frontend Modal:** Nút **`+ Project`** trên mỗi item chat cá nhân mở `#addToProjectModal`, chỉ liệt kê các Project mà user giữ vai trò `owner` hoặc `editor`, mặc định chọn sẵn Project đang mở (nếu đủ quyền) và chuyển ngữ cảnh sang Project đích sau khi thêm thành công.
+
+```mermaid
+flowchart TD
+    S_Personal["Sidebar: Chat cá nhân (#conversationList)"] -- "Bấm nút + Project" --> Modal["Modal #addToProjectModal\n(Lọc Project role owner/editor)"]
+    Modal -- "POST /api/conversations/{id}/project" --> API["add_conversation_to_project()\n(api/conversations.py)"]
+    API --> DB["assign_conversation_to_project()\n(storage/conversations.py)\n- Check owner/editor & non-temp\n- Set project_id vào conv/messages"]
+    API --> RAG["migrate_thread_documents_to_project()\n(services/rag.py)\n- Update Chroma metadata project_id\n- register_project_file()"]
+    Workspace["#projectWorkspaceBar\n- Nút 'Thoát Project' -> exitProject()"] --> S_Personal
+```
 
 ---
 

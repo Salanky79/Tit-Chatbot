@@ -772,6 +772,63 @@ def delete_admin_document(document_key: str) -> bool:
     return True
 
 
+def migrate_thread_documents_to_project(
+    thread_id: str,
+    project_id: str,
+) -> list[dict[str, str]]:
+    """Cập nhật metadata ChromaDB để chia sẻ tài liệu của một chat cá nhân sang Project.
+
+    Khi đưa một cuộc trò chuyện cá nhân vào Project, toàn bộ vector chunks (tài liệu và ảnh)
+    đã upload trong thread đó được gắn thêm ``project_id`` và ``scope="project"``.
+    Hàm trả về danh sách file duy nhất (kèm ``document_id``, ``filename``, ``path``, ``file_type``)
+    để API đăng ký vào collection ``project_files``.
+    """
+    if not thread_id or not project_id:
+        return []
+
+    collection = get_vectorstore()._collection
+    result = collection.get(where={"thread_id": str(thread_id)}, include=["metadatas"])
+    ids = result.get("ids") or []
+    metadatas = result.get("metadatas") or []
+    if not ids:
+        return []
+
+    updated_ids: list[str] = []
+    updated_metadatas: list[dict[str, Any]] = []
+    files_by_doc_id: dict[str, dict[str, str]] = {}
+
+    for index, chunk_id in enumerate(ids):
+        raw_meta = metadatas[index] if index < len(metadatas) else {}
+        meta = dict(raw_meta or {})
+        raw_path = str(meta.get("file_path") or meta.get("image_path") or "")
+        doc_id = str(
+            meta.get("document_id")
+            or (Path(raw_path).stem if raw_path else "")
+            or meta.get("source")
+            or chunk_id
+        )
+        # Gắn phạm vi Project để các thành viên khác tìm/tóm tắt được bằng bộ lọc project_id.
+        meta["project_id"] = str(project_id)
+        meta["scope"] = "project"
+        meta["document_id"] = doc_id
+
+        updated_ids.append(chunk_id)
+        updated_metadatas.append(meta)
+
+        if doc_id not in files_by_doc_id:
+            files_by_doc_id[doc_id] = {
+                "document_id": doc_id,
+                "filename": str(meta.get("source") or Path(raw_path).name or "uploaded_file"),
+                "path": raw_path,
+                "file_type": str(meta.get("file_type") or "unknown"),
+            }
+
+    if updated_ids:
+        collection.update(ids=updated_ids, metadatas=updated_metadatas)
+
+    return list(files_by_doc_id.values())
+
+
 def list_uploaded_images(
     thread_id: str,
     user_id: str | None = None,

@@ -25,7 +25,9 @@ from api.dependencies import (
     toggle_pin_conversation,
     update_conversation_title,
 )
-from storage.projects import get_membership
+from services.rag import migrate_thread_documents_to_project
+from storage.conversations import assign_conversation_to_project as _assign_conversation_to_project_impl
+from storage.projects import get_membership, register_project_file
 
 router = APIRouter()
 
@@ -38,6 +40,9 @@ toggle_pin_conversation = app_callable('toggle_pin_conversation', toggle_pin_con
 update_conversation_title = app_callable('update_conversation_title', update_conversation_title)
 get_chat_history = app_callable('get_chat_history', get_chat_history)
 delete_conversation = app_callable('delete_conversation', delete_conversation)
+assign_conversation_to_project = app_callable('assign_conversation_to_project', _assign_conversation_to_project_impl)
+migrate_thread_documents_to_project = app_callable('migrate_thread_documents_to_project', migrate_thread_documents_to_project)
+register_project_file = app_callable('register_project_file', register_project_file)
 logger = AppValueProxy("logger", logging.getLogger("app"))
 
 
@@ -216,3 +221,55 @@ async def remove_conversation(thread_id: str, request: Request):
             status_code=404
         )
     return {"success": True, "message": "Đã xóa cuộc trò chuyện."}
+
+
+@router.post("/conversations/{thread_id}/project")
+async def add_conversation_to_project(thread_id: str, request: Request):
+    """Đưa một cuộc trò chuyện cá nhân vào Project (chỉ dành cho owner hoặc editor)."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(
+            {"success": False, "error": "Vui lòng đăng nhập để thực hiện thao tác này."},
+            status_code=401,
+        )
+
+    try:
+        data = await request.json()
+        project_id = str(data.get("project_id") or "").strip()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Dữ liệu JSON không hợp lệ."}, status_code=400)
+
+    if not project_id:
+        return JSONResponse({"success": False, "error": "Thiếu project_id đích."}, status_code=400)
+
+    user_id = str(user["id"])
+    try:
+        assign_conversation_to_project(thread_id, user_id, project_id)
+    except LookupError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=404)
+    except PermissionError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+    # Đồng bộ tài liệu và ảnh đã upload trong thread cá nhân sang kho dùng chung của Project.
+    migrated_docs = migrate_thread_documents_to_project(thread_id, project_id)
+    for doc in migrated_docs:
+        if doc.get("path"):
+            register_project_file(
+                project_id=project_id,
+                document_id=doc["document_id"],
+                thread_id=thread_id,
+                filename=doc["filename"],
+                path=doc["path"],
+                file_type=doc["file_type"],
+                uploaded_by=user_id,
+            )
+
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "project_id": project_id,
+        "files_migrated": len(migrated_docs),
+        "message": "Đã thêm cuộc trò chuyện vào Project.",
+    }

@@ -301,6 +301,76 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     return False
 
 
+def assign_conversation_to_project(
+    thread_id: str,
+    user_id: str,
+    project_id: str,
+) -> dict[str, Any]:
+    """Chuyển một cuộc trò chuyện cá nhân vào Project với kiểm tra quyền owner/editor.
+
+    Kiểm tra cuộc trò chuyện thuộc về ``user_id``, không phải guest/tạm thời và chưa
+    thuộc Project nào khác; đồng thời xác nhận ``user_id`` có quyền ``owner`` hoặc
+    ``editor`` trong Project đích trước khi cập nhật ``conversations``,
+    ``chat_messages``, ``summary_jobs`` và ``projects``.
+    """
+    if not thread_id or not user_id or not project_id:
+        raise ValueError("Thiếu thông tin cuộc trò chuyện, người dùng hoặc Project.")
+
+    user_oid = _to_object_id(user_id)
+    project_oid = _to_object_id(project_id)
+    if user_oid is None or project_oid is None:
+        raise ValueError("ID người dùng hoặc ID Project không hợp lệ.")
+
+    conv_coll = get_collection("conversations")
+    conv = conv_coll.find_one({"thread_id": thread_id})
+    if not conv:
+        raise LookupError("Cuộc trò chuyện không tồn tại.")
+
+    conv_owner = conv.get("user_id")
+    if conv.get("is_guest") or not conv_owner or str(conv_owner) != str(user_oid):
+        raise PermissionError("Bạn không có quyền chuyển cuộc trò chuyện này.")
+    if conv.get("is_temporary"):
+        raise ValueError("Không thể thêm cuộc trò chuyện tạm thời vào Project.")
+    if conv.get("project_id"):
+        raise ValueError("Cuộc trò chuyện này đã thuộc một Project.")
+
+    from storage.projects import can_edit_project, get_project
+    if not get_project(project_id):
+        raise LookupError("Project không tồn tại.")
+    if not can_edit_project(project_id, user_id):
+        raise PermissionError("Chỉ owner hoặc editor mới được thêm cuộc trò chuyện vào Project.")
+
+    now = _now()
+    # Cập nhật phạm vi Project cho cuộc trò chuyện; giữ nguyên user_id làm người tạo gốc.
+    conv_coll.update_one(
+        {"thread_id": thread_id},
+        {"$set": {"project_id": project_oid, "updated_at": now, "last_actor_id": user_oid}},
+    )
+    msg_coll = get_collection("chat_messages")
+    msg_coll.update_many(
+        {"thread_id": thread_id},
+        {"$set": {"project_id": project_oid}},
+    )
+    # Đảm bảo tin nhắn người dùng trước đó có sender_id để hiển thị đúng tác giả trong Project.
+    msg_coll.update_many(
+        {"thread_id": thread_id, "role": "user", "sender_id": {"$exists": False}},
+        {"$set": {"sender_id": user_oid}},
+    )
+    get_collection("summary_jobs").update_many(
+        {"context.thread_id": thread_id},
+        {"$set": {"context.project_id": str(project_oid)}},
+    )
+    get_collection("projects").update_one(
+        {"_id": project_oid},
+        {"$set": {"updated_at": now}},
+    )
+
+    return get_conversation(thread_id) or {
+        "thread_id": thread_id,
+        "project_id": str(project_oid),
+    }
+
+
 def save_chat_message(
     thread_id: str,
     role: str,
