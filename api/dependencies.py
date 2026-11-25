@@ -52,6 +52,10 @@ from storage.database import (
     update_conversation_title,
     update_user_profile,
 )
+from storage.projects import (
+    can_edit_project as _can_edit_project_impl,
+    get_membership as _get_project_membership_impl,
+)
 from services.rag import (
     add_document_to_rag,
     add_image_to_rag,
@@ -59,7 +63,10 @@ from services.rag import (
     delete_user_documents,
     list_admin_documents,
 )
-from tools import set_current_model_name, set_current_thread_id, set_current_user_id
+from tools import (
+    set_current_model_name, set_current_thread_id, set_current_user_id,
+    set_current_project, set_project_prompt_context,
+)
 
 logger = AppValueProxy("logger", logging.getLogger("app"))
 get_session = app_callable("get_session", get_session)
@@ -135,8 +142,22 @@ def _conversation_owner_id(conversation: Any) -> str | None:
 
 def _can_access_conversation(conversation: Any, user: dict | None) -> bool:
     """Allow unowned conversations and require matching users for owned ones."""
+    if isinstance(conversation, dict) and conversation.get("project_id"):
+        if not user:
+            return False
+        return _get_project_membership_impl(str(conversation["project_id"]), str(user.get("id", ""))) is not None
     owner_id = _conversation_owner_id(conversation)
     return owner_id is None or bool(user and str(user["id"]) == owner_id)
+
+
+def _project_membership(project_id: str, user: dict | None) -> dict | None:
+    if not user:
+        return None
+    return _get_project_membership_impl(project_id, str(user.get("id", "")))
+
+
+def _can_edit_project(project_id: str, user: dict | None) -> bool:
+    return bool(user and _can_edit_project_impl(project_id, str(user.get("id", ""))))
 
 
 def get_current_user(request: Request) -> dict | None:

@@ -25,6 +25,7 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 from storage.mongo_client import get_client
 from prompts.agent import SYSTEM_PROMPT
 from tools import tools, SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI
+from agent_tools.context import get_current_project_context, get_current_project_instructions, is_project_chat
 from services.context_manager import prepare_context_for_llm
 from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
@@ -178,9 +179,26 @@ def build_agent(model_name: str) -> Any:
         """
         existing_summary = state.get("conversation_summary", "")
 
+        dynamic_system_prompt = SYSTEM_PROMPT
+        if is_project_chat():
+            instructions = get_current_project_instructions().strip()
+            project_context = get_current_project_context().strip()
+            if instructions:
+                dynamic_system_prompt += (
+                    "\n\n[Instructions for this project]\n"
+                    f"{instructions}\n"
+                    "[End project instructions]"
+                )
+            if project_context:
+                dynamic_system_prompt += (
+                    "\n\n[Relevant context from this project only]\n"
+                    f"{project_context}\n"
+                    "[End project context]"
+                )
+
         final_messages, updated_summary = prepare_context_for_llm(
             messages=state.get("messages", []),
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=dynamic_system_prompt,
             tools=tools,
             existing_summary=existing_summary,
             model_name=selected_model,

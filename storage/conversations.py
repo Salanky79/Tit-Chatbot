@@ -25,7 +25,9 @@ def create_or_update_conversation(
     first_message: str | None = None,
     user_id: str | None = None,
     is_temporary: bool = False,
+    project_id: str | None = None,
 ) -> Any:
+    """Tạo hoặc cập nhật chat, đồng thời giữ nguyên Project scope và creator."""
     """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``.
 
     - Nếu chưa tồn tại: insert với ``title`` lấy từ ``first_message`` (40 ký tự đầu).
@@ -39,6 +41,15 @@ def create_or_update_conversation(
     """
     coll = get_collection("conversations")
     now = _now()
+    project_oid = _to_object_id(project_id)
+    existing = coll.find_one({"thread_id": thread_id}, {"project_id": 1, "user_id": 1})
+    if existing:
+        existing_project = existing.get("project_id")
+        if isinstance(existing_project, ObjectId):
+            existing_project = str(existing_project)
+        requested_project = str(project_oid) if project_oid else None
+        if existing_project != requested_project:
+            raise ValueError("Conversation already belongs to a different project scope.")
 
     # Sinh title từ first_message
     title = "New Chat"
@@ -53,6 +64,8 @@ def create_or_update_conversation(
         "created_at": now,
         "is_pinned": False,
     }
+    if project_oid:
+        set_on_insert["project_id"] = project_oid
 
     if is_temporary:
         set_on_insert["is_temporary"] = True
@@ -64,8 +77,12 @@ def create_or_update_conversation(
     oid = _to_object_id(user_id)
     if oid:
         # Người dùng đã đăng nhập: gắn user_id (ObjectId)
-        set_fields["user_id"] = oid
+        if not project_oid:
+            set_fields["user_id"] = oid
+        else:
+            set_on_insert["user_id"] = oid
         set_on_insert["is_guest"] = False
+        set_on_insert["created_by"] = oid
     else:
         # Guest: đánh dấu và đặt TTL 24h để MongoDB tự dọn
         set_on_insert["is_guest"] = True
@@ -82,10 +99,13 @@ def create_or_update_conversation(
     )
 
     doc = coll.find_one({"thread_id": thread_id}, {"_id": 0})
+    if doc and isinstance(doc.get("project_id"), ObjectId):
+        doc["project_id"] = str(doc["project_id"])
     return _conv_to_obj(doc)
 
 
 def get_conversation(thread_id: str) -> dict | None:
+    """Lấy metadata của một chat theo thread ID."""
     """Lấy thông tin chi tiết một cuộc trò chuyện để kiểm tra quyền sở hữu."""
     if not thread_id:
         return None
@@ -93,6 +113,8 @@ def get_conversation(thread_id: str) -> dict | None:
     doc = coll.find_one({"thread_id": thread_id}, {"_id": 0})
     if doc and isinstance(doc.get("user_id"), ObjectId):
         doc["user_id"] = str(doc["user_id"])
+    if doc and isinstance(doc.get("project_id"), ObjectId):
+        doc["project_id"] = str(doc["project_id"])
     return doc
 
 
@@ -110,7 +132,12 @@ def list_conversations(
         return []  # Guest không có lịch sử conversation
 
     coll = get_collection("conversations")
-    query = {"user_id": oid, "is_guest": {"$ne": True}, "is_temporary": {"$ne": True}}
+    query = {
+        "user_id": oid,
+        "is_guest": {"$ne": True},
+        "is_temporary": {"$ne": True},
+        "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+    }
 
     try:
         cursor = (
@@ -248,6 +275,7 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
         if oid:
             query["user_id"] = oid
 
+    existing_conv = conv_coll.find_one(query, {"project_id": 1})
     res = conv_coll.delete_one(query)
     if res.deleted_count > 0:
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
@@ -261,11 +289,12 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
         summary_jobs.delete_many(job_filter)
 
         # Dọn dẹp tài liệu vật lý và vector ChromaDB gắn với thread_id này
-        try:
-            from services.rag import delete_thread_documents
-            delete_thread_documents(thread_id)
-        except Exception as exc:
-            logger.warning("Không thể dọn tài liệu của thread %s: %s", thread_id, exc)
+        if not (existing_conv and existing_conv.get("project_id")):
+            try:
+                from services.rag import delete_thread_documents
+                delete_thread_documents(thread_id)
+            except Exception as exc:
+                logger.warning("Could not clean thread documents %s: %s", thread_id, exc)
 
         # long_term_memory gắn với user_id, không xóa theo thread_id đơn lẻ
         return True
@@ -278,6 +307,7 @@ def save_chat_message(
     content: str,
     user_id: str | None = None,
 ) -> Any:
+    """Lưu tin nhắn và ghi riêng sender khi chat thuộc Project."""
     """Lưu một tin nhắn vào collection ``chat_messages``.
 
     Đồng thời cập nhật ``updated_at`` của conversation tương ứng.
@@ -304,17 +334,29 @@ def save_chat_message(
     }
     if oid:
         doc["user_id"] = oid
+        if role == "user":
+            # Keep the author on each message; the conversation's user_id stays
+            # the original creator when multiple project members share a chat.
+            doc["sender_id"] = oid
 
     # Cập nhật updated_at của conversation
     conv_coll = get_collection("conversations")
-    conv_doc = conv_coll.find_one({"thread_id": thread_id}, {"is_temporary": 1, "expires_at": 1})
+    conv_doc = conv_coll.find_one({"thread_id": thread_id}, {"is_temporary": 1, "expires_at": 1, "project_id": 1})
     if conv_doc and conv_doc.get("is_temporary") and conv_doc.get("expires_at"):
         doc["expires_at"] = conv_doc["expires_at"]
+    if conv_doc and conv_doc.get("project_id"):
+        doc["project_id"] = conv_doc["project_id"]
+        get_collection("projects").update_one(
+            {"_id": conv_doc["project_id"]}, {"$set": {"updated_at": now}}
+        )
 
     msg_coll.insert_one(doc)
     update_fields: dict[str, Any] = {"updated_at": now}
     if oid:
-        update_fields["user_id"] = oid
+        if conv_doc and conv_doc.get("project_id"):
+            update_fields["last_actor_id"] = oid
+        else:
+            update_fields["user_id"] = oid
     conv_coll.update_one(
         {"thread_id": thread_id},
         {"$set": update_fields},

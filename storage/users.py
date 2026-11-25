@@ -221,6 +221,17 @@ def delete_user(user_id: str | ObjectId) -> dict:
 
     # Tài khoản có thể dùng ObjectId hoặc chuỗi ID trong dữ liệu cũ.
     owner_filter = {"user_id": {"$in": [query_id, str(query_id)]}}
+    # Projects owned by a permanently deleted account and all of their shared data
+    # are removed. Memberships in projects owned by other users are just revoked.
+    from storage.projects import delete_project as _delete_project
+    owned_projects = list(get_collection("projects").find({"owner_id": query_id}, {"_id": 1}))
+    for project in owned_projects:
+        _delete_project(str(project["_id"]), str(query_id))
+    project_members = get_collection("project_members")
+    project_members.delete_many({"user_id": query_id})
+    # Keep memberships that belong to other users if this user originally sent
+    # the invitation; invited_by is audit metadata, not an ownership relation.
+    project_members.update_many({"invited_by": query_id}, {"$unset": {"invited_by": ""}})
     summary_jobs = get_collection("summary_jobs")
     job_ids = [
         job["_id"]
@@ -230,13 +241,19 @@ def delete_user(user_id: str | ObjectId) -> dict:
         get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
     summary_jobs.delete_many({"context.user_id": str(query_id)})
 
-    for collection_name in (
-        "sessions",
-        "conversations",
-        "chat_messages",
-        "long_term_memory",
-    ):
+    for collection_name in ("sessions", "long_term_memory"):
         get_collection(collection_name).delete_many(owner_filter)
+    # A chat created by this user inside another owner's Project remains shared
+    # project data. Remove only the user's private conversations here.
+    private_conversation_filter = {
+        **owner_filter,
+        "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+    }
+    get_collection("conversations").delete_many(private_conversation_filter)
+    get_collection("chat_messages").delete_many({
+        **owner_filter,
+        "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+    })
 
     users.delete_one({"_id": query_id})
     return _public_user(user)
@@ -250,7 +267,10 @@ def list_user_thread_ids(user_id: str | ObjectId) -> list[str]:
 
     conversations = get_collection("conversations")
     cursor = conversations.find(
-        {"user_id": {"$in": [query_id, str(query_id)]}},
+        {
+            "user_id": {"$in": [query_id, str(query_id)]},
+            "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+        },
         {"_id": 0, "thread_id": 1},
     )
     return list(dict.fromkeys(

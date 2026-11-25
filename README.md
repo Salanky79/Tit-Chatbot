@@ -100,7 +100,7 @@ flowchart TD
     end
 
     subgraph StorageLayer ["Persistence & Vector Database"]
-        MongoDB[("MongoDB Atlas<br/>• users & sessions<br/>• conversations & chat_messages<br/>• long_term_memory (User-scoped)<br/>• MongoDBSaver Checkpoints")]
+        MongoDB[("MongoDB Atlas<br/>• users & sessions<br/>• conversations & chat_messages<br/>• long_term_memory (user_id / project_id scoped)<br/>• MongoDBSaver Checkpoints")]
         ChromaDB[("ChromaDB Vector Store<br/>Lazy-loaded CPU Embeddings")]
         LocalFiles[("Local Storage<br/>uploads/ & temp files")]
     end
@@ -516,7 +516,7 @@ sequenceDiagram
 | **Tầng 3: Ký ức Dài hạn Toàn diện (Cross-Chat Long-term Memory with User Isolation)** | Công cụ `remember_this` và `recall_memory` liên kết ký ức trực tiếp với `user_id` (nếu không có sẵn, tự động tra cứu chủ sở hữu cuộc trò chuyện từ `get_conversation(thread_id)`). Ký ức được lưu và tìm kiếm trên **toàn bộ các cuộc trò chuyện của User đó** (`{"user_id": str(user_id)}`). | **Nhớ xuyên suốt mọi cuộc trò chuyện:** Khi người dùng nói *"Nhớ rằng tôi tên là Sơn"* ở Chat 1, sang Chat 2 hỏi *"Tôi tên là gì?"*, AI vẫn nhớ và trả lời chính xác. Tuyệt đối cô lập giữa các user khác nhau. |
 
 #### Chi tiết Cơ chế Ký ức Dài hạn Xuyên Cuộc trò chuyện (Cross-Chat Memory Mechanism)
-- **Lưu trữ gắn liền với User ID (`save_memory`):** Mọi sự kiện, sở thích, thông tin cá nhân (tên, trường học, công nghệ yêu thích) được lưu vào collection `long_term_memory` kèm trường `user_id`.
+- **Lưu trữ theo scope (`save_memory`):** Memory cá nhân được lưu trong `long_term_memory` kèm `user_id`; memory dùng chung trong Project lưu cùng collection nhưng lọc bằng `project_id` và có `created_by`. Hai scope dùng chung embedding, tìm kiếm semantic, version và xóa mềm, nhưng không đọc chéo nhau.
 - **Tìm kiếm Linh hoạt & Xử lý Ngôn ngữ Tự nhiên (`search_memory`):**
   * **Truy vấn tổng quát (`generic query`):** Khi người dùng hỏi *"bạn nhớ gì về tôi"*, *"thông tin của tôi"*, *"tất cả"* hoặc để chuỗi rỗng `""`, hệ thống tự động trả về toàn bộ danh sách ký ức đã lưu của chính người dùng đó.
   * **Truy vấn cụ thể (`specific query`):** Khi người dùng hỏi *"tôi tên là gì?"*, *"tôi học trường nào?"*, thuật toán tự động loại bỏ các stop-words tiếng Việt/tiếng Anh (`là`, `gì`, `của`, `tôi`, `what`, `is`, `my`...) và dùng biểu thức chính quy `$regex` không phân biệt hoa thường (`$options: "i"`) để tìm kiếm chính xác các sự kiện tương ứng.
@@ -641,7 +641,7 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
   - `sessions`: index duy nhất trên `session_id` và TTL index tự động hủy trên `expires_at`.
   - `conversations`: index duy nhất trên `thread_id`, index trên `user_id`, index giảm dần trên `updated_at`.
   - `chat_messages`: index kép trên `thread_id` và `created_at`, index trên `user_id`.
-  - `long_term_memory`: index trên `user_id`, `thread_id` và Text Index trên trường `memory`.
+  - `long_term_memory`: compound index theo `user_id` hoặc `project_id`, `is_deleted`, `created_at`; index `thread_id` và Text Index trên trường `memory`.
 - Các hàm DAL người dùng & phiên: `create_user`, `authenticate_user`, `get_user_by_id`, `get_user_by_username`, `update_user_profile`, `create_session`, `get_session`, `delete_session`.
 - Các hàm nghiệp vụ trò chuyện hỗ trợ `user_id`: `create_or_update_conversation`, `list_conversations`, `toggle_pin_conversation`, `save_chat_message`, `get_chat_history`, `save_memory`, `search_memory`, `delete_conversation`.
 

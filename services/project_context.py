@@ -1,0 +1,74 @@
+"""Build bounded cross-chat context for a project-scoped agent request."""
+
+from __future__ import annotations
+
+from bson import ObjectId
+
+from storage.mongo_client import get_collection
+from storage.projects import search_project_memories
+
+
+MAX_PROJECT_CONTEXT_CHARS = 9000
+
+
+def build_project_context(
+    project_id: str,
+    current_thread_id: str,
+    query: str,
+    memory_mode: str = "project_only",
+) -> str:
+    """Tạo ngữ cảnh giới hạn từ chat gần đây và memory của Project."""
+    if not ObjectId.is_valid(project_id) or memory_mode == "current_chat_only":
+        return ""
+    project_oid = ObjectId(project_id)
+    conversations = list(
+        get_collection("conversations").find(
+            {"project_id": project_oid, "thread_id": {"$ne": current_thread_id}},
+            {"thread_id": 1, "title": 1},
+        ).sort("updated_at", -1).limit(12)
+    )
+    thread_ids = [row["thread_id"] for row in conversations if row.get("thread_id")]
+    messages = []
+    if thread_ids:
+        messages = list(
+            get_collection("chat_messages").find(
+                {"thread_id": {"$in": thread_ids}},
+                {"role": 1, "content": 1, "thread_id": 1, "created_at": 1, "sender_id": 1, "user_id": 1},
+            ).sort("created_at", -1).limit(24)
+        )
+        messages.reverse()
+
+    pieces: list[str] = []
+    if messages:
+        title_by_thread = {row["thread_id"]: row.get("title", "Project chat") for row in conversations}
+        sender_ids = {
+            sender_id
+            for message in messages
+            for sender_id in (message.get("sender_id"), message.get("user_id"))
+            if isinstance(sender_id, ObjectId)
+        }
+        user_names = {
+            str(user["_id"]): user.get("full_name") or user.get("username", "Project member")
+            for user in get_collection("users").find(
+                {"_id": {"$in": list(sender_ids)}}, {"full_name": 1, "username": 1}
+            )
+        } if sender_ids else {}
+        dialogue = []
+        for message in messages:
+            if message.get("role") == "user":
+                sender_id = message.get("sender_id") or message.get("user_id")
+                role = f"User ({user_names.get(str(sender_id), 'Project member')})" if sender_id else "User"
+            else:
+                role = "Assistant"
+            content = str(message.get("content", "")).strip()
+            if content:
+                dialogue.append(f"[{title_by_thread.get(message.get('thread_id'), 'Project chat')}] {role}: {content}")
+        if dialogue:
+            pieces.append("Recent conversations in this project:\n" + "\n".join(dialogue))
+
+    memories = search_project_memories(project_id, query, limit=5)
+    if memories:
+        pieces.append("Saved project facts and decisions:\n" + "\n".join(f"- {item}" for item in memories))
+
+    content = "\n\n".join(pieces)
+    return content[-MAX_PROJECT_CONTEXT_CHARS:] if content else ""

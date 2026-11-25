@@ -1,8 +1,359 @@
-# HƯỚNG DẪN TRIỂN KHAI TÍNH NĂNG: ĐỔI TÊN HỘI THOẠI & CHAT TẠM THỜI (TEMPORARY CHAT)
+# HƯỚNG DẪN TÍNH NĂNG PROJECTS
 
-Tài liệu này hướng dẫn chi tiết từng bước (step-by-step), kèm mã nguồn đầy đủ và địa chỉ file/dòng code cụ thể trong dự án **Tit-Chatbot** để triển khai 2 tính năng:
-1. **Đổi tên cuộc trò chuyện (Rename Conversation)**
-2. **Trò chuyện tạm thời (Temporary Chat - `temp_chat`)**
+Tài liệu này ghi lại kế hoạch, thiết kế dữ liệu và cách triển khai Projects trong **Tit-Chatbot**, kèm đường dẫn file và đoạn code đại diện. Các phần Rename Conversation và Temporary Chat đã có trong repo được giữ lại ở cuối file như phụ lục.
+
+## MỤC LỤC — PROJECTS
+- [A. Plan triển khai](#a-plan-triển-khai)
+- [B. Thiết kế dữ liệu](#b-thiết-kế-dữ-liệu-mongodb)
+- [C. Cách implement](#c-cách-implement-theo-từng-lớp)
+- [D. Quyền share và memory mode](#d-quyền-share-và-memory-mode)
+- [E. Luồng chạy hoàn chỉnh](#e-luồng-chạy-hoàn-chỉnh)
+- [F. Kiểm thử và giới hạn hiện tại](#f-kiểm-thử-và-giới-hạn-hiện-tại)
+
+---
+
+## A. Plan triển khai
+
+### Mục tiêu
+
+Project là một không gian làm việc riêng cho một chủ đề. Project gom nhiều cuộc trò chuyện, file dùng chung, Project Instructions và Project memory. Thành viên được mời có thể đọc và làm việc theo vai trò được cấp.
+
+### Các bước trong plan
+
+1. **Tạo data model trong MongoDB.** Tạo các collection cho Project, thành viên, file và memory. Project ID là `_id` của document trong collection `projects`.
+2. **Gắn chat vào Project.** Mỗi chat tiếp tục có `thread_id` riêng để LangGraph checkpoint và lịch sử hiện tại tiếp tục hoạt động. Bổ sung `project_id` để nhiều `thread_id` cùng thuộc một Project.
+3. **Tách chủ chat khỏi người gửi tin.** `conversations.user_id` và `created_by` xác định người tạo chat; `chat_messages.sender_id` xác định người gửi từng tin nhắn. Không đổi chủ chat theo người nhắn gần nhất.
+4. **Bắt buộc kiểm tra quyền ở backend.** Mọi API chat, history, file và Project phải xác nhận thành viên đang ở trạng thái `accepted`. Không dựa vào việc ẩn nút ở frontend.
+5. **Đưa Project file vào RAG theo Project ID.** Mọi chunk của file Project mang metadata `project_id`. Chat trong Project tìm file theo `project_id`; chat cá nhân không được lẫn file Project vào fallback tìm kiếm theo user.
+6. **Thêm Project Instructions và Project memory.** Instructions được đọc từ document Project ở mỗi request. Memory cá nhân và Project dùng chung collection `long_term_memory`, lần lượt truy vấn bằng `user_id` và `project_id` để scope không giao nhau.
+7. **Thêm chia sẻ theo vai trò.** Owner mời thành viên; người được mời phải accept. `editor` được chỉnh sửa nội dung Project; `chat_only` chỉ trò chuyện và đọc/tải file.
+8. **Thêm giao diện và dọn dữ liệu.** Sidebar quản lý Project/chat; workspace quản lý files, instructions và thành viên. Xóa Project sẽ dọn chats, messages, files, vectors, memory, memberships và LangGraph checkpoints.
+9. **Kiểm thử các luồng RAG và quyền truy cập.** Kiểm tra Project scope, private scope, thành viên bị từ chối, và dọn dữ liệu. Repo hiện chưa có test riêng cho toàn bộ API Project; kết quả suite hiện có nằm ở mục F.
+
+### Quyết định kiến trúc
+
+```mermaid
+flowchart LR
+    UI[Project workspace] --> API[FastAPI Project / Chat / Upload APIs]
+    API --> AUTH[Check accepted membership and role]
+    API --> MONGO[(MongoDB: projects, members, chats, messages)]
+    API --> RAG[(Chroma: chunks filtered by project_id)]
+    API --> GRAPH[(LangGraph checkpoint filtered by thread_id)]
+    MONGO --> CTX[Instructions + bounded cross-chat context + project memory]
+    CTX --> AGENT[Agent request]
+    RAG --> AGENT
+```
+
+---
+
+## B. Thiết kế dữ liệu MongoDB
+
+MongoDB là nơi giữ dữ liệu Project và quan hệ quyền truy cập. Chroma giữ vector của file. `_id` của Project được gửi xuống các collection khác dưới trường `project_id`.
+
+| Collection | Nội dung | Các trường chính |
+|---|---|---|
+| `projects` | Một document cho mỗi Project | `_id`, `owner_id`, `name`, `description`, `instructions`, `memory_mode`, timestamps |
+| `project_members` | Thành viên và lời mời | `project_id`, `user_id`, `role`, `status`, `invited_by`, `accepted_at` |
+| `project_files` | Danh sách file trong workspace và đường dẫn tải xuống | `project_id`, `document_id`, `thread_id`, `filename`, `path`, `file_type`, `uploaded_by` |
+| `long_term_memory` | Memory cá nhân hoặc fact dùng chung trong Project | Personal record có `user_id`; Project record có `project_id`, `created_by`; cả hai dùng `thread_id`, `memory`, `embedding`, `is_deleted`, `version`, timestamps |
+| `conversations` | Một chat/thread | `thread_id`, `project_id`, `user_id` creator, `created_by`, `last_actor_id` |
+| `chat_messages` | Tin nhắn theo thread | `thread_id`, `project_id`, `role`, `content`, `sender_id`, `user_id` |
+
+Owner được lưu tại `projects.owner_id`; không cần tạo một membership row riêng cho owner. `get_membership()` trả về quyền `owner` khi user ID khớp với `owner_id`. Các thành viên được mời có row trong `project_members`.
+
+Project Instructions là **riêng từng Project**, không phải một instruction chung toàn chatbot. Ví dụ document được lưu tương tự:
+
+```python
+{
+    "owner_id": ObjectId("..."),
+    "name": "Tit-Chatbot",
+    "instructions": "Luôn trả lời bằng tiếng Việt...",
+    "memory_mode": "project_only",
+}
+```
+
+Code tạo document: [storage/projects.py](../storage/projects.py#L39). Index cho Projects, memberships, files, memory, conversations và messages: [storage/mongo_client.py](../storage/mongo_client.py#L143).
+
+---
+
+## C. Cách implement theo từng lớp
+
+### 1. Storage: Project, membership, file, memory
+
+File chính: [storage/projects.py](../storage/projects.py).
+
+`create_project()` tạo document Project và mặc định đặt `memory_mode` là `project_only`. Hàm `get_membership()` xác định owner hoặc trả về membership đã accept.
+
+```python
+doc = {
+    "owner_id": owner_oid,
+    "name": clean_name,
+    "description": (description or "").strip()[:500],
+    "instructions": "",
+    "memory_mode": "project_only",
+    "created_at": now,
+    "updated_at": now,
+}
+get_collection("projects").insert_one(doc)
+```
+
+Mỗi member có một row duy nhất cho một Project. Trạng thái `invited` chưa cấp quyền; chỉ `accepted` được dùng Project:
+
+```python
+{
+    "project_id": project_oid,
+    "user_id": invited_user_oid,
+    "role": "editor",        # hoặc chat_only
+    "status": "invited",     # accepted sau khi người nhận accept
+    "invited_by": owner_oid,
+}
+```
+
+Các thao tác create/list/update/delete/invite/accept, Project memory và file được gom ở `storage/projects.py`. `storage/database.py` re-export các hàm để code hiện tại có thể dùng chung storage facade.
+
+### 2. Conversation: `thread_id` riêng, `project_id` dùng chung
+
+File: [storage/conversations.py](../storage/conversations.py#L23).
+
+Ví dụ hai chat trong cùng Project:
+
+```text
+projects._id = P1
+conversations: { thread_id: T1, project_id: P1, ... }
+conversations: { thread_id: T2, project_id: P1, ... }
+```
+
+Hai thread vẫn có checkpoint/history độc lập. Truy vấn Project context hoặc tài liệu dùng `project_id=P1` để gom dữ liệu của T1, T2 và các thread khác trong cùng Project.
+
+Khi tạo chat trong Project, `project_id` và creator được đặt lúc insert. Các lượt chat sau không ghi đè owner:
+
+```python
+if project_oid:
+    set_on_insert["project_id"] = project_oid
+
+if oid:
+    if project_oid:
+        set_on_insert["user_id"] = oid
+    else:
+        set_fields["user_id"] = oid
+    set_on_insert["created_by"] = oid
+```
+
+Mỗi message user được ghi riêng người gửi; conversation giữ creator ổn định:
+
+```python
+if oid:
+    doc["user_id"] = oid
+    if role == "user":
+        doc["sender_id"] = oid
+
+if conv_doc and conv_doc.get("project_id"):
+    update_fields["last_actor_id"] = oid  # không thay conversation.user_id
+```
+
+### 3. API: tạo Project, chat, share, file
+
+Router: [api/projects.py](../api/projects.py), được đăng ký trong [app.py](../app.py).
+
+| Method + endpoint | Chức năng |
+|---|---|
+| `GET /api/projects` | Danh sách Project user sở hữu hoặc đã accept |
+| `POST /api/projects` | Tạo Project |
+| `GET /api/projects/{project_id}` | Đọc Project và role hiện tại |
+| `PATCH /api/projects/{project_id}` | Sửa tên, mô tả, instructions, memory mode; owner/editor |
+| `DELETE /api/projects/{project_id}` | Xóa toàn bộ Project; chỉ owner |
+| `GET /api/projects/{project_id}/conversations` | Liệt kê các thread thuộc Project |
+| `GET/POST /api/projects/{project_id}/members` | Xem thành viên / mời user đã đăng ký |
+| `PATCH/DELETE /api/projects/{project_id}/members/{member_id}` | Đổi role / thu hồi thành viên; chỉ owner |
+| `GET /api/projects/{project_id}/files` | Liệt kê file; mọi member accepted |
+| `GET /api/projects/{project_id}/files/{document_id}/download` | Tải file; mọi member accepted |
+| `DELETE /api/projects/{project_id}/files/{document_id}` | Xóa file khỏi Project; owner/editor |
+| `GET /api/projects/invitations` | Lời mời đang chờ của user hiện tại |
+| `POST /api/projects/invitations/{id}/accept` | Chấp nhận lời mời |
+| `POST /api/projects/invitations/{id}/decline` | Từ chối lời mời |
+
+Chat stream vẫn dùng endpoint hiện tại `POST /api/chat/stream`, bổ sung `project_id` trong JSON. Backend kiểm tra quyền membership, lấy instructions và context trước khi gọi agent:
+
+```python
+membership = get_membership(project_id, user_id)
+project = get_project(project_id)
+if not membership or not project:
+    return JSONResponse({"error": "Project access denied."}, status_code=404)
+
+instructions = project.get("instructions", "")
+context = build_project_context(project_id, thread_id, user_message, memory_mode)
+create_or_update_conversation(..., project_id=project_id)
+```
+
+Upload tiếp tục dùng `POST /api/upload`; FormData có thêm `project_id`. Backend kiểm tra membership và `can_edit_project()` trước khi ghi file, sau đó thêm chunks vào Chroma và tạo row `project_files`.
+
+Không dùng `conversation.user_id` để quyết định ai được vào một chat Project. Quyền đọc chat Project được kiểm tra theo accepted membership:
+
+```python
+if conversation.get("project_id"):
+    if not user:
+        return False
+    return get_membership(
+        str(conversation["project_id"]),
+        str(user["id"]),
+    ) is not None
+```
+
+Quyền sửa tài nguyên được kiểm tra riêng bằng `can_edit_project()`, chỉ trả true cho owner/editor. Route Project invitation và role management kiểm tra owner ở storage layer.
+
+### 4. RAG: mọi chat trong Project tìm file theo Project ID
+
+Files: [services/rag.py](../services/rag.py#L242), [agent_tools/documents.py](../agent_tools/documents.py).
+
+Metadata của mỗi chunk Project có `project_id` và `scope="project"`:
+
+```python
+if project_id:
+    doc.metadata["project_id"] = str(project_id)
+    doc.metadata["scope"] = "project"
+```
+
+Truy vấn Project mặc định lọc theo Project ID, không fallback sang user documents. Ở chế độ `current_chat_only`, truy vấn thêm `thread_id`:
+
+```python
+if project_id and current_chat_only:
+    filter_dict = {"$and": [
+        {"project_id": str(project_id)},
+        {"thread_id": thread_id},
+    ]}
+elif project_id:
+    filter_dict = {"project_id": str(project_id)}
+```
+
+Các hàm tìm chunk, liệt kê file và lấy ảnh dùng cùng quy tắc scope. Chiều ngược lại, fallback RAG của chat cá nhân lọc `scope != project`, để file Project không xuất hiện trong chat cá nhân của người tải lên.
+
+### 5. Project Instructions và Project memory
+
+Instructions được đọc từ Mongo mỗi request, rồi thêm vào system prompt động trong [agent.py](../agent.py#L179). Chúng không ghi vào checkpoint, nên sửa instructions sẽ áp dụng cho lượt chat kế tiếp trong tất cả thread của Project.
+
+```python
+if instructions:
+    dynamic_system_prompt += (
+        "\n\n[Instructions for this project]\n"
+        f"{instructions}\n"
+        "[End project instructions]"
+    )
+```
+
+Ngữ cảnh chat Project được dựng bởi [services/project_context.py](../services/project_context.py#L14): lấy tối đa 12 chat gần đây, 24 message gần nhất và giới hạn tổng context 9.000 ký tự; project facts được tìm semantic và lấy tối đa 5 kết quả. Đây là context có giới hạn, không nạp toàn bộ lịch sử vô hạn vào mỗi request.
+
+Project facts lưu trong collection `long_term_memory`, cùng cách lưu text, embedding, version và xóa mềm như memory cá nhân. Hai loại record được cô lập bằng scope riêng: memory cá nhân lọc theo `user_id`, Project memory lọc theo `project_id`; Project record không mang `user_id` nên thao tác xóa tài khoản cá nhân không xóa memory dùng chung. `remember_project_fact`, `search_project_facts`, `update_project_fact` và `forget_project_fact` trong [agent_tools/project_memory.py](../agent_tools/project_memory.py) gọi lại các hàm lưu, semantic search, sửa và xóa của [storage/memories.py](../storage/memories.py). Chỉ owner/editor được ghi, sửa hoặc xóa; mọi thành viên đã chấp nhận lời mời có thể tìm/đọc.
+
+Để sửa hoặc xóa một fact, agent phải gọi `search_project_facts` trước trong cùng lượt chat, rồi truyền đúng `memory_id` và `version` tool trả về. Backend xác minh lại quyền owner/editor và dùng `project_id + _id + version` trong điều kiện MongoDB; sửa sẽ cập nhật embedding và tăng version, xóa sẽ đặt `is_deleted=true` và tăng version. Vì vậy Project fact dùng chung chính cơ chế optimistic versioning và soft-delete của memory cá nhân nhưng không thể bị truy xuất nhầm qua scope `user_id`.
+
+```python
+@tool
+def remember_project_fact(fact: str) -> str:
+    project_id = get_current_project_id()
+    if not project_id:
+        return "Project memory is available only inside a project chat."
+    return create_project_memory(
+        project_id=project_id,
+        user_id=get_current_user_id(),
+        memory=fact,
+        thread_id=get_current_thread_id(),
+    )
+```
+
+Các tool personal memory trong [agent_tools/memory.py](../agent_tools/memory.py) bị chặn theo `memory_mode`, tránh tự động trộn dữ liệu cá nhân vào Project-only.
+
+### 6. Frontend workspace
+
+File: [templates/index.html](../templates/index.html).
+
+Sidebar có danh sách Project và lời mời. Workspace có Files, Instructions/Settings, Share và New chat. Chọn Project sẽ tạo thread mới nhưng giữ `active_project_id`; mọi lần gửi tin nhắn và upload gửi Project ID lên backend.
+
+```javascript
+body: JSON.stringify({
+    message: submittedMessage,
+    thread_id: targetThreadId,
+    model: selectedModel,
+    project_id: activeProjectId || null
+})
+```
+
+History Project hiển thị tên người gửi lấy từ `chat_messages.sender_id`. File được upload qua attachment của chat hiện tại, nhưng vì metadata có Project ID nên thread khác trong cùng Project vẫn tìm được file.
+
+### 7. Xóa Project và xóa tài khoản
+
+`delete_project()` xóa conversations, messages, summary jobs/checkpoints, LangGraph checkpoints, vectors/files, `project_files`, các record `long_term_memory` có `project_id` tương ứng, `project_members` và document Project. Xóa một chat Project riêng lẻ thì giữ file và memory Project dùng chung.
+
+Khi xóa user:
+
+- Nếu user là owner, Project và dữ liệu của Project bị xóa theo.
+- Nếu user chỉ là member, membership bị thu hồi; Project và các chat dùng chung vẫn còn.
+- Chat Project không bị xóa như chat cá nhân chỉ vì creator account bị xóa.
+- File Project không bị `delete_user_documents()` xóa cùng file cá nhân.
+
+---
+
+## D. Quyền share và memory mode
+
+### Vai trò
+
+| Hành động | Owner | Editor | Chat-only |
+|---|---:|---:|---:|
+| Xem chat/file và gửi tin nhắn trong Project | Có | Có | Có |
+| Tạo chat mới trong Project | Có | Có | Có |
+| Tải file Project | Có | Có | Có |
+| Sửa tên/mô tả/instructions/memory mode | Có | Có | Không |
+| Upload/xóa file và lưu/sửa/xóa Project memory | Có | Có | Không |
+| Mời, đổi role, xóa thành viên | Có | Không | Không |
+| Xóa Project | Có | Không | Không |
+
+Người được mời chỉ có quyền sau khi accept. Khi bị xóa khỏi `project_members`, API chat/history/files từ chối quyền ngay ở request tiếp theo.
+
+### Memory mode
+
+| Giá trị Mongo | Hành vi |
+|---|---|
+| `project_only` | Dùng context chat gần đây, Project memory và toàn bộ file thuộc Project; không đọc/ghi personal memory trong chat Project. |
+| `project_and_personal` | Dùng context Project và cho phép agent dùng personal memory riêng của người đang chat. |
+| `current_chat_only` | Chỉ dùng thread hiện tại và file gắn với thread; không nạp chat khác, Project memory hoặc personal memory. |
+
+File được upload vào Project vẫn là dữ liệu dùng chung cho các thành viên. `current_chat_only` chỉ thu hẹp retrieval của agent vào thread hiện tại; nó không xóa file khỏi Project.
+
+---
+
+## E. Luồng chạy hoàn chỉnh
+
+1. Owner tạo Project; Mongo tạo `projects._id=P1`.
+2. Owner mời user theo email/username đã đăng ký; row `project_members` bắt đầu với `status="invited"`.
+3. Người được mời accept; từ đây backend coi membership là hợp lệ.
+4. User chọn Project và tạo chat mới; server sinh `thread_id=T1`, lưu conversation với `project_id=P1`.
+5. Khi gửi tin, server xác thực membership, lưu `sender_id` vào user message, nạp instructions/context Project và gọi LangGraph bằng `thread_id=T1`.
+6. Khi upload file, server kiểm tra role editor/owner, lưu file, ghi vector metadata `project_id=P1`, rồi đăng ký `project_files`.
+7. Chat thứ hai dùng `thread_id=T2` nhưng cùng `project_id=P1`; RAG có thể tìm file của T1 và Project context có thể dùng các chat gần đây khác.
+8. Owner/editor có thể đổi instructions; lượt request kế tiếp của bất kỳ thread nào trong P1 sẽ đọc instructions mới.
+
+---
+
+## F. Kiểm thử và giới hạn hiện tại
+
+Lệnh đã chạy:
+
+```powershell
+py -3.14 -m unittest evaluation.rag_eval.tests.test_evaluation -v
+```
+
+Kết quả: **28 test passed**. Suite này có các test ingestion/retrieval RAG hiện có, nhưng chưa bao phủ riêng API Project, membership roles, invitation lifecycle hoặc deletion cascade. Repo không có thư mục `tests/` như README cũ mô tả. Đã compile cú pháp 20 module Python liên quan Projects bằng Python 3.14.
+
+Giới hạn implementation hiện tại:
+
+- Chỉ mời được email/username đã có tài khoản; lời mời hiển thị trong chatbot, chưa gửi email.
+- Cross-chat context được giới hạn theo số chat/message và kích thước để tránh đưa toàn bộ lịch sử vào prompt.
+- Không có test integration với MongoDB/Chroma thật cho Project permission và cleanup.
+
+---
+
+## PHỤ LỤC: HƯỚNG DẪN TRIỂN KHAI RENAME CONVERSATION & TEMPORARY CHAT
+
+Phần dưới đây giữ nguyên hướng dẫn trước đây cho hai tính năng Rename Conversation và Temporary Chat.
 
 ---
 

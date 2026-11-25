@@ -22,7 +22,9 @@ from api.dependencies import (
     get_current_user,
     MAX_IMAGE_BYTES,
     SUPPORTED_IMAGE_TYPES,
+    _can_access_conversation,
 )
+from storage.projects import can_edit_project, get_membership, get_project, register_project_file
 
 router = APIRouter()
 
@@ -48,7 +50,9 @@ async def upload_document(
     file: UploadFile = File(...),
     thread_id: str = Form(...),
     is_temporary: str = Form(default="false"),
+    project_id: str = Form(default=""),
 ):
+    """Upload file cá nhân hoặc file dùng chung trong Project."""
     try:
         allowed_extensions = {".pdf", ".docx", ".txt", ".md", ".py", ".csv"}
 
@@ -81,16 +85,36 @@ async def upload_document(
                     status_code=400,
                 )
 
-        with open(file_path, "wb") as f:
-            f.write(contents)
-
         user = get_current_user(request)
         user_id = user["id"] if user else None
         is_temp_bool = str(is_temporary).strip().lower() in ("true", "1")
         conv = get_conversation(thread_id)
+        project_id = (project_id or "").strip()
+        if conv and not _can_access_conversation(conv, user):
+            return JSONResponse({"success": False, "message": "You cannot access this conversation."}, status_code=403)
+        if conv and conv.get("project_id"):
+            existing_project = str(conv.get("project_id"))
+            if project_id and project_id != existing_project:
+                return JSONResponse({"success": False, "message": "Conversation belongs to another project."}, status_code=403)
+            project_id = existing_project
+        if project_id:
+            if not user or not get_project(project_id) or not get_membership(project_id, user_id):
+                return JSONResponse({"success": False, "message": "Project not found or access denied."}, status_code=404)
+            if not can_edit_project(project_id, user_id):
+                return JSONResponse({"success": False, "message": "Project edit permission required to upload files."}, status_code=403)
+            if conv and str(conv.get("project_id") or "") != project_id:
+                return JSONResponse({"success": False, "message": "Conversation is not part of this project."}, status_code=403)
+            if is_temp_bool:
+                return JSONResponse({"success": False, "message": "Temporary chats cannot upload project files."}, status_code=400)
         if not is_temp_bool and conv and conv.get("is_temporary"):
             is_temp_bool = True
-        create_or_update_conversation(thread_id, "Uploaded document", user_id=user_id, is_temporary=is_temp_bool)
+        with open(file_path, "wb") as f:
+            f.write(contents)
+
+        create_or_update_conversation(
+            thread_id, "Uploaded document", user_id=user_id,
+            is_temporary=is_temp_bool, project_id=project_id or None,
+        )
 
         if suffix in SUPPORTED_IMAGE_TYPES:
             # Dùng chung UUID của file lưu trên disk để liên kết metadata Chroma với file gốc.
@@ -100,7 +124,10 @@ async def upload_document(
                 filename,
                 user_id=user_id,
                 document_id=file_id,
+                project_id=project_id or None,
             )
+            if project_id:
+                register_project_file(project_id, file_id, thread_id, filename, file_path, "image", user_id)
             return JSONResponse({
                 "success": True,
                 "message": f"Uploaded image {result['filename']}. You can now ask questions about it.",
@@ -112,7 +139,10 @@ async def upload_document(
             thread_id=thread_id,
             user_id=user_id,
             document_id=file_id,
+            project_id=project_id or None,
         )
+        if project_id:
+            register_project_file(project_id, file_id, thread_id, filename, file_path, suffix.lstrip("."), user_id)
 
         return JSONResponse({
             "success": True,

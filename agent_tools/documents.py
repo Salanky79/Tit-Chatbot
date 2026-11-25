@@ -9,6 +9,8 @@ from agent_tools.context import (
     SUMMARY_RESULT_PREFIX,
     SUMMARY_RESULT_PREFIX_VI,
     get_current_model_name as _get_current_model_name,
+    get_current_project_id as _get_current_project_id,
+    get_current_project_memory_mode as _get_current_project_memory_mode,
     get_current_thread_id as _get_current_thread_id,
     get_current_user_id as _get_current_user_id,
 )
@@ -27,6 +29,8 @@ from services.token_limit_handler import (
 )
 
 get_current_model_name = tool_callable("get_current_model_name", _get_current_model_name)
+get_current_project_id = tool_callable("get_current_project_id", _get_current_project_id)
+get_current_project_memory_mode = tool_callable("get_current_project_memory_mode", _get_current_project_memory_mode)
 get_current_thread_id = tool_callable("get_current_thread_id", _get_current_thread_id)
 get_current_user_id = tool_callable("get_current_user_id", _get_current_user_id)
 analyze_image = tool_callable("analyze_image", _analyze_image)
@@ -53,7 +57,9 @@ def search_uploaded_documents(query: str) -> str:
     return retrieve_from_rag(
         query=query,
         thread_id=get_current_thread_id(),
-        user_id=get_current_user_id() or None
+        user_id=get_current_user_id() or None,
+        project_id=get_current_project_id() or None,
+        current_chat_only=get_current_project_memory_mode() == "current_chat_only",
     )
 
 
@@ -119,7 +125,12 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     tool automatically resumes from saved progress instead of starting over.
     """
     user_id = get_current_user_id() or None
-    sources = list_document_sources(get_current_thread_id(), user_id=user_id)
+    project_id = get_current_project_id() or None
+    current_chat_only = get_current_project_memory_mode() == "current_chat_only"
+    sources = list_document_sources(
+        get_current_thread_id(), user_id=user_id, project_id=project_id,
+        current_chat_only=current_chat_only,
+    )
     if not sources:
         return "No uploaded documents were found in this conversation or your account."
 
@@ -133,13 +144,17 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
         return f'No uploaded file named "{requested}" was found. Available files: {available}.'
 
     try:
-        chunks = get_document_chunks(selected, get_current_thread_id(), user_id=user_id)
+        chunks = get_document_chunks(
+            selected, get_current_thread_id(), user_id=user_id, project_id=project_id,
+            current_chat_only=current_chat_only,
+        )
         summary = summarize_documents(
             chunks,
             target_language=target_language,
             job_context={
                 "user_id": str(user_id or ""),
                 "thread_id": get_current_thread_id(),
+                "project_id": str(project_id or ""),
                 "source": selected,
                 "model": get_current_model_name(),
             },
@@ -170,7 +185,11 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
     images exist, ask which one instead of combining or guessing.
     """
     user_id = get_current_user_id() or None
-    images = list_uploaded_images(get_current_thread_id(), user_id=user_id)
+    images = list_uploaded_images(
+        get_current_thread_id(), user_id=user_id,
+        project_id=get_current_project_id() or None,
+        current_chat_only=get_current_project_memory_mode() == "current_chat_only",
+    )
     if not images:
         return "No uploaded images were found in this conversation or your account. Upload a JPG, PNG, or WEBP image first."
 

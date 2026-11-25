@@ -40,9 +40,13 @@ from agent_tools.context import (
     _current_thread_id,
     _current_user_id,
     get_current_model_name,
+    get_current_project_id,
+    get_current_project_memory_mode,
     get_current_thread_id,
     get_current_user_id,
     set_current_model_name,
+    set_current_project,
+    set_project_prompt_context,
     set_current_thread_id,
     set_current_user_id,
 )
@@ -61,6 +65,12 @@ from agent_tools.memory import (
     remember_this,
     update_memory_entry,
 )
+from agent_tools.project_memory import (
+    forget_project_fact,
+    remember_project_fact,
+    search_project_facts,
+    update_project_fact,
+)
 
 tools = [
     calculator,
@@ -71,5 +81,9 @@ tools = [
     get_user_memories,
     update_memory_entry,
     forget_memory_entry,
+    forget_project_fact,
+    remember_project_fact,
+    search_project_facts,
+    update_project_fact,
     web_search,
 ]

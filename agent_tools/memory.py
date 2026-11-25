@@ -9,8 +9,10 @@ from langgraph.prebuilt import InjectedState
 
 from agent_tools._compat import tool_callable
 from agent_tools.context import (
+    get_current_project_memory_mode,
     get_current_thread_id as _get_current_thread_id,
     get_current_user_id as _get_current_user_id,
+    is_project_chat,
 )
 from storage.database import (
     delete_memory_by_id as _delete_memory_by_id,
@@ -21,6 +23,10 @@ from storage.database import (
 
 get_current_thread_id = tool_callable("get_current_thread_id", _get_current_thread_id)
 get_current_user_id = tool_callable("get_current_user_id", _get_current_user_id)
+
+
+def _allow_personal_memory() -> bool:
+    return not is_project_chat() or get_current_project_memory_mode() == "project_and_personal"
 delete_memory_by_id = tool_callable("delete_memory_by_id", _delete_memory_by_id)
 load_user_memories = tool_callable("load_user_memories", _load_user_memories)
 save_memory = tool_callable("save_memory", _save_memory)
@@ -41,6 +47,8 @@ def remember_this(memory: str) -> str:
     (e.g. 'Tên người dùng là Sơn.').
     Returns a confirmation message on success.
     """
+    if not _allow_personal_memory():
+        return "Personal memory is disabled for this project. Use remember_project_fact for shared project decisions."
     user_id = get_current_user_id() or None
     return save_memory(thread_id=get_current_thread_id(), memory=memory, user_id=user_id)
 
@@ -75,6 +83,9 @@ def get_user_memories(
 
     The memory list is for internal agent reasoning; never present it as a raw choice list to the user.
     """
+    if not _allow_personal_memory():
+        return json.dumps({"status": "disabled_in_project", "source": "none", "memories": []})
+
     # Read only messages from the current user turn, not previous checkpointed
     # turns, so the one-full-read guard resets naturally on the next request.
     messages = state.get("messages", []) if state else []
@@ -126,6 +137,8 @@ def update_memory_entry(
     2. Pass the exact memory_id and version received.
     3. Pass the full, updated statement in new_memory (e.g. 'Tên người dùng là Nam.').
     """
+    if not _allow_personal_memory():
+        return "Personal memory is disabled for this project."
     if not any(
         entry.get("memory_id") == memory_id and int(entry.get("version", -1)) == int(version)
         for entry in _current_turn_memory_results(state)
@@ -153,6 +166,8 @@ def forget_memory_entry(
     1. NEVER guess or invent a memory_id. You MUST obtain the memory_id and current version from get_user_memories first.
     2. Pass the exact memory_id and version received.
     """
+    if not _allow_personal_memory():
+        return "Personal memory is disabled for this project."
     if not any(
         entry.get("memory_id") == memory_id and int(entry.get("version", -1)) == int(version)
         for entry in _current_turn_memory_results(state)

@@ -91,14 +91,6 @@ def get_collection(name: str) -> Collection:
 # ---------------------------------------------------------------------------
 
 def ensure_indexes() -> None:
-    """Tạo các index cần thiết cho hiệu năng truy vấn.
-
-    - ``users``:            ``username`` (unique) + ``email`` (unique)
-    - ``sessions``:         ``session_id`` (unique) + TTL index trên ``expires_at``
-    - ``conversations``:    ``thread_id`` (unique) + ``[user_id, updated_at]`` + TTL cho guest
-    - ``chat_messages``:    ``thread_id`` + ``created_at`` (asc)
-    - ``long_term_memory``: ``user_id`` (primary) + text index trên ``memory``
-    """
     try:
         # users
         users = get_collection("users")
@@ -143,6 +135,18 @@ def ensure_indexes() -> None:
             background=True,
         )
 
+        # Projects and their shared resources.
+        projects = get_collection("projects")
+        projects.create_index([("owner_id", ASCENDING), ("updated_at", DESCENDING)], background=True)
+        members = get_collection("project_members")
+        members.create_index([("project_id", ASCENDING), ("user_id", ASCENDING)], unique=True, background=True)
+        members.create_index([("user_id", ASCENDING), ("status", ASCENDING)], background=True)
+        project_files = get_collection("project_files")
+        project_files.create_index([("project_id", ASCENDING), ("document_id", ASCENDING)], unique=True, background=True)
+        project_files.create_index([("project_id", ASCENDING), ("created_at", DESCENDING)], background=True)
+        conv.create_index([("project_id", ASCENDING), ("updated_at", DESCENDING)], background=True)
+        msgs.create_index([("project_id", ASCENDING), ("created_at", ASCENDING)], background=True)
+
         # Resumable document summary checkpoints
         summary_jobs = get_collection("summary_jobs")
         summary_jobs.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
@@ -153,10 +157,14 @@ def ensure_indexes() -> None:
             background=True,
         )
 
-        # long_term_memory — compound index: user_id + is_deleted + created_at
+        # long_term_memory indexes both personal and project-scoped memory records.
         mem = get_collection("long_term_memory")
         mem.create_index(
             [("user_id", ASCENDING), ("is_deleted", ASCENDING), ("created_at", DESCENDING)],
+            background=True
+        )
+        mem.create_index(
+            [("project_id", ASCENDING), ("is_deleted", ASCENDING), ("created_at", DESCENDING)],
             background=True
         )
         mem.create_index([("thread_id", ASCENDING)], background=True)

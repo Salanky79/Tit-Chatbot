@@ -245,7 +245,9 @@ def add_document_to_rag(
     user_id: str | None = None,
     *,
     document_id: str | None = None,
+    project_id: str | None = None,
 ) -> dict:
+    """Đọc file, tách chunks và lưu metadata gắn với Project nếu có."""
     """Đọc file, tách thành chunks (kèm metadata trang & user_id), lưu vào ChromaDB.
 
     Args:
@@ -266,6 +268,9 @@ def add_document_to_rag(
             "file_path": str(Path(file_path).resolve()),
             "uploaded_at": uploaded_at,
         })
+        if project_id:
+            doc.metadata["project_id"] = str(project_id)
+            doc.metadata["scope"] = "project"
 
     if not raw_docs:
         raise ValueError("No text could be extracted from this file.")
@@ -286,7 +291,15 @@ def add_document_to_rag(
     }
 
 
-def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k: int = 4) -> str:
+def retrieve_from_rag(
+    query: str,
+    thread_id: str,
+    user_id: str | None = None,
+    k: int = 4,
+    project_id: str | None = None,
+    current_chat_only: bool = False,
+) -> str:
+    """Tìm nội dung tài liệu theo thread hoặc Project scope hiện tại."""
     """Tìm kiếm các đoạn văn liên quan trong ChromaDB và trả về kết quả.
 
     Cơ chế Hybrid:
@@ -303,8 +316,14 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
     Returns:
         Chuỗi kết quả, mỗi đoạn có nhãn [Source N: file.pdf – Page X].
     """
-    filter_dict = {"thread_id": thread_id}
-    if user_id:
+    if project_id:
+        filter_dict = (
+            {"$and": [{"project_id": str(project_id)}, {"thread_id": thread_id}]}
+            if current_chat_only else {"project_id": str(project_id)}
+        )
+    else:
+        filter_dict = {"thread_id": thread_id}
+    if user_id and not project_id:
         filter_dict = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
 
     docs = get_vectorstore().similarity_search(
@@ -315,8 +334,11 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
 
     # Fallback: Nếu thread hiện tại không có tài liệu và user đã đăng nhập, tìm rộng ra toàn bộ tài liệu của user
     is_cross_thread = False
-    if not docs and user_id:
-        user_filter = {"user_id": str(user_id)}
+    if not docs and user_id and not project_id:
+        user_filter = {"$and": [
+            {"user_id": str(user_id)},
+            {"scope": {"$nin": ["project"]}},
+        ]}
         docs = get_vectorstore().similarity_search(
             query,
             k=k,
@@ -353,7 +375,14 @@ def retrieve_from_rag(query: str, thread_id: str, user_id: str | None = None, k:
     return "\n\n".join(results)
 
 
-def get_document_chunks(source: str, thread_id: str, user_id: str | None = None) -> list[Document]:
+def get_document_chunks(
+    source: str,
+    thread_id: str,
+    user_id: str | None = None,
+    project_id: str | None = None,
+    current_chat_only: bool = False,
+) -> list[Document]:
+    """Lấy toàn bộ chunks của file trong đúng thread hoặc Project scope."""
     """Return every stored chunk for one uploaded file.
 
     Cơ chế Hybrid:
@@ -368,9 +397,14 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
         raise ValueError("A conversation ID is required to find the document.")
 
     # 1. Tìm trong thread hiện tại
-    conditions = [{"thread_id": thread_id}, {"source": source}]
-    if user_id:
-        conditions.append({"user_id": str(user_id)})
+    if project_id:
+        conditions = [{"project_id": str(project_id)}, {"source": source}]
+        if current_chat_only:
+            conditions.append({"thread_id": thread_id})
+    else:
+        conditions = [{"thread_id": thread_id}, {"source": source}]
+        if user_id:
+            conditions.append({"user_id": str(user_id)})
 
     where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
@@ -382,8 +416,12 @@ def get_document_chunks(source: str, thread_id: str, user_id: str | None = None)
     metadatas = result.get("metadatas") or []
 
     # 2. Fallback: Nếu không tìm thấy trong thread hiện tại và user đã đăng nhập, tìm trong file của user
-    if not contents and user_id:
-        where_filter = {"$and": [{"user_id": str(user_id)}, {"source": source}]}
+    if not contents and user_id and not project_id:
+        where_filter = {"$and": [
+            {"user_id": str(user_id)},
+            {"source": source},
+            {"scope": {"$nin": ["project"]}},
+        ]}
         result = get_vectorstore()._collection.get(
             where=where_filter,
             include=["documents", "metadatas"],
@@ -420,10 +458,21 @@ def _sort_number(value: Any) -> int:
         return 0
 
 
-def list_document_sources(thread_id: str, user_id: str | None = None) -> list[str]:
+def list_document_sources(
+    thread_id: str,
+    user_id: str | None = None,
+    project_id: str | None = None,
+    current_chat_only: bool = False,
+) -> list[str]:
+    """Liệt kê file nguồn theo thread hoặc theo Project."""
     """List distinct filenames uploaded in a conversation, falling back to all user documents."""
-    where_filter = {"thread_id": thread_id}
-    if user_id:
+    if project_id and current_chat_only:
+        where_filter = {"$and": [{"project_id": str(project_id)}, {"thread_id": thread_id}]}
+    elif project_id:
+        where_filter = {"project_id": str(project_id)}
+    else:
+        where_filter = {"thread_id": thread_id}
+    if user_id and not project_id:
         where_filter = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
 
     result = get_vectorstore()._collection.get(
@@ -436,9 +485,12 @@ def list_document_sources(thread_id: str, user_id: str | None = None) -> list[st
     }, key=str.casefold)
 
     # Fallback: Nếu thread hiện tại chưa có file nào nhưng có user_id, lấy danh sách file user từng upload
-    if not sources and user_id:
+    if not sources and user_id and not project_id:
         result = get_vectorstore()._collection.get(
-            where={"user_id": str(user_id)}, include=["metadatas"]
+            where={"$and": [
+                {"user_id": str(user_id)},
+                {"scope": {"$nin": ["project"]}},
+            ]}, include=["metadatas"]
         )
         sources = sorted({
             metadata.get("source")
@@ -456,7 +508,9 @@ def add_image_to_rag(
     user_id: str | None = None,
     *,
     document_id: str | None = None,
+    project_id: str | None = None,
 ) -> dict:
+    """Đăng ký ảnh trong RAG với metadata thread và Project."""
     """Register an uploaded image so image tools can find it in this thread."""
     path = Path(file_path).resolve()
     if not path.is_file():
@@ -472,6 +526,7 @@ def add_image_to_rag(
             "file_path": str(path),
             "document_id": document_id or path.stem,
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            **({"project_id": str(project_id), "scope": "project"} if project_id else {}),
         },
     )
     get_vectorstore().add_documents([image_doc])
@@ -536,8 +591,14 @@ def delete_user_documents(user_id: str) -> dict[str, int]:
     result = collection.get(where=user_filter, include=["metadatas"])
     metadatas = result.get("metadatas") or []
     file_paths = set()
-    for metadata in metadatas:
+    personal_ids = []
+    ids = result.get("ids") or []
+    for index, metadata in enumerate(metadatas):
         metadata = metadata or {}
+        if metadata.get("project_id"):
+            continue
+        if index < len(ids):
+            personal_ids.append(ids[index])
         file_path = metadata.get("file_path") or metadata.get("image_path")
         if file_path:
             file_paths.add(str(file_path))
@@ -567,9 +628,9 @@ def delete_user_documents(user_id: str) -> dict[str, int]:
             "Không thể xóa một số file tải lên; dữ liệu Chroma được giữ lại để thử lại."
         )
 
-    chunk_count = len(result.get("ids") or [])
-    if chunk_count:
-        collection.delete(where=user_filter)
+    chunk_count = len(personal_ids)
+    if personal_ids:
+        collection.delete(ids=personal_ids)
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
 
 
@@ -610,6 +671,64 @@ def delete_thread_documents(thread_id: str) -> dict[str, int]:
     if chunk_count:
         collection.delete(where=thread_filter)
 
+    return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
+
+
+def delete_project_document(project_id: str, document_id: str) -> dict[str, int]:
+    """Xóa một file Project cùng các vector chunks của file đó."""
+    """Delete one shared project file and its vector chunks."""
+    if not project_id or not document_id:
+        return {"chunks_deleted": 0, "files_deleted": 0}
+    where_filter = {"$and": [{"project_id": str(project_id)}, {"document_id": str(document_id)}]}
+    collection = get_vectorstore()._collection
+    result = collection.get(where=where_filter, include=["metadatas"])
+    metadatas = result.get("metadatas") or []
+    paths = {
+        str(metadata.get("file_path") or metadata.get("image_path"))
+        for metadata in metadatas if metadata and (metadata.get("file_path") or metadata.get("image_path"))
+    }
+    upload_root = Path("uploads").resolve()
+    deleted_files = 0
+    for raw_path in paths:
+        candidate = Path(raw_path).resolve()
+        if candidate.is_relative_to(upload_root) and candidate.is_file():
+            try:
+                candidate.unlink()
+                deleted_files += 1
+            except OSError as exc:
+                logger.warning("Could not remove project upload %s: %s", candidate, exc)
+    chunk_count = len(result.get("ids") or [])
+    if chunk_count:
+        collection.delete(where=where_filter)
+    return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
+
+
+def delete_project_documents(project_id: str) -> dict[str, int]:
+    """Xóa toàn bộ file và vector chunks thuộc một Project."""
+    """Delete all vector chunks and files owned by a project."""
+    if not project_id:
+        return {"chunks_deleted": 0, "files_deleted": 0}
+    where_filter = {"project_id": str(project_id)}
+    collection = get_vectorstore()._collection
+    result = collection.get(where=where_filter, include=["metadatas"])
+    metadatas = result.get("metadatas") or []
+    paths = {
+        str(metadata.get("file_path") or metadata.get("image_path"))
+        for metadata in metadatas if metadata and (metadata.get("file_path") or metadata.get("image_path"))
+    }
+    upload_root = Path("uploads").resolve()
+    deleted_files = 0
+    for raw_path in paths:
+        candidate = Path(raw_path).resolve()
+        if candidate.is_relative_to(upload_root) and candidate.is_file():
+            try:
+                candidate.unlink()
+                deleted_files += 1
+            except OSError as exc:
+                logger.warning("Could not remove project upload %s: %s", candidate, exc)
+    chunk_count = len(result.get("ids") or [])
+    if chunk_count:
+        collection.delete(where=where_filter)
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
 
 
@@ -675,10 +794,18 @@ def delete_admin_document(document_key: str) -> bool:
     return True
 
 
-def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dict]:
+def list_uploaded_images(
+    thread_id: str,
+    user_id: str | None = None,
+    project_id: str | None = None,
+    current_chat_only: bool = False,
+) -> list[dict]:
+    """Liệt kê ảnh trong thread hoặc phạm vi Project hiện tại."""
     """Return image metadata for one conversation, falling back to user images."""
-    conditions = [{"thread_id": thread_id}, {"file_type": "image"}]
-    if user_id:
+    conditions = ([{"project_id": str(project_id)}] if project_id else [{"thread_id": thread_id}]) + [{"file_type": "image"}]
+    if project_id and current_chat_only:
+        conditions.append({"thread_id": thread_id})
+    if user_id and not project_id:
         conditions.append({"user_id": str(user_id)})
 
     where_filter = {"$and": conditions}
@@ -690,8 +817,12 @@ def list_uploaded_images(thread_id: str, user_id: str | None = None) -> list[dic
     metadatas = result.get("metadatas") or []
 
     # Fallback: Nếu thread hiện tại chưa có ảnh nào nhưng có user_id, tìm các ảnh user từng upload
-    if not metadatas and user_id:
-        where_filter = {"$and": [{"user_id": str(user_id)}, {"file_type": "image"}]}
+    if not metadatas and user_id and not project_id:
+        where_filter = {"$and": [
+            {"user_id": str(user_id)},
+            {"file_type": "image"},
+            {"scope": {"$nin": ["project"]}},
+        ]}
         result = get_vectorstore()._collection.get(
             where=where_filter,
             include=["metadatas"],

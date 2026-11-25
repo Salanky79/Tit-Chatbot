@@ -39,47 +39,68 @@ def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     return float(dot / (norm_a * norm_b))
 
 
-def save_memory(thread_id: str, memory: str, user_id: str | None = None) -> str:
-    """Lưu một đoạn bộ nhớ dài hạn vào collection ``long_term_memory``.
+def _memory_scope_filter(user_id: str | None = None, project_id: str | None = None) -> dict[str, Any] | None:
+    """Tạo điều kiện truy vấn memory cá nhân hoặc memory của một Project."""
+    if project_id:
+        project_oid = _to_object_id(project_id)
+        return {"project_id": project_oid} if project_oid else None
+    user_oid = _to_object_id(user_id)
+    return {"user_id": user_oid} if user_oid else None
 
-    Bộ nhớ dài hạn gắn với ``user_id`` và dùng chung xuyên suốt TẤT CẢ
-    các cuộc trò chuyện của người dùng đó (Cross-chat memory).
 
-    Chỉ lưu khi đã đăng nhập (có user_id). Guest không có long-term memory.
-
-    Args:
-        thread_id: ID luồng chat hiện tại (chỉ lưu để trace, không dùng để query).
-        memory: Nội dung cần ghi nhớ.
-        user_id: ID người dùng — bắt buộc để lưu.
-
-    Returns:
-        Chuỗi xác nhận thành công hoặc thông báo yêu cầu đăng nhập.
-    """
-    oid = _to_object_id(user_id)
-    if not oid:
-        return "Memory is only available for signed-in users. Please sign in to save memories."
-
+def save_memory_entry(
+    thread_id: str,
+    memory: str,
+    user_id: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Lưu memory vào long_term_memory theo user_id hoặc project_id."""
+    scope_filter = _memory_scope_filter(user_id=user_id, project_id=project_id)
+    if not scope_filter:
+        return None
     if thread_id:
         conv = get_conversation(thread_id)
         if conv and conv.get("is_temporary"):
-            return "Temporary Chat is active: memory is not persisted."
-
-    coll = get_collection("long_term_memory")
+            return None
+    clean_mem = (memory or "").strip()
+    if not clean_mem:
+        return None
     now = _now()
-    clean_mem = memory.strip()
     doc: dict[str, Any] = {
-        "user_id": oid,
+        **scope_filter,
         "memory": clean_mem,
         "embedding": _generate_embedding(clean_mem),
         "is_deleted": False,
-        "version": 1,  # tránh race_condition khi update
+        "version": 1,
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
     }
+    if project_id:
+        doc["created_by"] = _to_object_id(user_id)
     if thread_id:
-        doc["thread_id"] = thread_id  # lưu để trace nguồn gốc, không dùng để query
-    coll.insert_one(doc)
+        doc["thread_id"] = thread_id
+    result = get_collection("long_term_memory").insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return doc
+
+
+def save_memory(
+    thread_id: str,
+    memory: str,
+    user_id: str | None = None,
+    project_id: str | None = None,
+) -> str:
+    """Lưu memory cá nhân theo user_id hoặc memory Project theo project_id."""
+    if not project_id and not _to_object_id(user_id):
+        return "Memory is only available for signed-in users. Please sign in to save memories."
+    if thread_id:
+        conv = get_conversation(thread_id)
+        if conv and conv.get("is_temporary"):
+            return "Temporary Chat is active: memory is not persisted."
+    doc = save_memory_entry(thread_id, memory, user_id=user_id, project_id=project_id)
+    if not doc:
+        return "Memory was not saved. Check the scope and memory text."
     return "Memory saved successfully."
 
 
@@ -87,6 +108,8 @@ def get_user_memories(
     user_id: str | None = None,
     query: str = "",
     allow_full_fallback: bool = True,
+    project_id: str | None = None,
+    limit: int = 5,
 ) -> dict[str, Any]:
     """Return semantic matches, or all active memories when no semantic match exists.
 
@@ -94,17 +117,17 @@ def get_user_memories(
     Nếu query không rỗng mà điểm số tương đồng không đạt ngưỡng -> Fallback đẩy TOÀN BỘ
     ký ức cho LLM đọc và suy luận ngữ nghĩa.
     """
-    oid = _to_object_id(user_id)
-    if not oid:
+    scope_filter = _memory_scope_filter(user_id=user_id, project_id=project_id)
+    if not scope_filter:
         return {
-            "status": "unauthenticated",
+            "status": "invalid_scope",
             "source": "none",
             "memories": [],
         }
 
     coll = get_collection("long_term_memory")
     clean_query = (query or "").strip()
-    base_filter = {"user_id": oid, "is_deleted": False}
+    base_filter = {**scope_filter, "is_deleted": False}
     projection = {
         "_id": 1,
         "memory": 1,
@@ -168,7 +191,7 @@ def get_user_memories(
 
     if scored_docs:
         scored_docs.sort(key=lambda item: item[0], reverse=True)
-        top_matches = [doc for _, doc in scored_docs[:5]]
+        top_matches = [doc for _, doc in scored_docs[:max(1, limit)]]
         return {
             "status": "ok",
             "source": "semantic_match",
@@ -189,32 +212,39 @@ def update_memory_by_id(
     user_id: str | None,
     memory_id: str,
     new_memory: str,
-    version: int
+    version: int,
+    project_id: str | None = None,
+    updated_by: str | None = None,
 ) -> str:
-    """Bước 4: Sửa memory bằng ID + user_id + is_deleted + version."""
-    oid = _to_object_id(user_id)
+    """Sửa memory theo scope, ID và version rồi tạo lại embedding."""
+    scope_filter = _memory_scope_filter(user_id=user_id, project_id=project_id)
     mem_oid = _to_object_id(memory_id)
-    if not oid:
+    if not scope_filter:
         return "Vui lòng đăng nhập để cập nhật bộ nhớ."
     if not mem_oid:
         return "Mã memory_id không hợp lệ."
 
     coll = get_collection("long_term_memory")
     now = _now()
-    clean_mem = new_memory.strip()
+    clean_mem = (new_memory or "").strip()
+    if not clean_mem:
+        return "Nội dung memory không được để trống."
 
     filter_q = {
+        **scope_filter,
         "_id": mem_oid,
-        "user_id": oid,
         "is_deleted": False,
         "version": int(version),
     }
+    set_fields = {
+        "memory": clean_mem,
+        "embedding": _generate_embedding(clean_mem),
+        "updated_at": now,
+    }
+    if project_id and updated_by:
+        set_fields["updated_by"] = _to_object_id(updated_by)
     update_q = {
-        "$set": {
-            "memory": clean_mem,
-            "embedding": _generate_embedding(clean_mem),
-            "updated_at": now,
-        },
+        "$set": set_fields,
         "$inc": {"version": 1},
     }
 
@@ -223,7 +253,7 @@ def update_memory_by_id(
         return f"Đã cập nhật thành công memory [{memory_id}] thành: '{new_memory.strip()}' (version mới: {int(version) + 1})."
 
     # Kiểm tra nguyên nhân không khớp
-    existing = coll.find_one({"_id": mem_oid, "user_id": oid})
+    existing = coll.find_one({"_id": mem_oid, **scope_filter})
     if not existing:
         return f"Lỗi: Không tìm thấy memory với ID [{memory_id}]."
     if existing.get("is_deleted", False):
@@ -238,12 +268,14 @@ def update_memory_by_id(
 def delete_memory_by_id(
     user_id: str | None,
     memory_id: str,
-    version: int
+    version: int,
+    project_id: str | None = None,
+    deleted_by: str | None = None,
 ) -> str:
-    """Bước 4: Xóa mềm (soft-delete) memory bằng ID + user_id + is_deleted + version."""
-    oid = _to_object_id(user_id)
+    """Xóa mềm memory theo scope, ID và version."""
+    scope_filter = _memory_scope_filter(user_id=user_id, project_id=project_id)
     mem_oid = _to_object_id(memory_id)
-    if not oid:
+    if not scope_filter:
         return "Vui lòng đăng nhập để xóa bộ nhớ."
     if not mem_oid:
         return "Mã memory_id không hợp lệ."
@@ -252,17 +284,20 @@ def delete_memory_by_id(
     now = _now()
 
     filter_q = {
+        **scope_filter,
         "_id": mem_oid,
-        "user_id": oid,
         "is_deleted": False,
         "version": int(version),
     }
+    set_fields = {
+        "is_deleted": True,
+        "deleted_at": now,
+        "updated_at": now,
+    }
+    if project_id and deleted_by:
+        set_fields["deleted_by"] = _to_object_id(deleted_by)
     update_q = {
-        "$set": {
-            "is_deleted": True,
-            "deleted_at": now,
-            "updated_at": now,
-        },
+        "$set": set_fields,
         "$inc": {"version": 1},
     }
 
@@ -270,7 +305,7 @@ def delete_memory_by_id(
     if res.matched_count == 1:
         return f"Đã xóa thành công memory [{memory_id}]."
 
-    existing = coll.find_one({"_id": mem_oid, "user_id": oid})
+    existing = coll.find_one({"_id": mem_oid, **scope_filter})
     if not existing:
         return f"Lỗi: Không tìm thấy memory với ID [{memory_id}]."
     if existing.get("is_deleted", False):

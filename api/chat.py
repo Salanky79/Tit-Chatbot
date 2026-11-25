@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from api.compat import AppValueProxy, app_callable, app_value
+from storage.projects import get_membership, get_project
+from services.project_context import build_project_context
 from api.dependencies import (
     FOLLOWUPS_ENABLED,
     _can_access_conversation,
@@ -31,6 +33,8 @@ from api.dependencies import (
     save_chat_message,
     set_current_language,
     set_current_model_name,
+    set_current_project,
+    set_project_prompt_context,
     set_current_thread_id,
     set_current_user_id,
 )
@@ -147,11 +151,18 @@ def _chat_event_generator(
     selected_model: str,
     config: dict[str, Any],
     user_lang: str = "vi",
+    project_id: str | None = None,
+    project_memory_mode: str = "",
+    project_instructions: str = "",
+    project_context: str = "",
 ) -> Iterator[str]:
+    """Stream câu trả lời và đặt context Project cho agent tools."""
     set_current_thread_id(thread_id)
     set_current_user_id(user_id or "")
     set_current_model_name(selected_model)
     set_current_language(user_lang)
+    set_current_project(project_id, project_memory_mode)
+    set_project_prompt_context(project_instructions, project_context)
 
     final_answer = ""
 
@@ -240,6 +251,7 @@ def _chat_event_generator(
 
 @router.post("/chat/stream")
 async def chat_stream(request: Request):
+    """Xác thực scope Project, lưu user turn và bắt đầu stream chat."""
     try:
         data = await request.json()
     except Exception:
@@ -260,6 +272,7 @@ async def chat_stream(request: Request):
 
     user = get_current_user(request)
     user_id = user["id"] if user else None
+    project_id = (data.get("project_id") or "").strip() or None
 
     # Kiểm tra quyền sở hữu cuộc trò chuyện nếu thread_id đã tồn tại
     conv = get_conversation(thread_id)
@@ -269,12 +282,39 @@ async def chat_stream(request: Request):
             status_code=403
         )
 
+    if conv and conv.get("project_id"):
+        existing_project_id = str(conv.get("project_id"))
+        if project_id and project_id != existing_project_id:
+            return JSONResponse({"error": "Conversation is linked to another project."}, status_code=403)
+        project_id = existing_project_id
+
+    project_memory_mode = ""
+    project_instructions = ""
+    project_context = ""
+    if project_id:
+        if not user:
+            return JSONResponse({"error": "Sign in to use project chats."}, status_code=401)
+        membership = get_membership(project_id, user_id)
+        project = get_project(project_id)
+        if not membership or not project:
+            return JSONResponse({"error": "Project not found or access denied."}, status_code=404)
+        if conv and not conv.get("project_id"):
+            return JSONResponse({"error": "This conversation is not part of that project."}, status_code=403)
+        project_memory_mode = project.get("memory_mode", "project_only")
+        project_instructions = project.get("instructions", "")
+        project_context = build_project_context(project_id, thread_id, user_message, project_memory_mode)
+
     is_temporary = bool(data.get("is_temporary", False))
+    if project_id and is_temporary:
+        return JSONResponse({"error": "Temporary chat is unavailable inside a project."}, status_code=400)
     if not is_temporary and conv and conv.get("is_temporary"):
         is_temporary = True
 
     agent = get_agent(selected_model)
-    create_or_update_conversation(thread_id, user_message, user_id=user_id, is_temporary=is_temporary)
+    create_or_update_conversation(
+        thread_id, user_message, user_id=user_id,
+        is_temporary=is_temporary, project_id=project_id,
+    )
     save_chat_message(thread_id, "user", user_message, user_id=user_id)
 
     config = {
@@ -295,6 +335,10 @@ async def chat_stream(request: Request):
             selected_model=selected_model,
             config=config,
             user_lang=user_lang,
+            project_id=project_id,
+            project_memory_mode=project_memory_mode,
+            project_instructions=project_instructions,
+            project_context=project_context,
         ),
         media_type="text/event-stream",
         headers={

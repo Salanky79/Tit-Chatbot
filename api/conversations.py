@@ -20,14 +20,17 @@ from api.dependencies import (
     get_chat_history,
     get_conversation,
     get_current_user,
+    get_user_by_id,
     list_conversations,
     toggle_pin_conversation,
     update_conversation_title,
 )
+from storage.projects import get_membership
 
 router = APIRouter()
 
 get_current_user = app_callable('get_current_user', get_current_user)
+get_user_by_id = app_callable('get_user_by_id', get_user_by_id)
 list_conversations = app_callable('list_conversations', list_conversations)
 get_conversation = app_callable('get_conversation', get_conversation)
 _can_access_conversation = app_callable('_can_access_conversation', _can_access_conversation)
@@ -36,6 +39,17 @@ update_conversation_title = app_callable('update_conversation_title', update_con
 get_chat_history = app_callable('get_chat_history', get_chat_history)
 delete_conversation = app_callable('delete_conversation', delete_conversation)
 logger = AppValueProxy("logger", logging.getLogger("app"))
+
+
+def _can_manage_project_conversation(conv: dict | None, user: dict | None) -> bool:
+    if not conv or not conv.get("project_id"):
+        return True
+    if not user:
+        return False
+    if str(conv.get("user_id", "")) == str(user.get("id", "")):
+        return True
+    membership = get_membership(str(conv["project_id"]), str(user["id"]))
+    return bool(membership and membership.get("role") in {"owner", "editor"})
 
 @router.get("/conversations")
 async def conversations(request: Request):
@@ -75,7 +89,10 @@ async def pin_conversation(thread_id: str, request: Request):
             status_code=403
         )
 
-    user_id = user["id"] if user else None
+    if not _can_manage_project_conversation(conv, user):
+        return JSONResponse({"success": False, "error": "Only the chat creator, project owner, or editor can change this chat."}, status_code=403)
+
+    user_id = user["id"] if user and not conv.get("project_id") else None
     new_pinned = toggle_pin_conversation(thread_id, user_id=user_id)
     if new_pinned is None:
         return JSONResponse(
@@ -108,6 +125,9 @@ async def rename_conversation(thread_id: str, request: Request):
             status_code=403
         )
 
+    if not _can_manage_project_conversation(conv, user):
+        return JSONResponse({"success": False, "error": "Only the chat creator, project owner, or editor can change this chat."}, status_code=403)
+
     try:
         data = await request.json()
         new_title = data.get("title", "")
@@ -122,7 +142,7 @@ async def rename_conversation(thread_id: str, request: Request):
             status_code=400
         )
 
-    user_id = user["id"] if user else None
+    user_id = user["id"] if user and not conv.get("project_id") else None
     success = update_conversation_title(thread_id, new_title.strip(), user_id=user_id)
     if not success:
         return JSONResponse(
@@ -149,15 +169,26 @@ async def history(thread_id: str, request: Request):
         )
 
     messages = get_chat_history(thread_id)
+    project_chat = bool(conv and conv.get("project_id"))
+    sender_ids = {
+        str(getattr(msg, "sender_id", None) or getattr(msg, "user_id", None))
+        for msg in messages
+        if project_chat and msg.role == "user" and (getattr(msg, "sender_id", None) or getattr(msg, "user_id", None))
+    }
+    sender_names = {}
+    for sender_id in sender_ids:
+        sender = get_user_by_id(sender_id) or {}
+        sender_names[sender_id] = sender.get("full_name") or sender.get("username") or "Project member"
+
+    def serialize_message(msg):
+        result = {"role": msg.role, "content": msg.content}
+        sender_id = getattr(msg, "sender_id", None) or getattr(msg, "user_id", None)
+        if project_chat and msg.role == "user" and sender_id:
+            result["sender_name"] = sender_names.get(str(sender_id), "Project member")
+        return result
 
     return {
-        "messages": [
-            {
-                "role": msg.role,
-                "content": msg.content
-            }
-            for msg in messages
-        ]
+        "messages": [serialize_message(msg) for msg in messages]
     }
 
 
@@ -171,7 +202,13 @@ async def remove_conversation(thread_id: str, request: Request):
             status_code=403
         )
 
-    user_id = user["id"] if user else None
+    if conv and conv.get("project_id"):
+        membership = get_membership(str(conv["project_id"]), str(user["id"])) if user else None
+        is_creator = user and str(conv.get("user_id", "")) == str(user["id"])
+        if not is_creator and not (membership and membership.get("role") in {"owner", "editor"}):
+            return JSONResponse({"error": "Only the chat creator, project owner, or editor can delete this chat."}, status_code=403)
+
+    user_id = user["id"] if user and not conv.get("project_id") else None
     success = delete_conversation(thread_id, user_id=user_id)
     if not success:
         return JSONResponse(

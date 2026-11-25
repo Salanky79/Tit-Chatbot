@@ -243,6 +243,26 @@
             gap: 6px;
         }
 
+        .project-section { margin: 12px 0 4px; }
+        .project-section-head { display:flex; align-items:center; justify-content:space-between; padding: 5px 7px; color:var(--text-muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+        .project-add-btn, .project-tool-btn { border:1px solid var(--border-color); background:rgba(255,255,255,.04); color:var(--text-secondary); border-radius:8px; padding:5px 8px; cursor:pointer; }
+        .project-add-btn:hover, .project-tool-btn:hover { color:var(--text-main); border-color:var(--border-hover); }
+        #projectList { display:flex; flex-direction:column; gap:3px; max-height:190px; overflow-y:auto; }
+        .project-list-item { display:flex; align-items:center; gap:8px; width:100%; border:1px solid transparent; border-radius:9px; padding:8px 9px; background:transparent; color:var(--text-secondary); cursor:pointer; text-align:left; font-size:13px; }
+        .project-list-item:hover, .project-list-item.active { background:rgba(255,255,255,.06); color:var(--text-main); }
+        .project-list-item.active { border-color:var(--border-hover); }
+        .project-list-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+        #projectWorkspaceBar { display:none; align-items:center; justify-content:space-between; gap:10px; padding:8px 18px; border-bottom:1px solid var(--border-color); background:rgba(15,10,12,.58); }
+        #projectWorkspaceBar.active { display:flex; }
+        .project-workspace-name { font-size:13px; font-weight:700; color:var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .project-workspace-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        #projectFilesPanel { display:none; padding:8px 18px; border-bottom:1px solid var(--border-color); }
+        #projectFilesPanel.open { display:block; }
+        .project-file-row { display:flex; gap:10px; align-items:center; padding:5px 0; font-size:12px; color:var(--text-secondary); }
+        .project-file-row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .project-invite-row { padding:7px 8px; border-radius:8px; background:rgba(255,255,255,.04); margin:4px 2px; font-size:12px; color:var(--text-secondary); }
+        .message-author-label { display:block; margin-bottom:4px; color:var(--text-muted); font-size:11px; font-weight:600; }
+
         #conversationList {
             overflow-y: auto;
             flex: 1;
@@ -2459,6 +2479,12 @@
         <span>New chat</span>
     </button>
 
+    <div class="project-section" id="projectSection" style="display:none">
+        <div class="project-section-head"><span>Projects</span><span><button class="project-add-btn" onclick="exitProject()" title="Chat cá nhân">Personal</button> <button class="project-add-btn" onclick="createProjectUI()" title="Tạo Project">+</button></span></div>
+        <div id="projectList"></div>
+        <div id="projectInvitations"></div>
+    </div>
+
     <div id="conversationList"></div>
 
     <div class="sidebar-user-section" id="sidebarUserSection"></div>
@@ -2485,6 +2511,18 @@
             <div id="topbarUserArea"></div>
         </div>
     </div>
+
+    <div id="projectWorkspaceBar">
+        <div class="project-workspace-name" id="projectWorkspaceName"></div>
+        <div class="project-workspace-actions">
+            <button class="project-tool-btn" onclick="toggleProjectFiles()">Files</button>
+            <button class="project-tool-btn" onclick="editProjectSettings()">Instructions</button>
+            <button class="project-tool-btn" onclick="manageProjectMembers()">Share</button>
+            <button class="project-tool-btn" onclick="newChat()">New chat</button>
+            <button class="project-tool-btn" id="projectDeleteBtn" onclick="deleteActiveProject()" title="Xóa Project">Delete</button>
+        </div>
+    </div>
+    <div id="projectFilesPanel"></div>
 
     <div class="temp-chat-row">
         <button class="temp-chat-toggle" id="tempChatToggle" onclick="toggleTemporaryChat()" aria-label="Trò chuyện tạm thời" title="Bật/Tắt trò chuyện tạm thời (Temporary chat)">
@@ -2762,8 +2800,22 @@
     let pendingFile = null;
     let isTemporaryChat = false;
     let threadId = localStorage.getItem("thread_id");
+    let activeProjectId = localStorage.getItem("active_project_id") || "";
+    let activeProject = null;
+
+    function updateProjectWorkspace() {
+        const bar = document.getElementById("projectWorkspaceBar");
+        const name = document.getElementById("projectWorkspaceName");
+        const tempBtn = document.getElementById("tempChatToggle");
+        if (bar) bar.classList.toggle("active", Boolean(activeProjectId && activeProject));
+        if (name) name.textContent = activeProject ? activeProject.name : "";
+        if (tempBtn) tempBtn.style.display = activeProjectId ? "none" : "inline-flex";
+        const deleteBtn = document.getElementById("projectDeleteBtn");
+        if (deleteBtn) deleteBtn.style.display = activeProject?.membership?.role === "owner" ? "inline-flex" : "none";
+    }
 
     function toggleTemporaryChat() {
+        if (activeProjectId) return;
         isTemporaryChat = !isTemporaryChat;
         const btn = document.getElementById("tempChatToggle");
         if (btn) {
@@ -2776,6 +2828,7 @@
     function updateTemporaryChatVisibility() {
         const tempBtn = document.getElementById("tempChatToggle");
         if (!tempBtn) return;
+        if (activeProjectId) { tempBtn.style.display = "none"; return; }
         const hasMessages = Boolean(chatContainer && chatContainer.querySelector(".message"));
         tempBtn.style.display = hasMessages ? "none" : "inline-flex";
         tempBtn.classList.toggle("active", isTemporaryChat);
@@ -3020,7 +3073,7 @@
         return file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext);
     }
 
-    function addMessage(role, content = "") {
+    function addMessage(role, content = "", senderName = "") {
         hideWelcome();
 
         const messageDiv = document.createElement("div");
@@ -3049,7 +3102,15 @@
         messageContent.className = "message-content";
         if (role === "user") {
             // User messages: plain text (no Markdown)
-            messageContent.textContent = content;
+            if (senderName) {
+                const authorLabel = document.createElement("span");
+                authorLabel.className = "message-author-label";
+                authorLabel.textContent = senderName;
+                messageContent.appendChild(authorLabel);
+            }
+            const userText = document.createElement("div");
+            userText.textContent = content;
+            messageContent.appendChild(userText);
         } else {
             // Assistant messages: render Markdown → HTML
             if (content) {
@@ -3176,9 +3237,242 @@
         toolProgress.text.textContent = `${toolName} completed`;
     }
 
+    async function loadProjects() {
+        const section = document.getElementById("projectSection");
+        const list = document.getElementById("projectList");
+        const invitationBox = document.getElementById("projectInvitations");
+        if (!section || !list) return;
+        if (!currentUser) {
+            section.style.display = "none";
+            list.innerHTML = "";
+            activeProjectId = "";
+            activeProject = null;
+            localStorage.removeItem("active_project_id");
+            updateProjectWorkspace();
+            return;
+        }
+        section.style.display = "block";
+        try {
+            const [projectResponse, inviteResponse] = await Promise.all([
+                fetch("/api/projects"), fetch("/api/projects/invitations")
+            ]);
+            const projectData = await projectResponse.json();
+            const inviteData = await inviteResponse.json();
+            const projects = projectData.projects || [];
+            list.innerHTML = "";
+            projects.forEach(project => {
+                const button = document.createElement("button");
+                button.className = "project-list-item" + (project._id === activeProjectId ? " active" : "");
+                button.innerHTML = `<span aria-hidden="true">▣</span><span>${escapeHtml(project.name)}</span>`;
+                button.onclick = () => selectProject(project._id);
+                list.appendChild(button);
+            });
+            if (projects.length === 0) {
+                list.innerHTML = `<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Chưa có Project</div>`;
+            }
+            if (invitationBox) {
+                invitationBox.innerHTML = "";
+                (inviteData.invitations || []).forEach(invite => {
+                    const row = document.createElement("div");
+                    row.className = "project-invite-row";
+                    row.innerHTML = `<div>${escapeHtml(invite.project?.name || "Project invitation")} · ${escapeHtml(invite.role)}</div><div style="margin-top:6px"><button class="project-tool-btn" onclick="respondProjectInvite('${escapeHtml(invite._id)}',true)">Accept</button> <button class="project-tool-btn" onclick="respondProjectInvite('${escapeHtml(invite._id)}',false)">Decline</button></div>`;
+                    invitationBox.appendChild(row);
+                });
+            }
+            if (activeProjectId) {
+                const found = projects.find(item => item._id === activeProjectId);
+                if (!found) {
+                    activeProjectId = "";
+                    activeProject = null;
+                    localStorage.removeItem("active_project_id");
+                } else {
+                    const detail = await fetch(`/api/projects/${activeProjectId}`).then(r => r.json());
+                    activeProject = detail.project || found;
+                    activeProject.membership = detail.membership;
+                }
+            }
+            updateProjectWorkspace();
+        } catch (error) {
+            console.error("Failed to load projects:", error);
+        }
+    }
+
+    async function selectProject(projectId) {
+        activeProjectId = projectId;
+        localStorage.setItem("active_project_id", projectId);
+        const panel = document.getElementById("projectFilesPanel");
+        if (panel) { panel.classList.remove("open"); panel.innerHTML = ""; }
+        await loadProjects();
+        await newChat();
+    }
+
+    async function exitProject() {
+        activeProjectId = "";
+        activeProject = null;
+        localStorage.removeItem("active_project_id");
+        const panel = document.getElementById("projectFilesPanel");
+        if (panel) panel.classList.remove("open");
+        updateProjectWorkspace();
+        await newChat();
+    }
+
+    async function createProjectUI() {
+        if (!currentUser) { openAuthModal("signin"); return; }
+        const name = prompt("Tên Project:");
+        if (!name || !name.trim()) return;
+        try {
+            const response = await fetch("/api/projects", {
+                method: "POST", headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({name: name.trim()})
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Không thể tạo Project.");
+            await loadProjects();
+            await selectProject(data.project._id);
+        } catch (error) { alert(error.message); }
+    }
+
+    async function editProjectSettings() {
+        if (!activeProjectId || !activeProject) return;
+        const membership = activeProject.membership || {};
+        if (!["owner", "editor"].includes(membership.role)) { alert("Bạn chỉ có quyền trò chuyện trong Project này."); return; }
+        const instructions = prompt("Project Instructions — áp dụng cho mọi chat trong Project:", activeProject.instructions || "");
+        if (instructions === null) return;
+        const name = prompt("Tên Project:", activeProject.name || "");
+        if (name === null || !name.trim()) return;
+        const description = prompt("Mô tả Project:", activeProject.description || "");
+        if (description === null) return;
+        const currentMode = activeProject.memory_mode || "project_only";
+        const modeKeys = {project_only: "1", project_and_personal: "2", current_chat_only: "3"};
+        const modeInput = prompt(
+            "Chọn chế độ ngữ cảnh:\n1. Project-only: dùng ngữ cảnh các chat gần đây, file và memory của Project; không dùng memory cá nhân.\n2. Project + cá nhân: dùng ngữ cảnh Project và memory cá nhân của người đang chat.\n3. Chat hiện tại: chỉ dùng chat và file trong thread hiện tại; không nạp chat khác, Project memory hoặc memory cá nhân.",
+            modeKeys[currentMode] || "1"
+        );
+        if (modeInput === null) return;
+        const selectedMode = ({"1": "project_only", "2": "project_and_personal", "3": "current_chat_only"})[modeInput.trim()] || modeInput.trim();
+        if (!["project_only", "project_and_personal", "current_chat_only"].includes(selectedMode)) {
+            alert("Hãy nhập 1, 2 hoặc 3.");
+            return;
+        }
+        const response = await fetch(`/api/projects/${activeProjectId}`, {
+            method: "PATCH", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({name: name.trim(), description, instructions, memory_mode: selectedMode})
+        });
+        const data = await response.json();
+        if (!response.ok) { alert(data.error || "Không thể lưu cài đặt."); return; }
+        activeProject = {...activeProject, ...data.project, membership};
+        updateProjectWorkspace();
+        alert("Đã lưu Project Instructions và chế độ memory.");
+    }
+
+    async function manageProjectMembers() {
+        if (!activeProjectId || !activeProject) return;
+        const membership = activeProject.membership || {};
+        const response = await fetch(`/api/projects/${activeProjectId}/members`);
+        const data = await response.json();
+        const members = data.members || [];
+        const summary = members.map(m => `${m.full_name || m.username || m.email} — ${m.role} (${m.status})`).join("\n");
+        if (membership.role !== "owner") { alert(summary || "Không có thành viên."); return; }
+        const action = prompt(`Thành viên hiện tại:\n${summary || "Chưa có thành viên khác."}\n\nNhập thao tác: invite, role, remove`, "invite");
+        if (!action) return;
+        if (action.trim().toLowerCase() === "invite") {
+            const identifier = prompt("Email hoặc username tài khoản đã đăng ký:");
+            if (!identifier) return;
+            const role = prompt("Vai trò:\neditor = sửa hướng dẫn, upload và quản lý file\nchat_only = chỉ trò chuyện, đọc chat và tải file\nNhập editor hoặc chat_only:", "chat_only");
+            if (!role) return;
+            const inviteResponse = await fetch(`/api/projects/${activeProjectId}/members`, {
+                method: "POST", headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({identifier, role: role.trim()})
+            });
+            const inviteData = await inviteResponse.json();
+            if (!inviteResponse.ok) { alert(inviteData.error || "Không gửi được lời mời."); return; }
+            alert("Đã tạo lời mời. Người được mời sẽ thấy lời mời sau khi đăng nhập.");
+            return;
+        }
+        const target = prompt(`Nhập user_id thành viên cần ${action.trim().toLowerCase()}:\n${members.filter(m => m.role !== "owner").map(m => `${m.full_name || m.username}: ${m.user_id}`).join("\n")}`);
+        if (!target) return;
+        if (action.trim().toLowerCase() === "role") {
+            const role = prompt("Vai trò mới: editor hoặc chat_only", "chat_only");
+            if (!role) return;
+            const response = await fetch(`/api/projects/${activeProjectId}/members/${encodeURIComponent(target.trim())}`, {
+                method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({role: role.trim()})
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) alert(result.error || "Không đổi được vai trò.");
+            else alert("Đã cập nhật vai trò thành viên.");
+            return;
+        }
+        if (action.trim().toLowerCase() === "remove") {
+            if (!confirm("Xóa thành viên này khỏi Project?")) return;
+            const response = await fetch(`/api/projects/${activeProjectId}/members/${encodeURIComponent(target.trim())}`, {method:"DELETE"});
+            const result = await response.json();
+            if (!response.ok) alert(result.error || "Không xóa được thành viên.");
+            else alert("Đã xóa thành viên khỏi Project.");
+            return;
+        }
+        alert("Thao tác phải là invite, role hoặc remove.");
+    }
+
+    async function deleteActiveProject() {
+        if (!activeProjectId || activeProject?.membership?.role !== "owner") return;
+        if (!confirm(`Xóa Project "${activeProject.name}" cùng toàn bộ chat, file và Project memory?`)) return;
+        const response = await fetch(`/api/projects/${activeProjectId}`, {method:"DELETE"});
+        const data = await response.json();
+        if (!response.ok) { alert(data.error || "Không xóa được Project."); return; }
+        activeProjectId = "";
+        activeProject = null;
+        localStorage.removeItem("active_project_id");
+        const panel = document.getElementById("projectFilesPanel");
+        if (panel) { panel.classList.remove("open"); panel.innerHTML = ""; }
+        await newChat();
+        await loadProjects();
+    }
+
+    async function respondProjectInvite(invitationId, accept) {
+        const action = accept ? "accept" : "decline";
+        const response = await fetch(`/api/projects/invitations/${invitationId}/${action}`, {method:"POST"});
+        const data = await response.json();
+        if (!response.ok) alert(data.error || "Không thể xử lý lời mời.");
+        await loadProjects();
+    }
+
+    async function toggleProjectFiles() {
+        const panel = document.getElementById("projectFilesPanel");
+        if (!panel || !activeProjectId) return;
+        panel.classList.toggle("open");
+        if (!panel.classList.contains("open")) return;
+        const response = await fetch(`/api/projects/${activeProjectId}/files`);
+        const data = await response.json();
+        panel.innerHTML = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:5px">File tải lên từ chat Project sẽ dùng được trong mọi chat của Project.</div>`;
+        (data.files || []).forEach(file => {
+            const row = document.createElement("div");
+            row.className = "project-file-row";
+            row.innerHTML = `<span>${escapeHtml(file.filename)}</span><a class="project-tool-btn" href="/api/projects/${activeProjectId}/files/${encodeURIComponent(file.document_id)}/download">Tải xuống</a>`;
+            if (["owner", "editor"].includes(activeProject?.membership?.role)) {
+                const del = document.createElement("button");
+                del.className = "project-tool-btn"; del.textContent = "Xóa";
+                del.onclick = () => deleteProjectFile(file.document_id);
+                row.appendChild(del);
+            }
+            panel.appendChild(row);
+        });
+        if (!(data.files || []).length) panel.insertAdjacentHTML("beforeend", `<div style="font-size:12px;color:var(--text-muted)">Chưa có file.</div>`);
+    }
+
+    async function deleteProjectFile(documentId) {
+        if (!confirm("Xóa file này khỏi Project?")) return;
+        const response = await fetch(`/api/projects/${activeProjectId}/files/${encodeURIComponent(documentId)}`, {method:"DELETE"});
+        const data = await response.json();
+        if (!response.ok) alert(data.error || "Không xóa được file.");
+        const panel = document.getElementById("projectFilesPanel");
+        if (panel) { panel.classList.remove("open"); await toggleProjectFiles(); }
+    }
+
     async function loadConversations() {
         try {
-            const response = await fetch("/api/conversations");
+            const response = await fetch(activeProjectId
+                ? `/api/projects/${activeProjectId}/conversations`
+                : "/api/conversations");
             const data = await response.json();
 
             conversationList.innerHTML = "";
@@ -3227,7 +3521,7 @@
                     </div>
                 `;
 
-                item.onclick = () => loadConversation(conv.thread_id);
+                item.onclick = () => loadConversation(conv.thread_id, activeProjectId || "");
 
                 const pinBtn = item.querySelector(".pin-btn");
                 if (pinBtn) {
@@ -3343,9 +3637,15 @@
         }
     }
 
-    async function loadConversation(selectedThreadId) {
+    async function loadConversation(selectedThreadId, selectedProjectId = "") {
         clearPendingAttachment();
         isTemporaryChat = false;
+        activeProjectId = selectedProjectId || "";
+        if (activeProjectId) localStorage.setItem("active_project_id", activeProjectId);
+        else localStorage.removeItem("active_project_id");
+        activeProject = null;
+        if (activeProjectId) await loadProjects();
+        updateProjectWorkspace();
         threadId = selectedThreadId;
         localStorage.setItem("thread_id", threadId);
 
@@ -3377,7 +3677,8 @@
             data.messages.forEach(msg => {
                 addMessage(
                     msg.role === "user" ? "user" : "assistant",
-                    msg.content
+                    msg.content,
+                    activeProjectId && msg.role === "user" ? (msg.sender_name || "Project member") : ""
                 );
             });
 
@@ -3588,6 +3889,7 @@
                 formData.append("file", attachment);
                 formData.append("thread_id", targetThreadId);
                 formData.append("is_temporary", isTemporaryChat ? "true" : "false");
+                if (activeProjectId) formData.append("project_id", activeProjectId);
 
                 const uploadResponse = await fetch("/api/upload", {
                     method: "POST",
@@ -3612,7 +3914,7 @@
         }
 
         if (attachment && !message) {
-            addMessage("user", `📎 ${attachment.name}`);
+            addMessage("user", `📎 ${attachment.name}`, activeProjectId ? (currentUser?.full_name || currentUser?.username || "") : "");
             addMessage("assistant", uploadResult.message);
             sendBtn.disabled = false;
             statusText.textContent = "Ready";
@@ -3627,7 +3929,7 @@
             ? `${message}\n\n[Attached ${fileKind}: ${attachment.name}]`
             : message;
 
-        addMessage("user", attachment ? `${message}\n\n📎 ${attachment.name}` : message);
+        addMessage("user", attachment ? `${message}\n\n📎 ${attachment.name}` : message, activeProjectId ? (currentUser?.full_name || currentUser?.username || "") : "");
 
         messageInput.value = "";
         messageInput.style.height = "auto";
@@ -3681,7 +3983,8 @@
                     message: submittedMessage,
                     thread_id: targetThreadId,
                     model: selectedModel,
-                    is_temporary: isTemporaryChat
+                    is_temporary: isTemporaryChat,
+                    project_id: activeProjectId || null
                 })
             });
 
@@ -3794,6 +4097,9 @@
             // Đã đăng nhập: lưu thread_id để khôi phục khi reload
             localStorage.setItem("thread_id", threadId);
         } else {
+            activeProjectId = "";
+            activeProject = null;
+            localStorage.removeItem("active_project_id");
             // Guest: không lưu, mỗi phiên là tạm thời — thread cũ sẽ tự expire sau 24h
             localStorage.removeItem("thread_id");
         }
@@ -3803,6 +4109,7 @@
         }
 
         renderWelcome();
+        updateProjectWorkspace();
         await loadConversations();
         messageInput.focus();
     }
@@ -4183,6 +4490,7 @@
         authChallengeActive = false;
         closeAuthModal();
         localStorage.removeItem("thread_id");
+        await loadProjects();
         await newChat();
     }
 
@@ -4310,6 +4618,10 @@
         currentUser = null;
         renderUserUI();
         localStorage.removeItem("thread_id");
+        localStorage.removeItem("active_project_id");
+        activeProjectId = "";
+        activeProject = null;
+        await loadProjects();
         await newChat();
     }
 
@@ -4688,10 +5000,10 @@
     checkAuthStatus().then(() => {
         restoreAuthChallenge();
         renderWelcome();
-        loadConversations();
+        loadProjects().then(() => loadConversations());
         // Ch? restore thread cu n?u d� dang nh?p (guest kh�ng c� l?ch s?)
         if (currentUser && threadId) {
-            loadConversation(threadId);
+            loadConversation(threadId, activeProjectId);
         }
     });
 </script>
