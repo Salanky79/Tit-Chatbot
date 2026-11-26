@@ -11,7 +11,7 @@ from storage.mongo_client import get_collection
 
 
 # Increment when chunk grouping or prompt semantics change so stale checkpoints are ignored.
-PIPELINE_VERSION = "1"
+PIPELINE_VERSION = "2"
 
 
 def _now() -> datetime:
@@ -35,14 +35,17 @@ class SummaryJobStore:
         *,
         target_language: str,
         input_token_budget: int,
+        pipeline_config: dict[str, Any] | None = None,
     ) -> "SummaryJobStore":
         identity = {
             "version": PIPELINE_VERSION,
             "user_id": context.get("user_id", ""),
             "thread_id": context.get("thread_id", ""),
+            "project_id": context.get("project_id", ""),
             "source": context.get("source", ""),
             "language": target_language,
             "input_token_budget": input_token_budget,
+            "pipeline_config": pipeline_config or {},
             "documents": [
                 {
                     "content": document.page_content,
@@ -59,7 +62,12 @@ class SummaryJobStore:
         now = _now()
         # Keep the explicit identity for databases with a unique job_id index.
         # Missing values otherwise all index as null, despite distinct _id values.
-        fields = {"job_id": self.job_id, "context": self.context, "status": "running", "updated_at": now}
+        fields = {
+            "job_id": self.job_id,
+            "context": self.context,
+            "status": "running",
+            "updated_at": now,
+        }
         if not self.context.get("user_id"):
             fields["expires_at"] = now + timedelta(hours=24)
         self.jobs.update_one(
@@ -77,7 +85,8 @@ class SummaryJobStore:
         return {
             int(row["group_index"]): row["content"]
             for row in rows
-            if isinstance(row.get("group_index"), int) and isinstance(row.get("content"), str)
+            if isinstance(row.get("group_index"), int)
+            and isinstance(row.get("content"), str) and row["content"].strip()
         }
 
     def save_result(self, stage: str, group_index: int, content: str) -> None:
@@ -104,7 +113,7 @@ class SummaryJobStore:
     def get_final(self) -> str | None:
         job = self.jobs.find_one({"_id": self.job_id, "status": "completed"}, {"final_summary": 1})
         result = job.get("final_summary") if job else None
-        return result if isinstance(result, str) else None
+        return result if isinstance(result, str) and result.strip() else None
 
     def complete(self, summary: str) -> None:
         self.jobs.update_one(

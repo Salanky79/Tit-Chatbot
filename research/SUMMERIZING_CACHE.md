@@ -1,4 +1,68 @@
-# GIẢI THÍCH CHI TIẾT TOÀN BỘ CODE TÓM TẮT MỚI (DÀNH CHO NGƯỜI MỚI BẮT ĐẦU)
+# Luồng tóm tắt và lưu tiến độ
+
+## Thiết kế hiện tại sau refactor ngày 26 tháng 11 năm 2026
+
+Phần này mô tả code hiện tại. Các phần phía dưới mục **Thiết kế trước refactor**
+được giữ làm lịch sử; một số chữ ký hàm, đoạn code và cơ chế nhận biết trạng thái
+trong đó không còn áp dụng.
+
+| Thành phần | Trách nhiệm |
+| --- | --- |
+| `agent_tools/documents.py` | Chọn đúng một file theo scope, gọi service, định dạng câu trả lời và chuyển lỗi thành thông báo an toàn |
+| `services/summarization.py` | Kiểm tra cấu hình, chia nhóm, chạy single/map/reduce, điều phối cache và resume |
+| `services/summary_model.py` | Tạo model, retry theo chính sách chung, failover và ghi token usage |
+| `services/summary_jobs.py` | Định danh và lưu trạng thái job, kết quả từng nhóm vào MongoDB |
+| `services/summary_result.py` | Hợp đồng kết quả `SummaryResult` và chuẩn hóa ngôn ngữ |
+| `agent.py` | Đọc metadata của tool, trả kết quả qua `emit_summary` |
+
+`summarize_documents(...)` trả `SummaryResult(text, status)`, không còn trả chuỗi.
+Service chỉ trả `completed` hoặc `partial`; lỗi được raise để tool ghi log và tạo
+kết quả `error`. Tool dùng `content_and_artifact`: người dùng nhận nội dung,
+graph nhận `{"kind": "document_summary", "status": ...}`. Không suy ra trạng thái
+mới từ các từ như “hoàn thành” hoặc “partial draft” trong nội dung. Graph giữ
+một nhánh tương thích cho ToolMessage cũ chưa có artifact.
+
+### Chạy và tiếp tục tác vụ
+
+1. Chọn file trong scope user/thread/project. Thiếu hoặc mơ hồ tên file trả
+   `clarification` và kết thúc lượt; không tự chọn file đầu tiên.
+2. Chuẩn hóa ngôn ngữ, kiểm tra văn bản và cấu hình. `auto` giữ ngôn ngữ gốc;
+   không đoán ngôn ngữ từ tên file.
+3. Tính định danh job. Nếu có kết quả hoàn chỉnh, trả cache trước khi tạo model.
+4. Dùng chung `_invoke_groups_parallel` cho `single`, `map`, `reduce:N`.
+   Chỉ chạy nhóm thiếu, giữ thứ tự và lưu mỗi kết quả thành công. Worker nhận
+   bản sao ContextVar của request.
+5. Hết quota ngày trả `partial` và lưu job `paused`. Khi reduce bị ngắt, bản nháp
+   dùng tầng đã hoàn thành trước đó; các checkpoint reduce đã xong vẫn được giữ
+   để tiếp tục. Lỗi khác được raise sau khi thu thập kết quả worker còn lại.
+6. Chỉ kết quả `completed` được lưu làm `final_summary`. Lỗi ghi trạng thái
+   `paused` không được che mất ngoại lệ gốc.
+
+Ngân sách chia nhóm tính cả dấu phân cách và dùng cùng hệ số với `estimate_tokens`.
+Đây vẫn là ước lượng, không phải tokenizer của nhà cung cấp. Reduce phải giảm số
+nhóm; cấu hình không đủ để hội tụ sẽ báo lỗi thay vì ép gửi request quá lớn.
+
+### Cache và tương thích dữ liệu
+
+Pipeline version hiện tại là `2`. Identity gồm user, thread, project, source,
+ngôn ngữ chuẩn hóa, nội dung/metadata cần thiết, ngân sách map/reduce, giới hạn
+output, fingerprint prompt và hệ số ước lượng token. Model không nằm trong
+identity để cho phép đổi model rồi tiếp tục tác vụ.
+
+Đổi version khiến job/checkpoint của pipeline cũ không được tái sử dụng. Không
+xóa dữ liệu cũ hoặc sửa index MongoDB tự động.
+
+Job lưu cả `_id` và `job_id`. Checkpoint lưu `_id`, `job_id`, `stage`,
+`group_index` và `step_index="stage:group_index"`. Trường `step_index` duy trì
+tương thích với unique index cũ `(job_id, step_index)`; không dùng số thứ tự nhóm
+đơn lẻ vì map và reduce có thể cùng group 0.
+
+Kiểm thử: `python -B -m unittest discover -s tests -v`. Các test dùng model giả
+và storage trong bộ nhớ; có kiểm tra graph thực với ToolNode, resume map/reduce,
+cache, giới hạn nhóm, ContextVar và hai unique index cũ. Chưa bao gồm khóa job
+để chống hai request cùng xử lý một tài liệu đồng thời.
+
+## Thiết kế trước refactor
 
 > **Mục tiêu của tài liệu:** Giải thích tường tận, dễ hiểu từng dòng code, từng thay đổi kỹ thuật trong hệ thống tóm tắt tài liệu vừa được cập nhật. Dành cho người chưa từng có kiến thức chuyên sâu về lập trình phân tán hay AI, với các ví dụ thực tế đời thường, so sánh trực quan giữa Code Cũ và Code Mới, và chỉ ra cặn kẽ tại sao hệ thống lại hoạt động như vậy.
 

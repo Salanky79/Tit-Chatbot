@@ -87,51 +87,46 @@ SUMMARY_DIRECT_RETURN = os.getenv("SUMMARY_DIRECT_RETURN", "1").lower() not in (
 SUMMARY_TOOL_NAME = "summarize_uploaded_document"
 
 
-def route_after_tools(state: AgentState) -> str:
-    """Trả thẳng lỗi tóm tắt hoặc bản tóm tắt thành công; các tool khác về chatbot."""
-    recent: list[ToolMessage] = []
-    for msg in reversed(state.get("messages", [])):
-        if not isinstance(msg, ToolMessage):
+def _summary_tool_results(state: AgentState) -> list[ToolMessage]:
+    """Read summary outcomes only from the most recent tool batch."""
+    results = []
+    for message in reversed(state.get("messages", [])):
+        if not isinstance(message, ToolMessage):
             break
-        recent.append(msg)
-    # Storage/processing errors are terminal for this turn: feeding them back to
-    # the model can cause repeated summary calls or an incomplete RAG fallback.
-    if any(
-        msg.name == SUMMARY_TOOL_NAME
-        and isinstance(msg.content, str)
-        and msg.content.startswith(SUMMARY_ERROR_PREFIX)
-        for msg in recent
-    ):
+        if message.name == SUMMARY_TOOL_NAME:
+            results.append(message)
+    return list(reversed(results))
+
+
+def _summary_status(message: ToolMessage) -> str | None:
+    artifact = message.artifact
+    if isinstance(artifact, dict) and artifact.get("kind") == "document_summary":
+        return artifact.get("status")
+    # Compatibility with older persisted tool messages.
+    if isinstance(message.content, str):
+        if message.content.startswith(SUMMARY_ERROR_PREFIX):
+            return "error"
+        if message.content.startswith((SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI)):
+            return "completed"
+    return None
+
+
+def route_after_tools(state: AgentState) -> str:
+    results = _summary_tool_results(state)
+    # Failures and clarification must not start an automatic retry loop.
+    if any(_summary_status(message) in {"error", "clarification"} for message in results):
         return "emit_summary"
-    if not SUMMARY_DIRECT_RETURN:
-        return "chatbot"
-    if (
-        len(recent) == 1
-        and getattr(recent[0], "name", None) == SUMMARY_TOOL_NAME
-        and isinstance(recent[0].content, str)
-        and (
-            recent[0].content.startswith(SUMMARY_RESULT_PREFIX)
-            or recent[0].content.startswith(SUMMARY_RESULT_PREFIX_VI)
-        )
+    if SUMMARY_DIRECT_RETURN and results and all(
+        _summary_status(message) in {"completed", "partial"} for message in results
     ):
         return "emit_summary"
     return "chatbot"
 
 
 def emit_summary_node(state: AgentState) -> dict[str, list[AIMessage]]:
-    """Biến kết quả tool thành AIMessage (không gọi LLM) để:
-    - frontend nhận được qua should_stream_chunk như một câu trả lời bình thường,
-    - lượt sau vẫn còn bản tóm tắt trong lịch sử hội thoại để hỏi tiếp."""
-    for msg in reversed(state["messages"]):
-        if not isinstance(msg, ToolMessage):
-            break
-        if (
-            msg.name == SUMMARY_TOOL_NAME
-            and isinstance(msg.content, str)
-            and msg.content.startswith(SUMMARY_ERROR_PREFIX)
-        ):
-            return {"messages": [AIMessage(content=msg.content)]}
-    return {"messages": [AIMessage(content=str(state["messages"][-1].content))]}
+    """Deliver tool outcomes verbatim and keep them available for follow-up turns."""
+    results = _summary_tool_results(state)
+    return {"messages": [AIMessage(content="\n\n".join(str(message.content) for message in results))]}
 
 
 # Update default and allowed models to use Groq models

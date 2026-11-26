@@ -15,6 +15,9 @@ import agent
 from agent_tools import documents
 from agent_tools.context import SUMMARY_ERROR_PREFIX, SUMMARY_RESULT_PREFIX
 from services.summary_jobs import SummaryJobStore
+from services.summary_result import SummaryResult
+from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, START, END
 
 
 class UniqueJobCollection:
@@ -34,6 +37,48 @@ class UniqueJobCollection:
 
 
 class SummaryFlowTests(unittest.TestCase):
+    def test_toolnode_preserves_status_for_graph_routing(self):
+        workflow = StateGraph(agent.AgentState)
+        workflow.add_node("tools", ToolNode([documents.summarize_uploaded_document]))
+        workflow.add_node("emit_summary", agent.emit_summary_node)
+        workflow.add_edge(START, "tools")
+        workflow.add_conditional_edges("tools", agent.route_after_tools, {
+            "emit_summary": "emit_summary", "chatbot": END,
+        })
+        workflow.add_edge("emit_summary", END)
+        with (
+            patch.object(documents, "_summarize_upload", return_value=SummaryResult("Localized result without a prefix")),
+            patch.object(agent, "SUMMARY_DIRECT_RETURN", True),
+        ):
+            state = workflow.compile().invoke({"messages": [AIMessage(
+                content="", tool_calls=[{"name": agent.SUMMARY_TOOL_NAME, "args": {}, "id": "summary-1", "type": "tool_call"}],
+            )]})
+        self.assertEqual(state["messages"][1].artifact, {"kind": "document_summary", "status": "completed"})
+        self.assertIsInstance(state["messages"][-1], AIMessage)
+        self.assertEqual(state["messages"][-1].content, "Localized result without a prefix")
+
+    def test_clarification_is_terminal_without_running_summary(self):
+        with (
+            patch.object(documents, "list_document_sources", return_value=["a.pdf", "b.pdf"]),
+            patch.object(documents, "summarize_documents") as summarize,
+        ):
+            message = documents.summarize_uploaded_document.invoke({
+                "name": agent.SUMMARY_TOOL_NAME, "args": {}, "id": "summary-1", "type": "tool_call",
+            })
+        summarize.assert_not_called()
+        self.assertEqual(message.artifact["status"], "clarification")
+        with patch.object(agent, "SUMMARY_DIRECT_RETURN", False):
+            self.assertEqual(agent.route_after_tools({"messages": [message]}), "emit_summary")
+
+    def test_source_lookup_failure_also_uses_terminal_error_contract(self):
+        with (
+            patch.object(documents, "list_document_sources", side_effect=RuntimeError("storage unavailable")),
+            self.assertLogs(documents.logger, level="ERROR"),
+        ):
+            result = documents._summarize_upload("file.pdf", "auto")
+        self.assertEqual(result.status, "error")
+        self.assertNotIn("storage unavailable", result.text)
+
     def test_checkpoints_with_legacy_unique_step_index(self):
         rows = {}
 

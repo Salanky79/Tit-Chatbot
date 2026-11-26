@@ -1,7 +1,6 @@
 """Tools for uploaded documents and images."""
 
 import logging
-from typing import Any
 
 from langchain_core.tools import tool
 
@@ -24,8 +23,8 @@ from services.rag import (
     retrieve_from_rag as _retrieve_from_rag,
 )
 from services.summarization import summarize_documents as _summarize_documents
+from services.summary_result import SummaryResult, normalize_language
 from services.token_limit_handler import (
-    assemble_partial_summary as _assemble_partial_summary,
     format_tool_limit_notice as _format_tool_limit_notice,
     is_daily_token_limit as _is_daily_token_limit,
 )
@@ -41,7 +40,6 @@ list_document_sources = tool_callable("list_document_sources", _list_document_so
 list_uploaded_images = tool_callable("list_uploaded_images", _list_uploaded_images)
 retrieve_from_rag = tool_callable("retrieve_from_rag", _retrieve_from_rag)
 summarize_documents = tool_callable("summarize_documents", _summarize_documents)
-assemble_partial_summary = tool_callable("assemble_partial_summary", _assemble_partial_summary)
 format_tool_limit_notice = tool_callable("format_tool_limit_notice", _format_tool_limit_notice)
 is_daily_token_limit = tool_callable("is_daily_token_limit", _is_daily_token_limit)
 logger = logging.getLogger(__name__)
@@ -104,8 +102,8 @@ def _select_uploaded_name(
     return None, partial_matches
 
 
-@tool
-def summarize_uploaded_document(filename: str = "", target_language: str = "auto") -> str:
+@tool(response_format="content_and_artifact")
+def summarize_uploaded_document(filename: str = "", target_language: str = "auto") -> tuple[str, dict[str, str]]:
     """Summarize the complete contents of one uploaded file in this conversation.
 
     CRITICAL: ALWAYS use this tool (and NEVER search_uploaded_documents) whenever
@@ -126,60 +124,57 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     If the same document has an interrupted summary in this conversation, this
     tool automatically resumes from saved progress instead of starting over.
     """
-    user_id = get_current_user_id() or None
-    project_id = get_current_project_id() or None
-    current_chat_only = get_current_project_memory_mode() == "current_chat_only"
-    sources = list_document_sources(
-        get_current_thread_id(), user_id=user_id, project_id=project_id,
-        current_chat_only=current_chat_only,
-    )
-    if not sources:
-        return "No uploaded documents were found in this conversation or your account."
+    result = _summarize_upload(filename, target_language)
+    return result.text, result.artifact()
 
-    requested = (filename or "").strip().strip('"\'')
-    selected, matches = _select_uploaded_name(sources, requested)
-    if selected is None:
-        if matches:
-            names = ", ".join(f'"{source}"' for source in matches)
-            return f"The file name matches multiple uploads. Which one did you mean: {names}?"
-        available = ", ".join(f'"{source}"' for source in sources)
-        return f'No uploaded file named "{requested}" was found. Available files: {available}.'
 
+def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
+    """Resolve a source, invoke the service, and format one terminal tool outcome."""
+    selected = (filename or "").strip().strip('"\'') or "document"
+    language = normalize_language(target_language)
     try:
-        chunks = get_document_chunks(
-            selected, get_current_thread_id(), user_id=user_id, project_id=project_id,
-            current_chat_only=current_chat_only,
-        )
-        summary = summarize_documents(
-            chunks,
-            target_language=target_language,
+        thread_id = get_current_thread_id()
+        user_id = get_current_user_id() or None
+        project_id = get_current_project_id() or None
+        scope = {
+            "user_id": user_id,
+            "project_id": project_id,
+            "current_chat_only": get_current_project_memory_mode() == "current_chat_only",
+        }
+        sources = list_document_sources(thread_id, **scope)
+        if not sources:
+            return SummaryResult("No uploaded documents were found in this conversation or your account.", "clarification")
+        requested = (filename or "").strip().strip('"\'')
+        selected, matches = _select_uploaded_name(sources, requested)
+        if selected is None:
+            if matches:
+                names = ", ".join(f'"{source}"' for source in matches)
+                return SummaryResult(f"Which uploaded file did you mean: {names}?", "clarification")
+            available = ", ".join(f'"{source}"' for source in sources)
+            return SummaryResult(f'No uploaded file named "{requested}" was found. Available files: {available}.', "clarification")
+        chunks = get_document_chunks(selected, thread_id, **scope)
+        result = summarize_documents(
+            chunks, target_language=language,
             job_context={
-                "user_id": str(user_id or ""),
-                "thread_id": get_current_thread_id(),
-                "project_id": str(project_id or ""),
-                "source": selected,
+                "user_id": str(user_id or ""), "thread_id": thread_id,
+                "project_id": str(project_id or ""), "source": selected,
                 "model": get_current_model_name(),
             },
         )
-    except Exception as exc:
-        if is_daily_token_limit(exc):
-            return assemble_partial_summary([], 1, filename=selected, language=target_language)
+        if result.status == "partial":
+            return result
+        if language == "Vietnamese":
+            prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}" (toàn bộ {len(chunks)} phần nội dung):\n\n'
+        else:
+            prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n'
+        return SummaryResult(prefix + result.text, result.status)
+    except Exception:
         logger.exception("Document summarization failed for %s", selected)
-        return (
-            f'{SUMMARY_ERROR_PREFIX}"{selected}" do lỗi xử lý nội bộ. '
-            "Chưa tạo được bản tóm tắt. Bạn có thể yêu cầu thử lại sau; "
-            "không cần tải lại tài liệu."
+        return SummaryResult(
+            f'{SUMMARY_ERROR_PREFIX}"{selected or filename}" do lỗi xử lý nội bộ. '
+            "Chưa tạo được bản tóm tắt. Bạn có thể yêu cầu thử lại sau; không cần tải lại tài liệu.",
+            "error",
         )
-
-    # Nếu bản tóm tắt đã có tiền tố (ví dụ bản tóm tắt bán phần cứu hộ), trả về luôn
-    if summary.startswith(SUMMARY_RESULT_PREFIX) or summary.startswith(SUMMARY_RESULT_PREFIX_VI):
-        return summary
-
-    if target_language and target_language.lower() in ("vietnamese", "tiếng việt", "tieng viet"):
-        prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}" (toàn bộ {len(chunks)} phần nội dung):\n\n'
-    else:
-        prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n'
-    return f'{prefix}{summary}'
 
 
 @tool
