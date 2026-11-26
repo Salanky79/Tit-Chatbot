@@ -912,3 +912,51 @@ The suite contains 12 tests covering context pruning and turn selection, LangGra
 | **RAG** | Retrieval-Augmented Generation: kỹ thuật truy xuất các đoạn văn bản có độ tương đồng ngữ nghĩa cao nhất từ kho vector để hỗ trợ mô hình trả lời chính xác, tránh hiện tượng ảo giác (hallucination). |
 | **SSE** | Server-Sent Events: giao thức truyền thông một chiều từ server về client qua HTTP, giúp đẩy từng token câu trả lời về giao diện người dùng theo thời gian thực. |
 | **Checkpointer** | Cơ chế lưu trữ trạng thái của LangGraph vào cơ sở dữ liệu (MongoDB), cho phép tạm dừng, khôi phục và tiếp tục phiên làm việc của Agent một cách bền vững. |
+
+## 14. Giao diện Graphite và kiểm thử frontend
+
+Giao diện chat và quản trị dùng chung bảng màu graphite với điểm nhấn đỏ Tit, hệ khoảng cách 4px, typography Plus Jakarta Sans/Segoe UI và các biến CSS trong `templates/ui/tokens.css`. Giữ chế độ tối hiện có; chưa bổ sung chế độ sáng. Không thay đổi framework, API, schema, phân quyền hoặc thư viện runtime.
+
+### Cấu trúc giao diện
+
+| File | Trách nhiệm |
+|---|---|
+| `templates/index.html` | Chat, tài khoản, tìm kiếm, dự án và cá nhân hóa; giữ các tích hợp API hiện có |
+| `templates/admin.html` | Bảng người dùng/tài liệu, lịch sử chat và xác nhận thao tác quản trị |
+| `templates/ui/tokens.css` | Màu, typography, spacing, radius, elevation, z-index, motion; dialog/toast dùng chung |
+| `templates/ui/chat.css`, `templates/ui/admin.css` | Styles của các thành phần hiện có, tách khỏi HTML |
+| `templates/ui/chat-layout.css`, `templates/ui/admin-layout.css` | Bố cục responsive và các biến thể giao diện Graphite |
+| `templates/ui/shared.js` | Form/dialog bất đồng bộ, toast, focus trap/restore, inert background và bàn phím drawer/menu |
+| `scripts/ui_smoke.py` | Kiểm tra template, cú pháp JS và luồng trình duyệt bằng fixture cô lập |
+
+Các partial được Jinja include khi render nên không cần route static mới hay bước build frontend. Các file layout được include sau styles cơ sở; sửa màu/token dùng chung tại `tokens.css`.
+
+### Các thay đổi chính
+
+- Thu gọn trang chào thành ba gợi ý theo tác vụ; bỏ thuật ngữ triển khai khỏi phần giới thiệu.
+- Composer hai hàng có không gian riêng cho nội dung, mô hình, file và giọng nói; không đè lên vùng cuộn chat.
+- Bỏ nền blur chuyển động, spotlight, parallax, nghiêng thẻ và listener con trỏ liên tục. Giữ logo tương tác khi người dùng chủ động bấm.
+- Motion 140–300ms cho các tương tác chính, stagger 40ms cho gợi ý, hỗ trợ `prefers-reduced-motion`.
+- Gom token SSE trong cùng animation frame trước khi render Markdown; không ép cuộn xuống khi người dùng đã cuộn lên đọc.
+- Cài đặt dự án dùng một form với lựa chọn nguồn ngữ cảnh; quản lý thành viên dùng select thay cho việc gõ thao tác và user ID.
+- Bổ sung focus bàn phím, skip link, nhãn input/icon, trạng thái được chọn, focus trap/restore cho modal và drawer; thao tác lịch sử truy cập được bằng bàn phím/cảm ứng.
+- Có loading/empty/error/retry cho lịch sử và lỗi tải dự án. Nếu CDN Marked không hoạt động, ứng dụng vẫn khởi tạo và hiển thị câu trả lời dạng văn bản.
+
+### Chạy kiểm tra
+
+Kiểm thử frontend cần Chrome, Node.js, Jinja2 và Playwright. Playwright chỉ là công cụ QA, không phải dependency runtime:
+
+```powershell
+python -m pip install --target .cache/ui-tools playwright
+python -X utf8 scripts/ui_smoke.py
+python -B -m unittest discover -s evaluation/rag_eval/tests -v
+git diff --check
+```
+
+Script frontend mở một server loopback tạm thời, render template thật, dùng API fixture trong browser và chặn CDN để kiểm tra khả năng hoạt động khi mất asset bên ngoài. Không kết nối database, không gửi email và không sửa dữ liệu thật. Server/browser được đóng sau khi chạy. Ảnh và kết quả nằm trong `.cache/ui-qa/` (đã được Git ignore).
+
+Phạm vi kiểm tra gồm guest/chat SSE, file đính kèm, temporary chat, validation đăng nhập, search, rename lịch sử, payload cài đặt dự án, thành viên, profile/cá nhân hóa, bảng/lịch sử quản trị, hủy thao tác xóa, reduced motion và kích thước 320/375/768/1024/1440/1920px. Các modal được kiểm tra thêm ở 320/768px.
+
+Kết quả xác minh trong đợt nâng cấp: 28 test Python pass; browser smoke pass và không có lỗi JS chưa xử lý; FastAPI thật trả HTTP 200 cho trang chính và 303 cho khách mở `/admin`. Dự án không có pipeline build/lint/typecheck frontend riêng; kiểm tra thay thế là render Jinja, `node --check`, Python compile và browser smoke.
+
+Giới hạn: các luồng đăng nhập thành công/OTP email, LLM thật, upload xử lý thật và thay đổi dữ liệu quản trị chưa được kiểm thử end-to-end trên dịch vụ thật. Chưa đo Core Web Vitals/60 FPS trên thiết bị phổ thông hoặc chứng nhận WCAG 2.2 AA. CDN Markdown/KaTeX/highlight và Google Fonts vẫn là phụ thuộc mạng hiện có.
