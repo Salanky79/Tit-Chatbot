@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -27,8 +28,7 @@ def create_or_update_conversation(
     is_temporary: bool = False,
     project_id: str | None = None,
 ) -> Any:
-    """Tạo hoặc cập nhật chat, đồng thời giữ nguyên Project scope và creator."""
-    """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``.
+    """Tạo mới hoặc cập nhật conversation theo ``thread_id`` và ``user_id``, giữ nguyên Project scope.
 
     - Nếu chưa tồn tại: insert với ``title`` lấy từ ``first_message`` (40 ký tự đầu).
     - Nếu đã tồn tại: cập nhật ``updated_at`` (và gắn ``user_id`` nếu chưa có).
@@ -42,6 +42,8 @@ def create_or_update_conversation(
     coll = get_collection("conversations")
     now = _now()
     project_oid = _to_object_id(project_id)
+
+    # Bước 1: Nếu thread_id đã tồn tại, kiểm tra tránh đổi nhầm phạm vi Project <-> Cá nhân
     existing = coll.find_one({"thread_id": thread_id}, {"project_id": 1, "user_id": 1})
     if existing:
         existing_project = existing.get("project_id")
@@ -51,12 +53,13 @@ def create_or_update_conversation(
         if existing_project != requested_project:
             raise ValueError("Conversation already belongs to a different project scope.")
 
-    # Sinh title từ first_message
+    # Bước 2: Tạo tiêu đề mặc định từ tin nhắn đầu tiên (cắt gọn tối đa 40 ký tự)
     title = "New Chat"
     if first_message:
         stripped = first_message.strip()
         title = stripped[:40] + ("..." if len(stripped) > 40 else "")
 
+    # Bước 3: Tách các trường cập nhật mỗi lượt ($set) và trường chỉ gán lúc tạo mới ($setOnInsert)
     set_fields: dict[str, Any] = {"updated_at": now}
     set_on_insert: dict[str, Any] = {
         "thread_id": thread_id,
@@ -67,6 +70,7 @@ def create_or_update_conversation(
     if project_oid:
         set_on_insert["project_id"] = project_oid
 
+    # Nếu là Temporary Chat -> đặt mốc expires_at sau 30 ngày để MongoDB TTL Index tự xóa
     if is_temporary:
         set_on_insert["is_temporary"] = True
         set_fields["is_temporary"] = True
@@ -76,7 +80,7 @@ def create_or_update_conversation(
 
     oid = _to_object_id(user_id)
     if oid:
-        # Người dùng đã đăng nhập: gắn user_id (ObjectId)
+        # Người dùng đã đăng nhập: gắn user_id (trong Project chỉ gán lúc insert để giữ nguyên chủ tạo chat gốc)
         if not project_oid:
             set_fields["user_id"] = oid
         else:
@@ -84,11 +88,12 @@ def create_or_update_conversation(
         set_on_insert["is_guest"] = False
         set_on_insert["created_by"] = oid
     else:
-        # Guest: đánh dấu và đặt TTL 24h để MongoDB tự dọn
+        # Guest chưa đăng nhập: đánh dấu is_guest và đặt TTL 24h để tự dọn rác
         set_on_insert["is_guest"] = True
         if not is_temporary:
             set_on_insert["expires_at"] = now + timedelta(hours=24)
 
+    # Bước 4: Upsert vào collection conversations và trả về object chuẩn hóa
     coll.update_one(
         {"thread_id": thread_id},
         {
@@ -105,12 +110,12 @@ def create_or_update_conversation(
 
 
 def get_conversation(thread_id: str) -> dict | None:
-    """Lấy metadata của một chat theo thread ID."""
-    """Lấy thông tin chi tiết một cuộc trò chuyện để kiểm tra quyền sở hữu."""
+    """Lấy metadata của một cuộc trò chuyện theo thread_id để kiểm tra quyền truy cập."""
     if not thread_id:
         return None
     coll = get_collection("conversations")
     doc = coll.find_one({"thread_id": thread_id}, {"_id": 0})
+    # Ép ObjectId về chuỗi str để các tầng API/kiểm tra quyền so sánh đồng nhất
     if doc and isinstance(doc.get("user_id"), ObjectId):
         doc["user_id"] = str(doc["user_id"])
     if doc and isinstance(doc.get("project_id"), ObjectId):
@@ -132,6 +137,7 @@ def list_conversations(
         return []  # Guest không có lịch sử conversation
 
     coll = get_collection("conversations")
+    # Chỉ lấy chat cá nhân thực sự: bỏ guest, bỏ temporary chat, và bỏ chat thuộc Project
     query = {
         "user_id": oid,
         "is_guest": {"$ne": True},
@@ -140,6 +146,7 @@ def list_conversations(
     }
 
     try:
+        # Ưu tiên sort trực tiếp trên MongoDB theo trạng thái ghim rồi tới thời gian cập nhật
         cursor = (
             coll.find(query, {"_id": 0})
             .sort([("is_pinned", -1), ("updated_at", -1)])
@@ -147,6 +154,7 @@ def list_conversations(
         )
         items = [_conv_to_obj(doc) for doc in cursor]
     except TypeError:
+        # Fallback nếu mock DB trong unit test chỉ hỗ trợ sort theo 1 trường đơn
         cursor = (
             coll.find(query, {"_id": 0})
             .sort("updated_at", -1)
@@ -154,6 +162,7 @@ def list_conversations(
         )
         items = [_conv_to_obj(doc) for doc in cursor]
 
+    # Sắp xếp lại trên Python để đảm bảo mục đã ghim (theo pinned_at mới nhất) luôn đứng trên cùng
     def _sort_key(item):
         pinned = bool(getattr(item, "is_pinned", False))
         ts = getattr(item, "pinned_at", None) or getattr(item, "updated_at", None) or getattr(item, "created_at", None)
@@ -221,6 +230,7 @@ def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool 
         return None
     coll = get_collection("conversations")
     query: dict[str, Any] = {"thread_id": thread_id}
+    # Với chat cá nhân: bắt buộc khớp user_id để user khác không ghim/bỏ ghim hộ được
     if user_id is not None:
         oid = _to_object_id(user_id)
         if oid:
@@ -230,6 +240,7 @@ def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool 
     if not doc:
         return None
 
+    # Đảo trạng thái ghim và lưu kèm pinned_at để sắp xếp các đoạn chat ghim gần nhất lên trên
     new_pinned = not bool(doc.get("is_pinned", False))
     now = _now()
     coll.update_one(
@@ -248,11 +259,13 @@ def update_conversation_title(
     if not thread_id or not isinstance(new_title, str) or not new_title.strip():
         return False
 
+    # Chuẩn hóa độ dài tiêu đề tối đa 100 ký tự để hiển thị gọn trên sidebar
     clean_title = new_title.strip()[:100]
     coll = get_collection("conversations")
     query: dict[str, Any] = {"thread_id": thread_id}
     if user_id is not None:
         oid = _to_object_id(user_id)
+        # Chấp nhận cả ObjectId lẫn chuỗi string cũ (nếu có dữ liệu legacy)
         query["user_id"] = {"$in": [oid, str(oid)]} if oid else user_id
 
     res = coll.update_one(
@@ -263,8 +276,9 @@ def update_conversation_title(
 
 
 def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
-    """Xóa cuộc trò chuyện và toàn bộ tin nhắn liên quan.
-    Nếu truyền user_id, chỉ xóa nếu cuộc trò chuyện thuộc về user_id đó.
+    """Xóa cuộc trò chuyện và toàn bộ tin nhắn, summary job, tài liệu RAG liên quan.
+
+    Nếu truyền ``user_id``, chỉ xóa khi cuộc trò chuyện thuộc về user đó.
     """
     if not thread_id:
         return False
@@ -275,10 +289,13 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
         if oid:
             query["user_id"] = oid
 
+    # Đọc trước project_id để lát nữa biết có cần dọn file upload/ChromaDB riêng của thread hay không
     existing_conv = conv_coll.find_one(query, {"project_id": 1})
     res = conv_coll.delete_one(query)
     if res.deleted_count > 0:
+        # 1. Xóa toàn bộ tin nhắn trong chat_messages
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
+        # 2. Xóa các tác vụ tóm tắt tài liệu (summary_jobs) và checkpoint Map-Reduce của thread
         job_filter: dict[str, Any] = {"context.thread_id": thread_id}
         if user_id is not None:
             job_filter["context.user_id"] = str(user_id)
@@ -288,7 +305,7 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
             get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
         summary_jobs.delete_many(job_filter)
 
-        # Dọn dẹp tài liệu vật lý và vector ChromaDB gắn với thread_id này
+        # 3. Chỉ xóa file upload/vector ChromaDB khi là chat cá nhân (file trong Project dùng chung nhiều chat)
         if not (existing_conv and existing_conv.get("project_id")):
             try:
                 from services.rag import delete_thread_documents
@@ -296,7 +313,7 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
             except Exception as exc:
                 logger.warning("Could not clean thread documents %s: %s", thread_id, exc)
 
-        # long_term_memory gắn với user_id, không xóa theo thread_id đơn lẻ
+        # Lưu ý: long_term_memory gắn theo user_id lâu dài nên không bị xóa theo từng thread
         return True
     return False
 
@@ -313,6 +330,7 @@ def assign_conversation_to_project(
     ``editor`` trong Project đích trước khi cập nhật ``conversations``,
     ``chat_messages``, ``summary_jobs`` và ``projects``.
     """
+    # Bước 1: Xác thực định dạng ID đầu vào
     if not thread_id or not user_id or not project_id:
         raise ValueError("Thiếu thông tin cuộc trò chuyện, người dùng hoặc Project.")
 
@@ -321,6 +339,7 @@ def assign_conversation_to_project(
     if user_oid is None or project_oid is None:
         raise ValueError("ID người dùng hoặc ID Project không hợp lệ.")
 
+    # Bước 2: Kiểm tra cuộc trò chuyện tồn tại, thuộc về user_id, không phải guest/temp/đã gắn Project khác
     conv_coll = get_collection("conversations")
     conv = conv_coll.find_one({"thread_id": thread_id})
     if not conv:
@@ -334,12 +353,14 @@ def assign_conversation_to_project(
     if conv.get("project_id"):
         raise ValueError("Cuộc trò chuyện này đã thuộc một Project.")
 
+    # Bước 3: Xác minh Project tồn tại và người dùng có quyền owner/editor trong Project đó
     from storage.projects import can_edit_project, get_project
     if not get_project(project_id):
         raise LookupError("Project không tồn tại.")
     if not can_edit_project(project_id, user_id):
         raise PermissionError("Chỉ owner hoặc editor mới được thêm cuộc trò chuyện vào Project.")
 
+    # Bước 4: Gắn project_id đồng bộ qua conversations, chat_messages, summary_jobs và projects
     now = _now()
     # Cập nhật phạm vi Project cho cuộc trò chuyện; giữ nguyên user_id làm người tạo gốc.
     conv_coll.update_one(
@@ -377,10 +398,7 @@ def save_chat_message(
     content: str,
     user_id: str | None = None,
 ) -> Any:
-    """Lưu tin nhắn và ghi riêng sender khi chat thuộc Project."""
-    """Lưu một tin nhắn vào collection ``chat_messages``.
-
-    Đồng thời cập nhật ``updated_at`` của conversation tương ứng.
+    """Lưu một tin nhắn vào ``chat_messages`` và cập nhật ``updated_at`` / ``sender_id`` khi chat thuộc Project.
 
     Args:
         thread_id: ID luồng chat.
@@ -394,7 +412,7 @@ def save_chat_message(
     now = _now()
     oid = _to_object_id(user_id)
 
-    # Insert tin nhắn
+    # Bước 1: Chuẩn bị document tin nhắn mới
     msg_coll = get_collection("chat_messages")
     doc: dict[str, Any] = {
         "thread_id": thread_id,
@@ -405,11 +423,11 @@ def save_chat_message(
     if oid:
         doc["user_id"] = oid
         if role == "user":
-            # Keep the author on each message; the conversation's user_id stays
-            # the original creator when multiple project members share a chat.
+            # Lưu sender_id trên từng tin nhắn user; conversation.user_id vẫn giữ nguyên là người tạo thread
+            # để phân biệt người gửi khi nhiều thành viên cùng chat trong 1 Project.
             doc["sender_id"] = oid
 
-    # Cập nhật updated_at của conversation
+    # Bước 2: Kế thừa hạn expires_at (nếu temporary chat) và project_id (nếu chat thuộc Project)
     conv_coll = get_collection("conversations")
     conv_doc = conv_coll.find_one({"thread_id": thread_id}, {"is_temporary": 1, "expires_at": 1, "project_id": 1})
     if conv_doc and conv_doc.get("is_temporary") and conv_doc.get("expires_at"):
@@ -420,10 +438,12 @@ def save_chat_message(
             {"_id": conv_doc["project_id"]}, {"$set": {"updated_at": now}}
         )
 
+    # Bước 3: Insert tin nhắn và cập nhật dấu thời gian hoạt động cuối cùng của conversation
     msg_coll.insert_one(doc)
     update_fields: dict[str, Any] = {"updated_at": now}
     if oid:
         if conv_doc and conv_doc.get("project_id"):
+            # Trong Project: ghi nhận người tương tác gần nhất vào last_actor_id thay vì ghi đè user_id
             update_fields["last_actor_id"] = oid
         else:
             update_fields["user_id"] = oid
@@ -437,11 +457,7 @@ def save_chat_message(
 
 
 def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
-    """Lấy lịch sử chat của một thread, sắp xếp cũ nhất trước.
-
-    Returns:
-        List các object-like với thuộc tính ``role``, ``content``, ``created_at``.
-    """
+    """Lấy lịch sử chat của một thread, sắp xếp cũ nhất trước để dựng lại khung hội thoại."""
     coll = get_collection("chat_messages")
     cursor = (
         coll.find({"thread_id": thread_id}, {"_id": 0})
@@ -516,3 +532,198 @@ def get_admin_conversation_messages(
         "page_size": page_size,
         "total": total,
     }
+
+
+def _build_search_snippet(text: str, query: str, max_len: int = 120) -> str:
+    """Tạo đoạn trích ngắn (~120 ký tự) cắt quanh vị trí từ khóa xuất hiện trong nội dung tin nhắn."""
+    # Gộp nhiều khoảng trắng / xuống dòng thành 1 dấu cách để đoạn trích hiển thị trên 1 dòng gọn gàng
+    clean_text = " ".join((text or "").split())
+    if not clean_text:
+        return ""
+    if len(clean_text) <= max_len:
+        return clean_text
+
+    # Tìm vị trí đầu tiên của từ khóa (không phân biệt hoa/thường) và lấy cửa sổ đối xứng quanh đó
+    idx = clean_text.casefold().find(query.casefold())
+    if idx < 0:
+        return clean_text[: max_len - 1] + "…"
+    half = max(20, (max_len - len(query)) // 2)
+    start = max(0, idx - half)
+    end = min(len(clean_text), idx + len(query) + half)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(clean_text) else ""
+    return f"{prefix}{clean_text[start:end]}{suffix}"
+
+
+def _iso_str(val: Any) -> str:
+    """Chuẩn hóa đối tượng datetime về chuỗi ISO 8601 để frontend phân nhóm thời gian."""
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val or "")
+
+
+def _format_search_item(
+    meta: dict[str, Any],
+    *,
+    snippet: str = "",
+    match_type: str = "recent",
+) -> dict[str, Any]:
+    """Đóng gói metadata cuộc trò chuyện thành payload JSON thống nhất cho API tìm kiếm."""
+    return {
+        "thread_id": meta["thread_id"],
+        "title": meta["title"],
+        "project_id": meta["project_id"],
+        "project_name": meta["project_name"],
+        "updated_at": meta["updated_at"],
+        "is_pinned": meta["is_pinned"],
+        "snippet": snippet,
+        "match_type": match_type,
+    }
+
+
+def search_user_conversations(
+    user_id: str | None,
+    query: str = "",
+    limit: int = 25,
+) -> list[dict[str, Any]]:
+    """Tìm kiếm các cuộc trò chuyện cá nhân và Project của user theo tiêu đề lẫn nội dung tin nhắn.
+
+    - Nếu ``query`` rỗng: trả về danh sách trò chuyện gần đây nhất mà user có quyền truy cập.
+    - Nếu ``query`` khác rỗng: tìm khớp tiêu đề và nội dung trong ``chat_messages`` thuộc các thread đó.
+    """
+    # Guest chưa đăng nhập không có lịch sử lưu trữ dài hạn nên trả về rỗng
+    oid = _to_object_id(user_id)
+    if not oid:
+        return []
+
+    safe_limit = min(max(1, int(limit or 25)), 50)
+    clean_query = (query or "").strip()[:120]
+
+    # Bước 1: Lấy danh sách Project mà user là owner hoặc thành viên đã chấp nhận (accepted)
+    # để mở rộng phạm vi tìm kiếm sang cả chat nhóm trong các Project đó.
+    from storage.projects import list_projects_for_user
+
+    project_names: dict[str, str] = {}
+    project_oids: list[ObjectId] = []
+    for proj in list_projects_for_user(str(oid)):
+        pid = str(proj.get("_id") or proj.get("id") or "")
+        p_oid = _to_object_id(pid)
+        if p_oid:
+            project_oids.append(p_oid)
+            project_names[str(p_oid)] = str(proj.get("name") or "Project")
+
+    # Bước 2: Dựng bộ lọc quyền truy cập gồm chat cá nhân của user + chat thuộc Project hợp lệ
+    # Luôn loại bỏ temporary chat và guest chat khỏi kết quả tìm kiếm.
+    personal_scope: dict[str, Any] = {
+        "user_id": oid,
+        "is_guest": {"$ne": True},
+        "is_temporary": {"$ne": True},
+        "$or": [{"project_id": {"$exists": False}}, {"project_id": None}],
+    }
+    if project_oids:
+        conv_filter: dict[str, Any] = {
+            "$or": [
+                personal_scope,
+                {"project_id": {"$in": project_oids}, "is_temporary": {"$ne": True}},
+            ]
+        }
+    else:
+        conv_filter = personal_scope
+
+    # Truy vấn tối đa 250 cuộc trò chuyện gần nhất thuộc phạm vi quyền của user
+    conv_coll = get_collection("conversations")
+    conv_docs = list(
+        conv_coll.find(
+            conv_filter,
+            {"_id": 0, "thread_id": 1, "title": 1, "project_id": 1, "updated_at": 1, "created_at": 1, "is_pinned": 1},
+        )
+        .sort("updated_at", -1)
+        .limit(250)
+    )
+    if not conv_docs:
+        return []
+
+    # Bước 3: Lập từ điển metadata theo thread_id và giữ thứ tự mới nhất trước
+    conv_by_thread: dict[str, dict[str, Any]] = {}
+    ordered_threads: list[str] = []
+    for doc in conv_docs:
+        tid = str(doc.get("thread_id") or "")
+        if not tid or tid in conv_by_thread:
+            continue
+        pid_raw = doc.get("project_id")
+        pid_str = str(pid_raw) if pid_raw else ""
+        conv_by_thread[tid] = {
+            "thread_id": tid,
+            "title": str(doc.get("title") or "Đoạn chat mới"),
+            "project_id": pid_str,
+            "project_name": project_names.get(pid_str, "") if pid_str else "",
+            "updated_at": _iso_str(doc.get("updated_at") or doc.get("created_at")),
+            "is_pinned": bool(doc.get("is_pinned", False)),
+            "_ts": doc.get("updated_at").timestamp() if hasattr(doc.get("updated_at"), "timestamp") else 0.0,
+        }
+        ordered_threads.append(tid)
+
+    # Bước 4: Nếu người dùng chưa gõ từ khóa -> trả về danh sách trò chuyện gần đây nhất
+    if not clean_query:
+        return [
+            _format_search_item(conv_by_thread[tid], snippet="", match_type="recent")
+            for tid in ordered_threads[:safe_limit]
+        ]
+
+    # Bước 5: Tìm các tin nhắn chứa từ khóa bên trong phạm vi ordered_threads (chỉ những thread user được phép xem)
+    # Dùng re.escape để các ký tự đặc biệt như C++, [test], a.b không bị hiểu nhầm thành regex syntax.
+    term = clean_query.casefold()
+    escaped_regex = re.escape(clean_query)
+    msg_matches: dict[str, str] = {}
+    msg_coll = get_collection("chat_messages")
+    try:
+        msg_cursor = (
+            msg_coll.find(
+                {
+                    "thread_id": {"$in": ordered_threads},
+                    "content": {"$regex": escaped_regex, "$options": "i"},
+                },
+                {"_id": 0, "thread_id": 1, "role": 1, "content": 1, "created_at": 1},
+            )
+            .sort("created_at", -1)
+            .limit(safe_limit * 4)
+        )
+        for msg in msg_cursor:
+            tid = str(msg.get("thread_id") or "")
+            # Giữ tin nhắn mới nhất đầu tiên khớp từ khóa cho mỗi thread làm đoạn trích snippet
+            if tid and tid not in msg_matches:
+                prefix = "Bạn: " if msg.get("role") == "user" else "Tit: "
+                msg_matches[tid] = prefix + _build_search_snippet(str(msg.get("content") or ""), clean_query)
+    except Exception:
+        # Fallback quét Python an toàn nếu môi trường test mock không hỗ trợ toán tử $regex của MongoDB
+        for msg in msg_coll.find(
+            {"thread_id": {"$in": ordered_threads}},
+            {"_id": 0, "thread_id": 1, "role": 1, "content": 1, "created_at": 1},
+        ):
+            tid = str(msg.get("thread_id") or "")
+            content_str = str(msg.get("content") or "")
+            if tid and tid not in msg_matches and term in content_str.casefold():
+                prefix = "Bạn: " if msg.get("role") == "user" else "Tit: "
+                msg_matches[tid] = prefix + _build_search_snippet(content_str, clean_query)
+
+    # Bước 6: Hợp nhất kết quả khớp tiêu đề + nội dung, ưu tiên kết quả khớp tiêu đề lên trên (priority=2)
+    results: list[tuple[int, float, dict[str, Any]]] = []
+    for tid in ordered_threads:
+        meta = conv_by_thread[tid]
+        title_hit = term in meta["title"].casefold()
+        snippet = msg_matches.get(tid, "")
+        if not title_hit and not snippet:
+            continue
+        priority = 2 if title_hit else 1
+        match_type = "title_and_message" if (title_hit and snippet) else ("title" if title_hit else "message")
+        results.append(
+            (
+                priority,
+                meta["_ts"],
+                _format_search_item(meta, snippet=snippet, match_type=match_type),
+            )
+        )
+
+    # Sắp xếp giảm dần theo độ ưu tiên khớp tiêu đề rồi đến thời gian cập nhật gần nhất
+    results.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [row[2] for row in results[:safe_limit]]

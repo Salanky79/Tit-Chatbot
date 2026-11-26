@@ -26,7 +26,10 @@ from api.dependencies import (
     update_conversation_title,
 )
 from services.rag import migrate_thread_documents_to_project
-from storage.conversations import assign_conversation_to_project as _assign_conversation_to_project_impl
+from storage.conversations import (
+    assign_conversation_to_project as _assign_conversation_to_project_impl,
+    search_user_conversations as _search_user_conversations_impl,
+)
 from storage.projects import get_membership, register_project_file
 
 router = APIRouter()
@@ -41,6 +44,7 @@ update_conversation_title = app_callable('update_conversation_title', update_con
 get_chat_history = app_callable('get_chat_history', get_chat_history)
 delete_conversation = app_callable('delete_conversation', delete_conversation)
 assign_conversation_to_project = app_callable('assign_conversation_to_project', _assign_conversation_to_project_impl)
+search_user_conversations = app_callable('search_user_conversations', _search_user_conversations_impl)
 migrate_thread_documents_to_project = app_callable('migrate_thread_documents_to_project', migrate_thread_documents_to_project)
 register_project_file = app_callable('register_project_file', register_project_file)
 logger = AppValueProxy("logger", logging.getLogger("app"))
@@ -74,6 +78,19 @@ async def conversations(request: Request):
             }
             for item in items
         ]
+    }
+
+
+@router.get("/conversations/search")
+async def search_conversations(request: Request, q: str = "", limit: int = 25):
+    """Tìm kiếm các cuộc trò chuyện cá nhân & Project theo tiêu đề và nội dung tin nhắn."""
+    user = get_current_user(request)
+    user_id = user["id"] if user else None
+    results = search_user_conversations(user_id=user_id, query=q, limit=limit)
+    return {
+        "success": True,
+        "query": (q or "").strip(),
+        "results": results,
     }
 
 

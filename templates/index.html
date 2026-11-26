@@ -166,8 +166,16 @@
             border: 1px solid rgba(255, 43, 61, 0.28);
         }
 
-        .sidebar-collapse-btn {
+        .brand-actions {
             margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-collapse-btn,
+        .sidebar-search-btn {
             background: transparent;
             border: 1px solid transparent;
             color: var(--text-muted);
@@ -181,12 +189,163 @@
             transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s;
         }
 
-        .sidebar-collapse-btn:hover {
+        .sidebar-collapse-btn:hover,
+        .sidebar-search-btn:hover {
             background: rgba(255, 255, 255, 0.08);
             color: #fff;
             border-color: var(--border-color);
         }
-        .sidebar-collapse-btn:active { transform: scale(0.92); }
+        .sidebar-collapse-btn:active,
+        .sidebar-search-btn:active { transform: scale(0.92); }
+
+        .topbar-search-btn { display: none; }
+        .sidebar.collapsed ~ .main .topbar-search-btn { display: inline-flex; }
+        @media (max-width: 768px) {
+            .topbar-search-btn { display: inline-flex; }
+        }
+
+        /* ChatGPT-style Search Chats Modal */
+        .search-modal-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            max-height: 78vh;
+            background: #12090b;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 18px;
+            box-shadow: 0 32px 90px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 43, 61, 0.14);
+            animation: modalPopIn 0.22s var(--ease-out);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .search-modal-input-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-muted);
+        }
+        .search-modal-input-row input {
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            border: 0;
+            outline: none;
+            color: #fff;
+            font-size: 14.5px;
+            font-family: inherit;
+        }
+        .search-modal-input-row input::placeholder { color: var(--text-muted); }
+        .search-clear-btn {
+            background: rgba(255, 255, 255, 0.07);
+            border: 0;
+            color: var(--text-secondary);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            line-height: 1;
+        }
+        .search-clear-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+        .search-kbd-hint {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+            padding: 3px 7px;
+            cursor: pointer;
+        }
+        .search-results-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .search-group-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 10px 10px 4px;
+        }
+        .search-result-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid transparent;
+            border-radius: 11px;
+            background: transparent;
+            color: var(--text-secondary);
+            text-align: left;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+        .search-result-item:hover,
+        .search-result-item.selected {
+            background: rgba(255, 43, 61, 0.12);
+            border-color: rgba(255, 43, 61, 0.28);
+            color: #fff;
+        }
+        .search-result-icon {
+            flex-shrink: 0;
+            margin-top: 2px;
+            opacity: 0.75;
+        }
+        .search-result-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .search-result-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .search-result-title {
+            flex: 1;
+            min-width: 0;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: inherit;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .search-project-pill {
+            flex-shrink: 0;
+            font-size: 10.5px;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--accent-soft);
+        }
+        .search-result-snippet {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.45;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .search-highlight {
+            background: rgba(255, 43, 61, 0.28);
+            color: #fff;
+            border-radius: 3px;
+            padding: 0 2px;
+        }
+        .search-empty-state {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
 
         .new-chat {
             position: relative;
@@ -2811,12 +2970,20 @@
         <div class="brand-logo" id="brandLogo" role="button" tabindex="0" aria-label="Logo Tit"></div>
         <span class="brand-name">Tit</span>
         <span class="brand-badge">3.3</span>
-        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" aria-label="Thu gọn thanh bên" title="Thu gọn thanh bên (Ctrl+B)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-        </button>
+        <div class="brand-actions">
+            <button class="sidebar-search-btn" id="sidebarSearchBtn" onclick="openSearchModal()" aria-label="Tìm kiếm đoạn chat" title="Tìm kiếm đoạn chat (Ctrl+K)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </button>
+            <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" aria-label="Thu gọn thanh bên" title="Thu gọn thanh bên (Ctrl+B)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="9" y1="3" x2="9" y2="21"></line>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <button class="new-chat" onclick="newChat()">
@@ -2860,6 +3027,12 @@
                     <line x1="3" y1="12" x2="21" y2="12"></line>
                     <line x1="3" y1="6" x2="21" y2="6"></line>
                     <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+            <button class="mobile-sidebar-toggle topbar-search-btn" id="topbarSearchBtn" onclick="openSearchModal()" aria-label="Tìm kiếm đoạn chat" title="Tìm kiếm đoạn chat (Ctrl+K)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
             </button>
             <div class="topbar-title" onclick="newChat()" style="cursor: pointer;" title="Về trang chủ / Cuộc trò chuyện mới">Tit Chatbot</div>
@@ -5364,6 +5537,261 @@
     let authChallengeActive = false;
     let otpCountdownTimer = null;
 
+    // ---------- ChatGPT-style Search Chats Modal ----------
+    let searchDebounceTimer = null;
+    let searchAbortController = null;
+    let searchFlatItems = [];
+    let searchSelectedIndex = -1;
+
+    function _highlightSearchMatch(rawText, query) {
+        const text = String(rawText || "");
+        const cleanQuery = String(query || "").trim();
+        if (!cleanQuery) return escapeHtml(text);
+        const lowerText = text.toLowerCase();
+        const lowerQuery = cleanQuery.toLowerCase();
+        let pos = 0;
+        let out = "";
+        while (pos < text.length) {
+            const idx = lowerText.indexOf(lowerQuery, pos);
+            if (idx === -1) {
+                out += escapeHtml(text.slice(pos));
+                break;
+            }
+            out += escapeHtml(text.slice(pos, idx));
+            out += `<mark class="search-highlight">${escapeHtml(text.slice(idx, idx + cleanQuery.length))}</mark>`;
+            pos = idx + cleanQuery.length;
+        }
+        return out;
+    }
+
+    function _getSearchTimeGroup(isoString) {
+        if (!isoString) return "Trước đó";
+        const ts = Date.parse(isoString);
+        if (Number.isNaN(ts)) return "Trước đó";
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        if (ts >= startOfToday) return "Hôm nay";
+        if (ts >= startOfToday - 7 * 86400000) return "7 ngày qua";
+        return "Trước đó";
+    }
+
+    /** Mở modal tìm kiếm đoạn chat (giống ChatGPT Ctrl+K). */
+    function openSearchModal() {
+        const modal = document.getElementById("searchChatsModal");
+        const input = document.getElementById("searchChatsInput");
+        const clearBtn = document.getElementById("searchChatsClearBtn");
+        if (!modal || !input) return;
+        modal.style.display = "flex";
+        input.value = "";
+        if (clearBtn) clearBtn.style.display = "none";
+        searchSelectedIndex = -1;
+        setTimeout(() => input.focus(), 20);
+        runConversationSearch("");
+    }
+
+    /** Đóng modal tìm kiếm đoạn chat và hủy request cũ nếu đang chạy. */
+    function closeSearchModal() {
+        const modal = document.getElementById("searchChatsModal");
+        if (modal) modal.style.display = "none";
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        if (searchAbortController) searchAbortController.abort();
+    }
+
+    function clearSearchChatsInput() {
+        const input = document.getElementById("searchChatsInput");
+        const clearBtn = document.getElementById("searchChatsClearBtn");
+        if (input) {
+            input.value = "";
+            input.focus();
+        }
+        if (clearBtn) clearBtn.style.display = "none";
+        runConversationSearch("");
+    }
+
+    function onSearchChatsInput() {
+        const input = document.getElementById("searchChatsInput");
+        const clearBtn = document.getElementById("searchChatsClearBtn");
+        const query = input ? input.value : "";
+        if (clearBtn) clearBtn.style.display = query.trim() ? "inline-flex" : "none";
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => runConversationSearch(query), 200);
+    }
+
+    /** Gọi API /api/conversations/search và render kết quả theo nhóm hoặc từ khóa. */
+    async function runConversationSearch(rawQuery) {
+        const container = document.getElementById("searchChatsResults");
+        if (!container) return;
+
+        const query = String(rawQuery || "").trim();
+        if (!currentUser) {
+            searchFlatItems = [{ type: "new_chat" }];
+            searchSelectedIndex = 0;
+            container.innerHTML = `
+                <button type="button" class="search-result-item selected" data-search-idx="0" onclick="triggerSearchSelection(0)">
+                    <span class="search-result-icon">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </span>
+                    <div class="search-result-main">
+                        <div class="search-result-title">Đoạn chat mới</div>
+                    </div>
+                </button>
+                <div class="search-empty-state">Đăng nhập để tìm kiếm toàn bộ lịch sử trò chuyện và Project của bạn.</div>
+            `;
+            return;
+        }
+
+        if (searchAbortController) searchAbortController.abort();
+        searchAbortController = new AbortController();
+
+        try {
+            const url = `/api/conversations/search?q=${encodeURIComponent(query)}&limit=25`;
+            const res = await fetch(url, { signal: searchAbortController.signal });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Không thể tìm kiếm cuộc trò chuyện.");
+            }
+            renderSearchResults(data.results || [], query);
+        } catch (err) {
+            if (err && err.name === "AbortError") return;
+            container.innerHTML = `<div class="search-empty-state">Không thể tải kết quả tìm kiếm lúc này.</div>`;
+        }
+    }
+
+    function renderSearchResults(results, query) {
+        const container = document.getElementById("searchChatsResults");
+        if (!container) return;
+
+        searchFlatItems = [];
+        let html = "";
+
+        if (!query) {
+            const idx = searchFlatItems.length;
+            searchFlatItems.push({ type: "new_chat" });
+            html += `
+                <button type="button" class="search-result-item" data-search-idx="${idx}" onclick="triggerSearchSelection(${idx})">
+                    <span class="search-result-icon">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                    </span>
+                    <div class="search-result-main">
+                        <div class="search-result-title">Đoạn chat mới</div>
+                    </div>
+                </button>
+            `;
+        }
+
+        if (!results || results.length === 0) {
+            if (query) {
+                html = `<div class="search-empty-state">Không tìm thấy đoạn chat nào khớp với "<strong>${escapeHtml(query)}</strong>".</div>`;
+            } else {
+                html += `<div class="search-empty-state">Chưa có lịch sử đoạn chat nào.</div>`;
+            }
+            container.innerHTML = html;
+            searchSelectedIndex = searchFlatItems.length > 0 ? 0 : -1;
+            _syncSearchActiveSelection();
+            return;
+        }
+
+        let currentGroup = "";
+        results.forEach((item) => {
+            const groupLabel = query ? "Kết quả phù hợp" : _getSearchTimeGroup(item.updated_at);
+            if (groupLabel !== currentGroup) {
+                currentGroup = groupLabel;
+                html += `<div class="search-group-label">${escapeHtml(groupLabel)}</div>`;
+            }
+            const idx = searchFlatItems.length;
+            searchFlatItems.push({ type: "chat", item });
+
+            const iconSvg = item.project_id
+                ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`
+                : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+
+            const titleHtml = _highlightSearchMatch(item.title || "Đoạn chat mới", query);
+            const projBadge = item.project_name
+                ? `<span class="search-project-pill">${escapeHtml(item.project_name)}</span>`
+                : "";
+            const snippetHtml = item.snippet
+                ? `<div class="search-result-snippet">${_highlightSearchMatch(item.snippet, query)}</div>`
+                : "";
+
+            html += `
+                <button type="button" class="search-result-item" data-search-idx="${idx}" onclick="triggerSearchSelection(${idx})">
+                    <span class="search-result-icon">${iconSvg}</span>
+                    <div class="search-result-main">
+                        <div class="search-result-top">
+                            <span class="search-result-title">${titleHtml}</span>
+                            ${projBadge}
+                        </div>
+                        ${snippetHtml}
+                    </div>
+                </button>
+            `;
+        });
+
+        container.innerHTML = html;
+        searchSelectedIndex = searchFlatItems.length > 0 ? (query ? 0 : (searchFlatItems.length > 1 ? 1 : 0)) : -1;
+        _syncSearchActiveSelection();
+    }
+
+    function _syncSearchActiveSelection() {
+        const container = document.getElementById("searchChatsResults");
+        if (!container) return;
+        container.querySelectorAll(".search-result-item").forEach((el) => {
+            const idx = Number(el.dataset.searchIdx);
+            const active = idx === searchSelectedIndex;
+            el.classList.toggle("selected", active);
+            if (active) el.scrollIntoView({ block: "nearest" });
+        });
+    }
+
+    function handleSearchModalKeydown(event) {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeSearchModal();
+            return;
+        }
+        if (searchFlatItems.length === 0) return;
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            searchSelectedIndex = (searchSelectedIndex + 1) % searchFlatItems.length;
+            _syncSearchActiveSelection();
+        } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            searchSelectedIndex = (searchSelectedIndex - 1 + searchFlatItems.length) % searchFlatItems.length;
+            _syncSearchActiveSelection();
+        } else if (event.key === "Enter") {
+            event.preventDefault();
+            if (searchSelectedIndex >= 0 && searchSelectedIndex < searchFlatItems.length) {
+                triggerSearchSelection(searchSelectedIndex);
+            }
+        }
+    }
+
+    function triggerSearchSelection(idx) {
+        const entry = searchFlatItems[idx];
+        if (!entry) return;
+        closeSearchModal();
+        if (entry.type === "new_chat") {
+            newChat();
+            return;
+        }
+        if (entry.item && entry.item.thread_id) {
+            loadConversation(entry.item.thread_id, entry.item.project_id || "");
+        }
+    }
+
+    // Phím tắt Ctrl+K / Cmd+K để mở nhanh hộp tìm kiếm đoạn chat giống ChatGPT
+    window.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+            e.preventDefault();
+            const modal = document.getElementById("searchChatsModal");
+            if (modal && modal.style.display === "flex") {
+                closeSearchModal();
+            } else {
+                openSearchModal();
+            }
+        }
+    });
+
     function openAuthModal(tab = "signin") {
         const modal = document.getElementById("authModal");
         if (!modal) return;
@@ -6315,6 +6743,23 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- ChatGPT-style Search Chats Modal -->
+<div class="auth-modal-overlay" id="searchChatsModal" style="display: none;">
+    <div class="auth-modal-backdrop" onclick="closeSearchModal()"></div>
+    <div class="search-modal-container" role="dialog" aria-modal="true" aria-label="Tìm kiếm đoạn chat">
+        <div class="search-modal-input-row">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="searchChatsInput" placeholder="Tìm kiếm đoạn chat..." autocomplete="off" oninput="onSearchChatsInput()" onkeydown="handleSearchModalKeydown(event)">
+            <button type="button" class="search-clear-btn" id="searchChatsClearBtn" onclick="clearSearchChatsInput()" aria-label="Xóa từ khóa">&times;</button>
+            <button type="button" class="search-kbd-hint" onclick="closeSearchModal()" title="Đóng (Esc)">Esc</button>
+        </div>
+        <div class="search-results-body" id="searchChatsResults"></div>
     </div>
 </div>
 
