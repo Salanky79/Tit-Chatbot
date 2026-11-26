@@ -1,11 +1,13 @@
 """Tools for uploaded documents and images."""
 
+import logging
 from typing import Any
 
 from langchain_core.tools import tool
 
 from agent_tools._compat import tool_callable
 from agent_tools.context import (
+    SUMMARY_ERROR_PREFIX,
     SUMMARY_RESULT_PREFIX,
     SUMMARY_RESULT_PREFIX_VI,
     get_current_model_name as _get_current_model_name,
@@ -42,6 +44,7 @@ summarize_documents = tool_callable("summarize_documents", _summarize_documents)
 assemble_partial_summary = tool_callable("assemble_partial_summary", _assemble_partial_summary)
 format_tool_limit_notice = tool_callable("format_tool_limit_notice", _format_tool_limit_notice)
 is_daily_token_limit = tool_callable("is_daily_token_limit", _is_daily_token_limit)
+logger = logging.getLogger(__name__)
 
 @tool
 def search_uploaded_documents(query: str) -> str:
@@ -77,9 +80,8 @@ def _select_uploaded_name(
     names: list[str], requested: str
 ) -> tuple[str | None, list[str]]:
     """Select an uploaded source, returning ambiguous matches when necessary."""
-    if not requested or len(names) == 1:
-        return names[0], []
-
+    if not requested:
+        return (names[0], []) if len(names) == 1 else (None, names)
     exact_matches = [name for name in names if name.casefold() == requested.casefold()]
     if len(exact_matches) == 1:
         return exact_matches[0], []
@@ -162,7 +164,12 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
     except Exception as exc:
         if is_daily_token_limit(exc):
             return assemble_partial_summary([], 1, filename=selected, language=target_language)
-        return f'Could not summarize "{selected}": {exc}'
+        logger.exception("Document summarization failed for %s", selected)
+        return (
+            f'{SUMMARY_ERROR_PREFIX}"{selected}" do lỗi xử lý nội bộ. '
+            "Chưa tạo được bản tóm tắt. Bạn có thể yêu cầu thử lại sau; "
+            "không cần tải lại tài liệu."
+        )
 
     # Nếu bản tóm tắt đã có tiền tố (ví dụ bản tóm tắt bán phần cứu hộ), trả về luôn
     if summary.startswith(SUMMARY_RESULT_PREFIX) or summary.startswith(SUMMARY_RESULT_PREFIX_VI):

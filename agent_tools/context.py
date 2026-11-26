@@ -14,6 +14,7 @@ _current_personalization_style: ContextVar[str] = ContextVar("current_personaliz
 _current_personalization_instructions: ContextVar[str] = ContextVar("current_personalization_instructions", default="")
 
 SUMMARY_RESULT_PREFIX = "Summary of "
+SUMMARY_ERROR_PREFIX = "Không thể tóm tắt tài liệu "
 SUMMARY_RESULT_PREFIX_VI = "B\u1ea3n t\u00f3m t\u1eaft c\u1ee7a "
 
 

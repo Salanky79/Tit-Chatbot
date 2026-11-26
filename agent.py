@@ -27,6 +27,7 @@ from prompts.agent import SYSTEM_PROMPT
 from prompts.personalization import BASE_STYLE_PROMPTS, build_personalization_prompt_suffix
 from tools import tools, SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI
 from agent_tools.context import (
+    SUMMARY_ERROR_PREFIX,
     get_current_personalization,
     get_current_project_context,
     get_current_project_instructions,
@@ -87,15 +88,23 @@ SUMMARY_TOOL_NAME = "summarize_uploaded_document"
 
 
 def route_after_tools(state: AgentState) -> str:
-    """Sau node 'tools': nếu vừa chạy đúng 1 tool tóm tắt và nó thành công thì kết thúc luôn
-    (qua node 'emit_summary'); còn lại quay về 'chatbot' như cũ."""
-    if not SUMMARY_DIRECT_RETURN:
-        return "chatbot"
+    """Trả thẳng lỗi tóm tắt hoặc bản tóm tắt thành công; các tool khác về chatbot."""
     recent: list[ToolMessage] = []
     for msg in reversed(state.get("messages", [])):
         if not isinstance(msg, ToolMessage):
             break
         recent.append(msg)
+    # Storage/processing errors are terminal for this turn: feeding them back to
+    # the model can cause repeated summary calls or an incomplete RAG fallback.
+    if any(
+        msg.name == SUMMARY_TOOL_NAME
+        and isinstance(msg.content, str)
+        and msg.content.startswith(SUMMARY_ERROR_PREFIX)
+        for msg in recent
+    ):
+        return "emit_summary"
+    if not SUMMARY_DIRECT_RETURN:
+        return "chatbot"
     if (
         len(recent) == 1
         and getattr(recent[0], "name", None) == SUMMARY_TOOL_NAME
@@ -113,6 +122,15 @@ def emit_summary_node(state: AgentState) -> dict[str, list[AIMessage]]:
     """Biến kết quả tool thành AIMessage (không gọi LLM) để:
     - frontend nhận được qua should_stream_chunk như một câu trả lời bình thường,
     - lượt sau vẫn còn bản tóm tắt trong lịch sử hội thoại để hỏi tiếp."""
+    for msg in reversed(state["messages"]):
+        if not isinstance(msg, ToolMessage):
+            break
+        if (
+            msg.name == SUMMARY_TOOL_NAME
+            and isinstance(msg.content, str)
+            and msg.content.startswith(SUMMARY_ERROR_PREFIX)
+        ):
+            return {"messages": [AIMessage(content=msg.content)]}
     return {"messages": [AIMessage(content=str(state["messages"][-1].content))]}
 
 

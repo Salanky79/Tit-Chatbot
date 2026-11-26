@@ -1,0 +1,116 @@
+"""Regression coverage for summary persistence and terminal tool failures."""
+
+import os
+import unittest
+from unittest.mock import patch
+
+# These tests exercise local control flow, without exporting traces.
+os.environ["LANGSMITH_TRACING"] = "false"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+from langchain_core.messages import AIMessage, ToolMessage
+from pymongo.errors import DuplicateKeyError
+
+import agent
+from agent_tools import documents
+from agent_tools.context import SUMMARY_ERROR_PREFIX, SUMMARY_RESULT_PREFIX
+from services.summary_jobs import SummaryJobStore
+
+
+class UniqueJobCollection:
+    """Model the legacy unique job_id index, including a missing-field row."""
+
+    def __init__(self):
+        self.rows = {"legacy": {"_id": "legacy"}}
+
+    def update_one(self, query, update, upsert=False):
+        key = query["_id"]
+        row = dict(self.rows.get(key, {"_id": key}))
+        row.update(update["$set"])
+        if any(other != key and value.get("job_id") == row.get("job_id")
+               for other, value in self.rows.items()):
+            raise DuplicateKeyError("duplicate job_id")
+        self.rows[key] = row
+
+
+class SummaryFlowTests(unittest.TestCase):
+    def test_checkpoints_with_legacy_unique_step_index(self):
+        rows = {}
+
+        def save(query, update, upsert=False):
+            key = query["_id"]
+            row = dict(rows.get(key, {"_id": key}))
+            row.update(update["$set"])
+            if any(
+                other != key and (value.get("job_id"), value.get("step_index"))
+                == (row.get("job_id"), row.get("step_index"))
+                for other, value in rows.items()
+            ):
+                raise DuplicateKeyError("duplicate job_id/step_index")
+            rows[key] = row
+
+        from unittest.mock import Mock
+        checkpoints = Mock()
+        checkpoints.update_one.side_effect = save
+        with patch("services.summary_jobs.get_collection", return_value=checkpoints):
+            store = SummaryJobStore("job", {"user_id": "user"})
+        # A checkpoint created by the previous code has no step_index.
+        rows["job:map:0"] = {"job_id": "job", "stage": "map", "group_index": 0}
+        store.save_result("map", 1, "second map")
+        store.save_result("reduce:1", 0, "reduce")
+        store.save_result("map", 0, "updated first map")
+        store.save_result("map", 1, "resumed second map")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows["job:map:1"]["content"], "resumed second map")
+        self.assertEqual(len({row["step_index"] for row in rows.values()}), 3)
+
+    def test_distinct_jobs_and_resume_with_legacy_unique_index(self):
+        jobs = UniqueJobCollection()
+        with patch("services.summary_jobs.get_collection", return_value=jobs):
+            for job_id in ("first", "second", "first", "legacy"):
+                SummaryJobStore(job_id, {"user_id": "user"}).start()
+        self.assertEqual(set(jobs.rows), {"legacy", "first", "second"})
+        self.assertTrue(all(row["job_id"] == key for key, row in jobs.rows.items()))
+
+    def test_failure_stops_graph_even_when_direct_return_disabled(self):
+        error = SUMMARY_ERROR_PREFIX + '"CV.pdf" do lỗi xử lý nội bộ.'
+        state = {"messages": [
+            AIMessage(content=""),
+            ToolMessage(content=error, name=agent.SUMMARY_TOOL_NAME, tool_call_id="1"),
+            ToolMessage(content="Other tool result", name="other", tool_call_id="2"),
+        ]}
+        with patch.object(agent, "SUMMARY_DIRECT_RETURN", False):
+            self.assertEqual(agent.route_after_tools(state), "emit_summary")
+        self.assertEqual(agent.emit_summary_node(state)["messages"][0].content, error)
+
+    def test_success_still_returns_summary(self):
+        content = SUMMARY_RESULT_PREFIX + '"CV.pdf": summary'
+        state = {"messages": [ToolMessage(
+            content=content, name=agent.SUMMARY_TOOL_NAME, tool_call_id="1") ]}
+        with patch.object(agent, "SUMMARY_DIRECT_RETURN", True):
+            self.assertEqual(agent.route_after_tools(state), "emit_summary")
+        self.assertEqual(agent.emit_summary_node(state)["messages"][0].content, content)
+
+    def test_tool_database_failure_is_safe_and_terminal(self):
+        with (
+            patch.object(documents, "list_document_sources", return_value=["NguyenThaiSon_CV.pdf"]),
+            patch.object(documents, "get_document_chunks", return_value=[object()]),
+            patch.object(documents, "summarize_documents", side_effect=DuplicateKeyError("job_id: null")) as summarize,
+            self.assertLogs(documents.logger, level="ERROR"),
+        ):
+            result = documents.summarize_uploaded_document.invoke({"filename": "NguyenThaiSon_CV.pdf"})
+        self.assertTrue(result.startswith(SUMMARY_ERROR_PREFIX))
+        self.assertNotIn("job_id", result)
+        self.assertEqual(summarize.call_count, 1)
+        self.assertEqual(summarize.call_args.kwargs["target_language"], "auto")
+
+    def test_file_selection_does_not_guess(self):
+        self.assertEqual(documents._select_uploaded_name(["a.pdf", "b.pdf"], ""),
+                         (None, ["a.pdf", "b.pdf"]))
+        self.assertEqual(documents._select_uploaded_name(["a.pdf"], "missing.pdf"), (None, []))
+        self.assertEqual(documents._select_uploaded_name(["NguyenThaiSon_CV.pdf"], "NguyenThaiSon_CV.pdf"),
+                         ("NguyenThaiSon_CV.pdf", []))
+
+
+if __name__ == "__main__":
+    unittest.main()

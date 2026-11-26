@@ -57,7 +57,9 @@ class SummaryJobStore:
 
     def start(self) -> None:
         now = _now()
-        fields = {"context": self.context, "status": "running", "updated_at": now}
+        # Keep the explicit identity for databases with a unique job_id index.
+        # Missing values otherwise all index as null, despite distinct _id values.
+        fields = {"job_id": self.job_id, "context": self.context, "status": "running", "updated_at": now}
         if not self.context.get("user_id"):
             fields["expires_at"] = now + timedelta(hours=24)
         self.jobs.update_one(
@@ -83,6 +85,9 @@ class SummaryJobStore:
         now = _now()
         fields: dict[str, Any] = {
             "job_id": self.job_id,
+            # Older deployments uniquely index (job_id, step_index). Include
+            # the stage so map/reduce group 0 remain distinct checkpoints.
+            "step_index": f"{stage}:{group_index}",
             "stage": stage,
             "group_index": group_index,
             "content": content,
