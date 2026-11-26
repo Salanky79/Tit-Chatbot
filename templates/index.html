@@ -4784,6 +4784,7 @@
                 body: JSON.stringify({
                     message: submittedMessage,
                     thread_id: targetThreadId,
+                    attachment_source: uploadResult?.source || null,
                     model: selectedModel,
                     is_temporary: isTemporaryChat,
                     project_id: activeProjectId || null

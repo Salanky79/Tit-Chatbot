@@ -132,6 +132,7 @@ async def upload_document(
                 register_project_file(project_id, file_id, thread_id, filename, file_path, "image", user_id)
             return JSONResponse({
                 "success": True,
+                "source": result["filename"],
                 "message": f"Uploaded image {result['filename']}. You can now ask questions about it.",
             })
 
@@ -152,6 +153,7 @@ async def upload_document(
 
         return JSONResponse({
             "success": True,
+            "source": result["filename"],
             "message": f"Uploaded {result['filename']} and created {result['chunks']} chunks."
         })
 

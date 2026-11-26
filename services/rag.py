@@ -298,6 +298,7 @@ def retrieve_from_rag(
     k: int = 4,
     project_id: str | None = None,
     current_chat_only: bool = False,
+    source: str | None = None,
 ) -> str:
     """Tìm nội dung tài liệu theo thread hoặc Project scope hiện tại."""
     """Tìm kiếm các đoạn văn liên quan trong ChromaDB và trả về kết quả.
@@ -325,6 +326,8 @@ def retrieve_from_rag(
         filter_dict = {"thread_id": thread_id}
     if user_id and not project_id:
         filter_dict = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
+    if source:
+        filter_dict = {"$and": [filter_dict, {"source": source}]}
 
     docs = get_vectorstore().similarity_search(
         query,
@@ -339,6 +342,8 @@ def retrieve_from_rag(
             {"user_id": str(user_id)},
             {"scope": {"$nin": ["project"]}},
         ]}
+        if source:
+            user_filter["$and"].append({"source": source})
         docs = get_vectorstore().similarity_search(
             query,
             k=k,

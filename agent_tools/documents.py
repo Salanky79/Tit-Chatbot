@@ -9,6 +9,7 @@ from agent_tools.context import (
     SUMMARY_ERROR_PREFIX,
     SUMMARY_RESULT_PREFIX,
     SUMMARY_RESULT_PREFIX_VI,
+    get_current_attachment_source,
     get_current_model_name as _get_current_model_name,
     get_current_project_id as _get_current_project_id,
     get_current_project_memory_mode as _get_current_project_memory_mode,
@@ -61,6 +62,7 @@ def search_uploaded_documents(query: str) -> str:
         user_id=get_current_user_id() or None,
         project_id=get_current_project_id() or None,
         current_chat_only=get_current_project_memory_mode() == "current_chat_only",
+        source=get_current_attachment_source() or None,
     )
 
 
@@ -75,15 +77,20 @@ def _clean_source_name(name: str) -> str:
 
 
 def _select_uploaded_name(
-    names: list[str], requested: str
+    names: list[str], requested: str, *, attached_source: str = ""
 ) -> tuple[str | None, list[str]]:
     """Select an uploaded source, returning ambiguous matches when necessary."""
-    if not requested:
-        return (names[0], []) if len(names) == 1 else (None, names)
+    # This preference is only valid within the sources the caller may access.
+    # An explicit request for another file still takes precedence.
     exact_matches = [name for name in names if name.casefold() == requested.casefold()]
     if len(exact_matches) == 1:
         return exact_matches[0], []
-
+    if attached_source and (
+        not requested or _clean_source_name(requested) == _clean_source_name(attached_source)
+    ):
+        return (attached_source, []) if attached_source in names else (None, [])
+    if not requested:
+        return (names[0], []) if len(names) == 1 else (None, names)
     normalized_request = _clean_source_name(requested)
     normalized_matches = [
         name for name in names
@@ -145,7 +152,9 @@ def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
         if not sources:
             return SummaryResult("No uploaded documents were found in this conversation or your account.", "clarification")
         requested = (filename or "").strip().strip('"\'')
-        selected, matches = _select_uploaded_name(sources, requested)
+        selected, matches = _select_uploaded_name(
+            sources, requested, attached_source=get_current_attachment_source(),
+        )
         if selected is None:
             if matches:
                 names = ", ".join(f'"{source}"' for source in matches)
@@ -197,7 +206,9 @@ def analyze_uploaded_image(question: str, filename: str = "") -> str:
 
     requested = (filename or "").strip().strip('"\'')
     image_names = [image["source"] for image in images]
-    selected_name, matches = _select_uploaded_name(image_names, requested)
+    selected_name, matches = _select_uploaded_name(
+        image_names, requested, attached_source=get_current_attachment_source(),
+    )
     if selected_name is None:
         if matches:
             names = ", ".join(f'"{name}"' for name in matches)

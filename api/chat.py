@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from agent_tools.context import set_current_attachment_source
 
 from api.compat import AppValueProxy, app_callable, app_value
 from storage.projects import get_membership, get_project
@@ -245,9 +246,11 @@ def _apply_chat_context(
     project_instructions: str,
     project_context: str,
     personalization: dict[str, Any] | None,
+    attachment_source: str = "",
 ) -> None:
     """Thiết lập toàn bộ ContextVar cho request chat hiện tại."""
     set_current_thread_id(thread_id)
+    set_current_attachment_source(attachment_source)
     set_current_user_id(user_id or "")
     set_current_model_name(selected_model)
     set_current_language(user_lang)
@@ -270,6 +273,7 @@ def _chat_event_generator(
     project_instructions: str = "",
     project_context: str = "",
     personalization: dict[str, Any] | None = None,
+    attachment_source: str = "",
 ) -> Iterator[str]:
     """Stream câu trả lời và giữ ContextVar xuyên suốt mọi lần yield qua threadpool."""
     # Starlette iterate_in_threadpool chạy mỗi bước next() qua anyio.to_thread.run_sync (copy context mới mỗi lần).
@@ -286,6 +290,7 @@ def _chat_event_generator(
         project_instructions=project_instructions,
         project_context=project_context,
         personalization=personalization,
+        attachment_source=attachment_source,
     )
 
     final_answer = ""
@@ -404,6 +409,9 @@ async def chat_stream(request: Request):
         )
 
     user_message = data.get("message", "")
+    attachment_source = data.get("attachment_source") or ""
+    if not isinstance(attachment_source, str):
+        return JSONResponse({"error": "Invalid attachment source."}, status_code=400)
     thread_id = data.get("thread_id", "default")
     selected_model = normalize_model_name(data.get("model", "openai/gpt-oss-20b"))
 
@@ -478,6 +486,7 @@ async def chat_stream(request: Request):
         project_instructions=project_instructions,
         project_context=project_context,
         personalization=personalization,
+        attachment_source=attachment_source,
     )
 
     return StreamingResponse(
@@ -494,6 +503,7 @@ async def chat_stream(request: Request):
             project_instructions=project_instructions,
             project_context=project_context,
             personalization=personalization,
+            attachment_source=attachment_source,
         ),
         media_type="text/event-stream",
         headers={
