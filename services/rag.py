@@ -52,7 +52,7 @@ def get_embeddings() -> Any:
             )
     return _embeddings
 
-
+# setup lazy loading for vectorstore to avoid loading it at import time
 def get_vectorstore() -> Any:
     """Lazy loader for Chroma vector database."""
     global _vectorstore
@@ -294,7 +294,7 @@ def add_document_to_rag(
 
     if not chunks:
         raise ValueError("File has content but could not be split into chunks.")
-
+    # Lưu chunks vào ChromaDB - sementic search vector store
     get_vectorstore().add_documents(chunks)
 
     pages_found = sorted({doc.metadata.get("page", 1) for doc in raw_docs})
@@ -564,6 +564,7 @@ def add_image_to_rag(
             **({"project_id": str(project_id), "scope": "project"} if project_id else {}),
         },
     )
+    # sementic search vector store lưu metadata của ảnh để truy xuất theo thread hoặc Project
     get_vectorstore().add_documents([image_doc])
     return {"filename": filename, "images": 1}
 

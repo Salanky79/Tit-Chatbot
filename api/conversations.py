@@ -72,7 +72,7 @@ def _can_manage_project_conversation(conv: dict | None, user: dict | None) -> bo
 
 @router.get("/conversations")
 async def conversations(request: Request):
-    user = get_current_user(request)
+    user = get_current_user(request) # kiểm tra quyền truy cập user và project
     user_id = user["id"] if user else None
     items = list_conversations(user_id=user_id)
 
@@ -94,7 +94,7 @@ async def conversations(request: Request):
 @router.get("/conversations/search")
 async def search_conversations(request: Request, q: str = "", limit: int = 25):
     """Tìm kiếm các cuộc trò chuyện cá nhân & Project theo tiêu đề và nội dung tin nhắn."""
-    user = get_current_user(request)
+    user = get_current_user(request) # kiểm tra quyền truy cập user
     user_id = user["id"] if user else None
     results = search_user_conversations(user_id=user_id, query=q, limit=limit)
     return {

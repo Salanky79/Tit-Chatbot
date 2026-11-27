@@ -74,7 +74,7 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
             temperature=0.2,
             max_tokens=VISION_OUTPUT_TOKENS,
         )
-
+    # lưu dạng chuỗi base64 để gửi đến model thị giác, tránh gửi file nhị phân trực tiếp
     data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
     prompt = (
         "Answer the user's question using the image. Describe visible evidence and "

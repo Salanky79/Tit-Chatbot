@@ -212,6 +212,8 @@ async def generate_followup_questions(
         #     "parsed": FollowupSuggestions,   # Dữ liệu đã được Pydantic ép kiểu thành công (hoặc None)
         #     "parsing_error": Exception|None  # Lỗi nếu mô hình trả về JSON sai định dạng
         # }
+
+        # Native Async follow-up generation: không chặn luồng chính, trả về gợi ý tiếp theo (Follow-up Suggestions) cho người dùng.
         response = await ainvoke_with_rate_limit_retry(
             lambda: structured_model.ainvoke([HumanMessage(content=prompt)]),
             max_retries=FOLLOWUP_RATE_LIMIT_MAX_RETRIES,

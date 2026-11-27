@@ -190,6 +190,7 @@ def get_user_memories(
     if not all_docs:
         return {"status": "empty", "source": "none", "memories": []}
 
+    # semantic search: generate embedding for the query and compare with stored embeddings
     query_vec = _generate_embedding(clean_query)
     scored_docs: list[tuple[float, dict[str, Any]]] = []
     SIMILARITY_THRESHOLD = 0.38

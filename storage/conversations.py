@@ -640,6 +640,7 @@ def search_user_conversations(
 
     project_names: dict[str, str] = {}
     project_oids: list[ObjectId] = []
+    # danh sách các Project mà user có quyền truy cập (owner/editor/member) để lọc chat messages
     for proj in list_projects_for_user(str(oid)):
         pid = str(proj.get("_id") or proj.get("id") or "")
         p_oid = _to_object_id(pid)

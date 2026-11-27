@@ -446,6 +446,7 @@ async def chat_stream(request: Request):
             status_code=400
         )
 
+    # Kiểm tra quyền truy cập user và project
     user = get_current_user(request)
     user_id = user["id"] if user else None
     project_id = (data.get("project_id") or "").strip() or None
@@ -480,7 +481,7 @@ async def chat_stream(request: Request):
         project_instructions = project.get("instructions", "")
         project_context = build_project_context(project_id, thread_id, user_message, project_memory_mode)
 
-    is_temporary = bool(data.get("is_temporary", False))
+    is_temporary = bool(data.get("is_temporary", False)) #temporary chat
     if project_id and is_temporary:
         return JSONResponse({"error": "Temporary chat is unavailable inside a project."}, status_code=400)
     if not is_temporary and conv and conv.get("is_temporary"):
@@ -549,7 +550,7 @@ class FollowupRequest(BaseModel):
     assistant_answer: str = ""
     model: str = "openai/gpt-oss-20b"
 
-
+# Native Async follow-up generation endpoint: không chặn luồng chính, trả về gợi ý tiếp theo (Follow-up Suggestions) cho người dùng.
 @router.post("/chat/followups")
 async def chat_followups(payload: FollowupRequest):
     """Sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions).
@@ -570,7 +571,7 @@ async def chat_followups(payload: FollowupRequest):
     if not user_message or not assistant_answer:
         return {"success": True, "suggestions": []}
 
-    try:
+    try: # Gọi service Native Async để sinh câu hỏi gợi ý tiếp theo (Follow-up Suggestions) mà không chặn luồng chính.
         questions = await generate_followup_questions(
             user_message=user_message,
             assistant_answer=assistant_answer,

@@ -53,7 +53,7 @@ from storage.database import (
     update_user_profile,
 )
 from storage.projects import (
-    can_edit_project as _can_edit_project_impl,
+    can_edit_project as _can_edit_project_impl, 
     get_membership as _get_project_membership_impl,
 )
 from services.rag import (
@@ -191,7 +191,7 @@ def get_current_user(request: Request) -> dict | None:
         return None
     return user
 
-
+# phân quyền admin
 def _admin_api_error(request: Request) -> JSONResponse | None:
     """Chặn API Admin ở backend; ẩn nút trên UI không thay thế được bước kiểm tra này."""
     user = get_current_user(request)
