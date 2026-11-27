@@ -21,6 +21,11 @@ _default_templates = Jinja2Templates(directory="templates")
 templates = AppValueProxy("templates", _default_templates)
 get_current_user = app_callable("get_current_user", get_current_user)
 
+
+# =============================================================================
+# 01. Trang chat công khai
+# =============================================================================
+
 @router.get("/")
 async def home(request: Request):
     return templates.TemplateResponse(
@@ -29,6 +34,11 @@ async def home(request: Request):
         context={}
     )
 
+
+
+# =============================================================================
+# 02. Trang quản trị có xác thực
+# =============================================================================
 
 @router.get("/admin")
 async def admin_page(request: Request):

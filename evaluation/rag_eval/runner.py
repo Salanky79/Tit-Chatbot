@@ -27,6 +27,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+
+# =============================================================================
+# Cô lập tracing trong lần chạy local
+# =============================================================================
+
 @contextmanager
 def disable_langsmith_tracing():
     """Prevent implicit trace uploads during local evaluation, restoring env after."""
@@ -43,6 +48,11 @@ def disable_langsmith_tracing():
             else:
                 os.environ[key] = value
 
+
+
+# =============================================================================
+# Chuẩn hóa kết quả và tên metric
+# =============================================================================
 
 def _serializable_result(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -72,6 +82,11 @@ def _evaluator_metric_key(evaluator: Callable[..., Any]) -> str:
         or getattr(evaluator, "__name__", "evaluator").removeprefix("evaluate_")
     )
 
+
+
+# =============================================================================
+# Chạy các evaluator trên từng bản ghi
+# =============================================================================
 
 def evaluate_records(
     examples: list[dict[str, Any]],
@@ -122,6 +137,11 @@ def evaluate_records(
             rows.append(row)
     return rows
 
+
+
+# =============================================================================
+# Chạy local và xuất kết quả
+# =============================================================================
 
 def run_local(
     *,
@@ -180,6 +200,11 @@ def run_local(
         raise
 
 
+
+# =============================================================================
+# Đồng bộ và chạy LangSmith theo cờ CLI
+# =============================================================================
+
 def sync_langsmith_dataset() -> Any:
     """Explicit sync entry point; never called implicitly by a local run."""
     return sync_dataset()
@@ -225,6 +250,11 @@ def run_langsmith(*, sync_first: bool = False, run_id: str | None = None) -> Any
         metadata={"dataset_version": "v1", "run_id": resolved_run_id},
     )
 
+
+
+# =============================================================================
+# Điểm vào CLI và kiểm tra tùy chọn
+# =============================================================================
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Tit Chatbot RAG evaluation")

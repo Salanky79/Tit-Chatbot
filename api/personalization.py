@@ -32,6 +32,11 @@ delete_user_memory_by_id_for_settings = app_callable("delete_user_memory_by_id_f
 delete_all_personal_memories = app_callable("delete_all_personal_memories", _delete_all_personal_memories_impl)
 
 
+
+# =============================================================================
+# 01. Xác thực người dùng
+# =============================================================================
+
 def _require_user(request: Request) -> dict | JSONResponse:
     """Xác thực người dùng đã đăng nhập; trả về JSONResponse 401 nếu chưa đăng nhập."""
     user = get_current_user(request)
@@ -42,6 +47,11 @@ def _require_user(request: Request) -> dict | JSONResponse:
         )
     return user
 
+
+
+# =============================================================================
+# 02. Đọc và lưu phong cách, hướng dẫn cá nhân
+# =============================================================================
 
 @router.get("/personalization")
 async def get_personalization(request: Request):
@@ -89,6 +99,11 @@ async def patch_personalization(request: Request):
         return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
 
 
+
+# =============================================================================
+# 03. Tóm tắt và cập nhật bộ nhớ bằng AI
+# =============================================================================
+
 @router.post("/personalization/memory-summary")
 async def create_memory_summary(request: Request):
     """Gọi LLM tóm tắt toàn bộ long_term_memory cá nhân lọc theo user_id."""
@@ -126,6 +141,11 @@ async def ai_update_memory(request: Request):
         logger.exception("Lỗi cập nhật bộ nhớ bằng AI:")
         return JSONResponse({"success": False, "error": f"Không thể cập nhật bộ nhớ: {exc}"}, status_code=500)
 
+
+
+# =============================================================================
+# 04. Xóa bộ nhớ cá nhân
+# =============================================================================
 
 @router.delete("/personalization/memories/{memory_id}")
 async def remove_personal_memory(memory_id: str, request: Request):

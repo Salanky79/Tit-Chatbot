@@ -14,6 +14,11 @@ from bson import ObjectId
 logger = logging.getLogger("storage.database")
 
 
+
+# =============================================================================
+# 01. Tương thích facade storage
+# =============================================================================
+
 def database_callable(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
     """Resolve legacy facade patches while keeping repository implementations separate."""
     def call(*args: Any, **kwargs: Any) -> Any:
@@ -22,6 +27,11 @@ def database_callable(name: str, default: Callable[..., Any]) -> Callable[..., A
         return target(*args, **kwargs)
 
     return call
+
+
+# =============================================================================
+# 02. Thời gian và ObjectId
+# =============================================================================
 
 def _now() -> datetime:
     """Trả về thời điểm hiện tại theo UTC (timezone-aware)."""
@@ -38,6 +48,11 @@ def _to_object_id(val: Any) -> ObjectId | None:
         return ObjectId(val)
     return None
 
+
+
+# =============================================================================
+# 03. Băm và xác minh mật khẩu
+# =============================================================================
 
 def hash_password(password: str) -> str:
     """Băm mật khẩu an toàn sử dụng bcrypt với salt 12 rounds."""
@@ -56,6 +71,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception:
         return False
 
+
+
+# =============================================================================
+# 04. Chuẩn hóa dữ liệu công khai
+# =============================================================================
 
 def _conv_to_obj(doc: dict[str, Any] | None) -> SimpleNamespace | None:
     """Chuyển dict MongoDB thành object-like để tương thích với code cũ dùng

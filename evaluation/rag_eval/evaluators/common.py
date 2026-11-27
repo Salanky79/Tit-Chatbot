@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field, field_validator
 from ..retry import retry_with_backoff
 
 
+
+# =============================================================================
+# Schema kết quả chấm điểm
+# =============================================================================
+
 class ScalarGrade(BaseModel):
     score: int = Field(ge=0, le=4)
     reason: str = Field(default="")
@@ -88,6 +93,11 @@ class GroundednessGrade(BaseModel):
 _judge_factory: Callable[[], Any] | None = None
 
 
+
+# =============================================================================
+# Khởi tạo và thay thế judge trong kiểm thử
+# =============================================================================
+
 def set_judge_factory_for_tests(factory: Callable[[], Any] | None) -> None:
     global _judge_factory
     _judge_factory = factory
@@ -106,6 +116,11 @@ def make_judge() -> Any:
         max_tokens=int(os.getenv("RAG_EVAL_JUDGE_MAX_TOKENS", "700")),
     )
 
+
+
+# =============================================================================
+# Gọi judge có cấu trúc và chuẩn hóa kết quả
+# =============================================================================
 
 def invoke_structured(
     schema: type[BaseModel],

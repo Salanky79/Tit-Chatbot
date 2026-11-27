@@ -50,6 +50,11 @@ register_project_file = app_callable('register_project_file', register_project_f
 logger = AppValueProxy("logger", logging.getLogger("app"))
 
 
+
+# =============================================================================
+# 01. Quyền quản lý chat Project
+# =============================================================================
+
 def _can_manage_project_conversation(conv: dict | None, user: dict | None) -> bool:
     if not conv or not conv.get("project_id"):
         return True
@@ -59,6 +64,11 @@ def _can_manage_project_conversation(conv: dict | None, user: dict | None) -> bo
         return True
     membership = get_membership(str(conv["project_id"]), str(user["id"]))
     return bool(membership and membership.get("role") in {"owner", "editor"})
+
+
+# =============================================================================
+# 02. Liệt kê và tìm kiếm cuộc trò chuyện
+# =============================================================================
 
 @router.get("/conversations")
 async def conversations(request: Request):
@@ -93,6 +103,11 @@ async def search_conversations(request: Request, q: str = "", limit: int = 25):
         "results": results,
     }
 
+
+
+# =============================================================================
+# 03. Ghim và đổi tên cuộc trò chuyện
+# =============================================================================
 
 @router.post("/conversations/{thread_id}/pin")
 async def pin_conversation(thread_id: str, request: Request):
@@ -180,6 +195,11 @@ async def rename_conversation(thread_id: str, request: Request):
     }
 
 
+
+# =============================================================================
+# 04. Đọc lịch sử và xóa chat
+# =============================================================================
+
 @router.get("/history/{thread_id}")
 async def history(thread_id: str, request: Request):
     user = get_current_user(request)
@@ -239,6 +259,11 @@ async def remove_conversation(thread_id: str, request: Request):
         )
     return {"success": True, "message": "Đã xóa cuộc trò chuyện."}
 
+
+
+# =============================================================================
+# 05. Chuyển chat cá nhân và tài liệu sang Project
+# =============================================================================
 
 @router.post("/conversations/{thread_id}/project")
 async def add_conversation_to_project(thread_id: str, request: Request):

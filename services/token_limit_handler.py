@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+
+# =============================================================================
+# 01. Cấu hình retry và giới hạn thời gian chờ
+# =============================================================================
+
 def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
     try:
         value = float(os.getenv(name, str(default)))
@@ -38,6 +43,11 @@ MAX_RATE_LIMIT_WAIT_SECONDS = _float_setting("MAX_RATE_LIMIT_WAIT_SECONDS", 60.0
 RATE_LIMIT_BACKOFF_BASE_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_BASE_SECONDS", 1.0, 0.1)
 RATE_LIMIT_BACKOFF_JITTER_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_JITTER_SECONDS", 0.5, 0.0)
 
+
+
+# =============================================================================
+# 02. Quyết định retry và phân tích lỗi API
+# =============================================================================
 
 @dataclass(frozen=True) # frozen để đảm bảo tính bất biến của quyết định retry, tránh thay đổi ngoài ý muốn
 class RetryDecision:
@@ -104,6 +114,11 @@ def _header_value(headers: Mapping[str, Any], name: str) -> str | None:
     return None
 
 # Parse duration strings like "7.66s" or "1m30.5s" into seconds.
+
+# =============================================================================
+# 03. Phân tích thời lượng và header Retry-After
+# =============================================================================
+
 def _parse_duration(value: str) -> float | None:
     """Parse structured provider durations such as 7.66s or 1m30.5s."""
     clean = value.strip().lower()
@@ -174,6 +189,11 @@ def extract_retry_delay(error: BaseException | str) -> tuple[float, str] | None:
     return None
 
 
+
+# =============================================================================
+# 04. Phân loại giới hạn ngày và rate limit
+# =============================================================================
+
 def _has_daily_limit_marker(error: BaseException | str) -> bool:
     text = _exception_text(error)
     return any(marker in text for marker in (
@@ -194,6 +214,11 @@ def _is_rate_limit_exception(error: BaseException | str) -> bool:
         for item in _exception_chain(error)
     )
 
+
+
+# =============================================================================
+# 05. Chính sách retry và cách chờ
+# =============================================================================
 
 def decide_rate_limit_retry(
     error: BaseException | str,
@@ -254,6 +279,11 @@ def wait_for_retry(wait_seconds: float, *, max_sleep_chunk_seconds: float = MAX_
         remaining -= chunk
 
 
+
+# =============================================================================
+# 06. Wrapper retry đồng bộ và bất đồng bộ
+# =============================================================================
+
 def invoke_with_rate_limit_retry(
     invoke: Callable[[], T],
     *,
@@ -313,6 +343,11 @@ async def ainvoke_with_rate_limit_retry(
             )
             await asyncio.sleep(decision.wait_seconds or 0.0)
 
+
+
+# =============================================================================
+# 07. Thông báo giới hạn và kết quả dang dở
+# =============================================================================
 
 def format_tool_display_name(tool_name: str) -> str:
     """Format technical tool identifiers (snake_case) into a clean, human-readable display string.

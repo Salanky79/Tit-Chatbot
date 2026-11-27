@@ -53,6 +53,11 @@ list_users = app_callable('list_users', list_users)
 set_user_active = app_callable('set_user_active', set_user_active)
 logger = AppValueProxy("logger", logging.getLogger("app"))
 
+
+# =============================================================================
+# 01. Quản lý tài khoản
+# =============================================================================
+
 @router.get("/admin/users")
 async def admin_list_users(
     request: Request,
@@ -141,6 +146,11 @@ async def admin_delete_user(user_id: str, request: Request):
     }
 
 
+
+# =============================================================================
+# 02. Tra cứu lịch sử theo người dùng
+# =============================================================================
+
 @router.get("/admin/users/{user_id}/conversations")
 async def admin_list_user_conversations(
     user_id: str,
@@ -205,6 +215,11 @@ async def admin_get_conversation_messages(
         "total": result["total"],
     }
 
+
+
+# =============================================================================
+# 03. Quản lý tài liệu hệ thống
+# =============================================================================
 
 @router.get("/admin/documents")
 async def admin_list_documents(

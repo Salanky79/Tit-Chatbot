@@ -21,6 +21,11 @@ LABEL_SYNONYMS = {
 }
 
 
+
+# =============================================================================
+# Tính điểm dựa trên các claim
+# =============================================================================
+
 def compute_groundedness(claims: list[dict[str, Any]]) -> dict[str, Any]:
     """Score = 4 * supported_claims / all_claims; round to 2 decimals.
 
@@ -50,6 +55,11 @@ def compute_groundedness(claims: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+
+# =============================================================================
+# Chấm mức bám sát ngữ cảnh
+# =============================================================================
+
 def score_groundedness(inputs: dict[str, Any], outputs: dict[str, Any], *, judge: Any | None = None) -> dict[str, Any]:
     answer = outputs.get("answer")
     contexts = outputs.get("contexts")
@@ -71,6 +81,11 @@ def score_groundedness(inputs: dict[str, Any], outputs: dict[str, Any], *, judge
     computed = compute_groundedness(claims)
     return {**computed, "reason": grade.reason, "claims": claims}
 
+
+
+# =============================================================================
+# Adapter kết quả cho evaluator
+# =============================================================================
 
 def evaluate_groundedness(run: Any, example: Any) -> dict[str, Any]:
     inputs, outputs, _ = read_run_example(run, example)

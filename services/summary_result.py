@@ -6,6 +6,11 @@ from typing import Literal
 SummaryStatus = Literal["completed", "partial", "error", "clarification"]
 
 
+
+# =============================================================================
+# 01. Chuẩn hóa ngôn ngữ yêu cầu
+# =============================================================================
+
 def normalize_language(language: str | None) -> str:
     value = (language or "auto").strip().casefold()
     if value in {"", "auto", "original", "default", "ngôn ngữ gốc"}:
@@ -16,6 +21,11 @@ def normalize_language(language: str | None) -> str:
         return "English"
     return value
 
+
+
+# =============================================================================
+# 02. Kết quả tóm tắt và metadata trả cho tool
+# =============================================================================
 
 @dataclass(frozen=True)
 class SummaryResult:

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+
+# =============================================================================
+# 01. Phụ thuộc và lớp tương thích công khai
+# =============================================================================
+
 import sys
 from typing import Any, Callable
 

@@ -14,6 +14,11 @@ _now = database_callable("_now", _now_impl)
 _to_object_id = database_callable("_to_object_id", _to_object_id_impl)
 get_conversation = database_callable("get_conversation", _get_conversation_impl)
 
+
+# =============================================================================
+# 01. Embedding và bộ lọc phạm vi dữ liệu
+# =============================================================================
+
 def _generate_embedding(text: str) -> list[float]:
     """Tạo vector nhúng 384 chiều đa ngữ (MiniLM-L12-v2) không dùng regex."""
     if not text or not text.strip():
@@ -47,6 +52,11 @@ def _memory_scope_filter(user_id: str | None = None, project_id: str | None = No
     user_oid = _to_object_id(user_id)
     return {"user_id": user_oid} if user_oid else None
 
+
+
+# =============================================================================
+# 02. Tạo bộ nhớ và API lưu tương thích
+# =============================================================================
 
 def save_memory_entry(
     thread_id: str,
@@ -103,6 +113,11 @@ def save_memory(
         return "Memory was not saved. Check the scope and memory text."
     return "Memory saved successfully."
 
+
+
+# =============================================================================
+# 03. Truy xuất bộ nhớ theo ngữ nghĩa
+# =============================================================================
 
 def get_user_memories(
     user_id: str | None = None,
@@ -207,6 +222,11 @@ def get_user_memories(
         }
     return _all_memories("fallback_no_semantic_match")
 
+
+
+# =============================================================================
+# 04. Cập nhật và xóa mềm theo phiên bản
+# =============================================================================
 
 def update_memory_by_id(
     user_id: str | None,
@@ -316,6 +336,11 @@ def delete_memory_by_id(
 
     return f"Lỗi: Không thể xóa memory [{memory_id}]."
 
+
+
+# =============================================================================
+# 05. Thao tác bộ nhớ từ cài đặt cá nhân
+# =============================================================================
 
 def delete_user_memory_by_id_for_settings(user_id: str, memory_id: str) -> bool:
     """Xóa mềm một bản ghi memory cá nhân từ giao diện Settings (không yêu cầu version)."""

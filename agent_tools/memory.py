@@ -25,6 +25,11 @@ get_current_thread_id = tool_callable("get_current_thread_id", _get_current_thre
 get_current_user_id = tool_callable("get_current_user_id", _get_current_user_id)
 
 
+
+# =============================================================================
+# 01. Kiểm tra scope và ghi bộ nhớ cá nhân
+# =============================================================================
+
 def _allow_personal_memory() -> bool:
     return not is_project_chat() or get_current_project_memory_mode() == "project_and_personal"
 delete_memory_by_id = tool_callable("delete_memory_by_id", _delete_memory_by_id)
@@ -53,6 +58,11 @@ def remember_this(memory: str) -> str:
     return save_memory(thread_id=get_current_thread_id(), memory=memory, user_id=user_id)
 
 
+
+# =============================================================================
+# 02. Đối chiếu bộ nhớ tìm được trong lượt hiện tại
+# =============================================================================
+
 def _current_turn_memory_results(state: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Parse memory retrievals from this turn, excluding checkpointed prior turns."""
     memories: list[dict[str, Any]] = []
@@ -69,6 +79,11 @@ def _current_turn_memory_results(state: dict[str, Any] | None) -> list[dict[str,
         memories.extend(result.get("memories", []))
     return memories
 
+
+
+# =============================================================================
+# 03. Tool truy xuất bộ nhớ
+# =============================================================================
 
 @tool
 def get_user_memories(
@@ -122,6 +137,11 @@ def get_user_memories(
     )
     return json.dumps(result, ensure_ascii=False, default=str)
 
+
+
+# =============================================================================
+# 04. Tool sửa và quên bộ nhớ theo phiên bản
+# =============================================================================
 
 @tool
 def update_memory_entry(

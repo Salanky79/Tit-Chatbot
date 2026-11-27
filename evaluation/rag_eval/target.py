@@ -10,6 +10,11 @@ from typing import Any, Callable, Iterator
 from .retry import retry_with_backoff
 
 
+
+# =============================================================================
+# Đường dẫn và thư mục lần chạy
+# =============================================================================
+
 def _safe_component(value: str) -> str:
     value = "".join(c if (c.isalnum() or c in "_.-") else "_" for c in value).strip("._")
     if not value:
@@ -32,6 +37,11 @@ def ensure_eval_run_dir(run_id: str, *, base_dir: Path | None = None) -> Path:
     run_dir.mkdir(parents=False, exist_ok=False)
     return run_dir
 
+
+
+# =============================================================================
+# Vector store ghi nhận retrieval và cô lập dữ liệu
+# =============================================================================
 
 class RecordingVectorStore:
     """Transparent delegate that records Documents returned by real retrieval."""
@@ -71,6 +81,11 @@ def use_eval_vectorstore(rag_module: Any, eval_store: Any) -> Iterator[Recording
         rag_module.get_vectorstore = original_getter
 
 
+
+# =============================================================================
+# Khởi tạo kho đánh giá riêng
+# =============================================================================
+
 def create_chroma_store(run_dir: Path, *, collection_name: str | None = None) -> Any:
     """Create a persistent Chroma store strictly below this run's eval directory."""
     root = Path(__file__).resolve().parent
@@ -90,6 +105,11 @@ def create_chroma_store(run_dir: Path, *, collection_name: str | None = None) ->
         persist_directory=str(persist_dir),
     )
 
+
+
+# =============================================================================
+# Chuẩn hóa đầu vào và output model
+# =============================================================================
 
 def _messages(question: str, contexts: list[dict[str, Any]]) -> tuple[str, str]:
     context_text = "\n\n".join(
@@ -116,6 +136,11 @@ def _text_content(content: Any) -> str:
         ).strip()
     return str(content or "")
 
+
+
+# =============================================================================
+# Target thực thi pipeline RAG
+# =============================================================================
 
 @dataclass
 class RAGEvaluationTarget:
@@ -195,6 +220,11 @@ class RAGEvaluationTarget:
         answer = _text_content(getattr(response, "content", response))
         return {"answer": answer, "contexts": contexts}
 
+
+
+# =============================================================================
+# Factory model và target
+# =============================================================================
 
 def make_generator(model_name: str | None = None) -> Any:
     """Create the project-provider generation client without touching agent state."""

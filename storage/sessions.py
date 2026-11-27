@@ -13,6 +13,11 @@ get_collection = database_callable("get_collection", _mongo_get_collection)
 _now = database_callable("_now", _now_impl)
 _to_object_id = database_callable("_to_object_id", _to_object_id_impl)
 
+
+# =============================================================================
+# 01. Cấp phiên đăng nhập
+# =============================================================================
+
 def create_session(user_id: str | ObjectId, duration_days: int = 7) -> str:
     """Tạo phiên đăng nhập an toàn mới lưu vào MongoDB."""
     session_id = secrets.token_urlsafe(32)
@@ -29,6 +34,11 @@ def create_session(user_id: str | ObjectId, duration_days: int = 7) -> str:
     })
     return session_id
 
+
+
+# =============================================================================
+# 02. Tra cứu và thu hồi phiên
+# =============================================================================
 
 def get_session(session_id: str) -> dict | None:
     """Kiểm tra và lấy thông tin phiên đăng nhập còn hiệu lực."""

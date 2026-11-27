@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 # Ngắn gọn (~12-20 tokens/mục) để hạn chế phát sinh token mỗi lượt chat cá nhân; "default" không tốn thêm token.
+
+# =============================================================================
+# 01. Nội dung prompt và cấu hình hướng dẫn
+# =============================================================================
+
 BASE_STYLE_PROMPTS: dict[str, str] = {
     "default": "",
     "professional": "Preferred tone: Professional, formal, structured, and precise.",

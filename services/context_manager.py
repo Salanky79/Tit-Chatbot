@@ -12,6 +12,11 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "10"))
 
 
+
+# =============================================================================
+# 01. Phân nhóm lượt hội thoại và dọn tool result
+# =============================================================================
+
 def group_messages_into_turns(messages: Sequence[BaseMessage]) -> list[list[BaseMessage]]:
     """Gom các tin nhắn theo từng lượt hỏi-đáp bắt đầu từ HumanMessage."""
     turns: list[list[BaseMessage]] = []
@@ -58,6 +63,11 @@ def prune_old_tool_results(messages: Sequence[BaseMessage]) -> list[BaseMessage]
 
     return cleaned_past + list(active)
 
+
+
+# =============================================================================
+# 02. Ngân sách token và chuẩn bị context cho LLM
+# =============================================================================
 
 def get_model_token_budget(model_name: str | None = None) -> dict[str, int]:
     """Hàm tương thích cho các module khác nếu có gọi."""

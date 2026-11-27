@@ -77,6 +77,11 @@ send_verification_code = app_callable("send_verification_code", send_verificatio
 
 AUTH_CHALLENGE_COOKIE = "tit_auth_challenge"
 
+
+# =============================================================================
+# 01. Chuẩn hóa response và dọn ảnh đại diện
+# =============================================================================
+
 def _serialize_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     """Chuyển đổi các trường datetime của user sang định dạng ISO string để serialize JSON an toàn."""
     if not user:
@@ -113,6 +118,11 @@ def _delete_user_avatars(user_id: str) -> None:
             except OSError as exc:
                 logger.warning("Could not remove avatar file %s: %s", candidate, exc)
 
+
+
+# =============================================================================
+# 02. Đọc session và kiểm tra quyền truy cập
+# =============================================================================
 
 def _session_id_from_request(
     request: Request, *, include_query: bool = False
@@ -160,6 +170,11 @@ def _can_edit_project(project_id: str, user: dict | None) -> bool:
     return bool(user and _can_edit_project_impl(project_id, str(user.get("id", ""))))
 
 
+
+# =============================================================================
+# 03. Xác thực người dùng và quyền quản trị
+# =============================================================================
+
 def get_current_user(request: Request) -> dict | None:
     """Extract the current user from a cookie, bearer token, or query parameter."""
     session_id = _session_id_from_request(request, include_query=True)
@@ -186,6 +201,11 @@ def _admin_api_error(request: Request) -> JSONResponse | None:
         return JSONResponse({"success": False, "error": "Admin access required."}, status_code=403)
     return None
 
+
+
+# =============================================================================
+# 04. Cookie, thông tin hiển thị và gửi OTP
+# =============================================================================
 
 def _set_challenge_cookie(response: JSONResponse, secret: str, request: Request) -> None:
     response.set_cookie(

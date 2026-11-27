@@ -73,7 +73,7 @@ Project Instructions là **riêng từng Project**, không phải một instruct
 }
 ```
 
-Code tạo document: [storage/projects.py](../storage/projects.py#L39). Index cho Projects, memberships, files, memory, conversations và messages: [storage/mongo_client.py](../storage/mongo_client.py#L143).
+Code tạo document: [storage/projects.py](../storage/projects.py#L44). Index cho Projects, memberships, files, memory, conversations và messages: [storage/mongo_client.py](../storage/mongo_client.py#L153).
 
 ---
 
@@ -114,7 +114,7 @@ Các thao tác create/list/update/delete/invite/accept, Project memory và file 
 
 ### 2. Conversation: `thread_id` riêng, `project_id` dùng chung
 
-File: [storage/conversations.py](../storage/conversations.py#L23).
+File: [storage/conversations.py](../storage/conversations.py#L28).
 
 Ví dụ hai chat trong cùng Project:
 
@@ -204,7 +204,7 @@ Quyền sửa tài nguyên được kiểm tra riêng bằng `can_edit_project()
 
 ### 4. RAG: mọi chat trong Project tìm file theo Project ID
 
-Files: [services/rag.py](../services/rag.py#L242), [agent_tools/documents.py](../agent_tools/documents.py).
+Files: [services/rag.py](../services/rag.py#L257), [agent_tools/documents.py](../agent_tools/documents.py).
 
 Metadata của mỗi chunk Project có `project_id` và `scope="project"`:
 
@@ -230,7 +230,7 @@ Các hàm tìm chunk, liệt kê file và lấy ảnh dùng cùng quy tắc scop
 
 ### 5. Project Instructions và Project memory
 
-Instructions được đọc từ Mongo mỗi request, rồi thêm vào system prompt động trong [agent.py](../agent.py#L179). Chúng không ghi vào checkpoint, nên sửa instructions sẽ áp dụng cho lượt chat kế tiếp trong tất cả thread của Project.
+Instructions được đọc từ Mongo mỗi request, rồi thêm vào system prompt động trong [agent.py](../agent.py#L199). Chúng không ghi vào checkpoint, nên sửa instructions sẽ áp dụng cho lượt chat kế tiếp trong tất cả thread của Project.
 
 ```python
 if instructions:
@@ -241,7 +241,7 @@ if instructions:
     )
 ```
 
-Ngữ cảnh chat Project được dựng bởi [services/project_context.py](../services/project_context.py#L14): lấy tối đa 12 chat gần đây, 24 message gần nhất và giới hạn tổng context 9.000 ký tự; project facts được tìm semantic và lấy tối đa 5 kết quả. Đây là context có giới hạn, không nạp toàn bộ lịch sử vô hạn vào mỗi request.
+Ngữ cảnh chat Project được dựng bởi [services/project_context.py](../services/project_context.py#L19): lấy tối đa 12 chat gần đây, 24 message gần nhất và giới hạn tổng context 9.000 ký tự; project facts được tìm semantic và lấy tối đa 5 kết quả. Đây là context có giới hạn, không nạp toàn bộ lịch sử vô hạn vào mỗi request.
 
 Project facts lưu trong collection `long_term_memory`, cùng cách lưu text, embedding, version và xóa mềm như memory cá nhân. Hai loại record được cô lập bằng scope riêng: memory cá nhân lọc theo `user_id`, Project memory lọc theo `project_id`; Project record không mang `user_id` nên thao tác xóa tài khoản cá nhân không xóa memory dùng chung. `remember_project_fact`, `search_project_facts`, `update_project_fact` và `forget_project_fact` trong [agent_tools/project_memory.py](../agent_tools/project_memory.py) gọi lại các hàm lưu, semantic search, sửa và xóa của [storage/memories.py](../storage/memories.py). Chỉ owner/editor được ghi, sửa hoặc xóa; mọi thành viên đã chấp nhận lời mời có thể tìm/đọc.
 
@@ -356,14 +356,14 @@ Giới hạn implementation hiện tại:
 
 Phần này bổ sung 3 cải tiến trải nghiệm và nghiệp vụ cho hệ thống Projects:
 
-1. **Nút thoát Project trực quan:** Đặt nút **`Thoát Project`** ngay trên thanh workspace (`#projectWorkspaceBar` trong [templates/index.html](../templates/index.html#L2540)) gọi `exitProject()` để quay lại màn hình chat cá nhân bình thường.
+1. **Nút thoát Project trực quan:** Đặt nút **`Thoát Project`** ngay trên thanh workspace (`#projectWorkspaceBar` trong [static/css/chat.css](../static/css/chat.css#L2521)) gọi `exitProject()` để quay lại màn hình chat cá nhân bình thường.
 2. **Giữ song song 2 danh sách ở sidebar (kiểu ChatGPT):** Khi đang mở một Project, sidebar hiển thị đồng thời:
    - `#projectChatSection` (`#projectConversationList`): Các cuộc trò chuyện thuộc Project đang mở (`GET /api/projects/{id}/conversations`).
    - `#personalChatSection` (`#conversationList`): Danh sách các cuộc trò chuyện cá nhân (`GET /api/conversations`) luôn hiển thị để người dùng mở lại hoặc bấm **Thêm vào Project** bất kỳ lúc nào.
 3. **Tính năng Add cuộc trò chuyện cá nhân vào Project (chỉ `owner` / `editor`):**
-   - **Backend Storage:** `assign_conversation_to_project()` trong [storage/conversations.py](../storage/conversations.py#L304) kiểm tra thread thuộc sở hữu của user hiện tại, không phải guest/temporary chat, chưa thuộc Project nào khác, và xác thực `can_edit_project(project_id, user_id)` (chặn hoàn toàn `chat_only`) trước khi gắn `project_id` vào `conversations`, `chat_messages`, `summary_jobs` và cập nhật `projects.updated_at`.
-   - **Đồng bộ RAG & File dùng chung:** `migrate_thread_documents_to_project()` trong [services/rag.py](../services/rag.py#L775) cập nhật metadata `project_id` và `scope="project"` cho toàn bộ chunks ChromaDB của thread đó, rồi API đăng ký vào collection `project_files` qua `register_project_file()` để các thành viên khác có thể tìm, tóm tắt và tải file đính kèm.
-   - **Backend Endpoint:** `POST /api/conversations/{thread_id}/project` trong [api/conversations.py](../api/conversations.py#L222) nhận `{"project_id": "..."}` và trả về số lượng file đã đồng bộ (`files_migrated`).
+   - **Backend Storage:** `assign_conversation_to_project()` trong [storage/conversations.py](../storage/conversations.py#L319) kiểm tra thread thuộc sở hữu của user hiện tại, không phải guest/temporary chat, chưa thuộc Project nào khác, và xác thực `can_edit_project(project_id, user_id)` (chặn hoàn toàn `chat_only`) trước khi gắn `project_id` vào `conversations`, `chat_messages`, `summary_jobs` và cập nhật `projects.updated_at`.
+   - **Đồng bộ RAG & File dùng chung:** `migrate_thread_documents_to_project()` trong [services/rag.py](../services/rag.py#L820) cập nhật metadata `project_id` và `scope="project"` cho toàn bộ chunks ChromaDB của thread đó, rồi API đăng ký vào collection `project_files` qua `register_project_file()` để các thành viên khác có thể tìm, tóm tắt và tải file đính kèm.
+   - **Backend Endpoint:** `POST /api/conversations/{thread_id}/project` trong [api/conversations.py](../api/conversations.py#L242) nhận `{"project_id": "..."}` và trả về số lượng file đã đồng bộ (`files_migrated`).
    - **Frontend Modal:** Nút **`+ Project`** trên mỗi item chat cá nhân mở `#addToProjectModal`, chỉ liệt kê các Project mà user giữ vai trò `owner` hoặc `editor`, mặc định chọn sẵn Project đang mở (nếu đủ quyền) và chuyển ngữ cảnh sang Project đích sau khi thêm thành công.
 
 ```mermaid

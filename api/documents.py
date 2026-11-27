@@ -35,6 +35,11 @@ add_image_to_rag = app_callable('add_image_to_rag', add_image_to_rag)
 add_document_to_rag = app_callable('add_document_to_rag', add_document_to_rag)
 logger = AppValueProxy("logger", logging.getLogger("app"))
 
+
+# =============================================================================
+# 01. Nhận diện định dạng upload
+# =============================================================================
+
 def _looks_like_image(contents: bytes, suffix: str) -> bool:
     if suffix in {".jpg", ".jpeg"}:
         return contents.startswith(b"\xff\xd8\xff")
@@ -43,6 +48,11 @@ def _looks_like_image(contents: bytes, suffix: str) -> bool:
     if suffix == ".webp":
         return len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP"
     return False
+
+
+# =============================================================================
+# 02. Upload: kiểm tra quyền, ghi file và lập chỉ mục
+# =============================================================================
 
 @router.post("/upload")
 async def upload_document(

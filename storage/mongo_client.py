@@ -39,6 +39,11 @@ resolver.nameservers = ["8.8.8.8", "8.8.4.4"]
 _client: Optional[MongoClient] = None
 
 
+
+# =============================================================================
+# 01. Kết nối MongoDB dùng chung
+# =============================================================================
+
 def get_client() -> MongoClient:
     """Trả về MongoClient singleton. Tạo mới nếu chưa có.
 
@@ -89,6 +94,11 @@ def get_collection(name: str) -> Collection:
 # ---------------------------------------------------------------------------
 # Index setup – gọi một lần khi ứng dụng khởi động
 # ---------------------------------------------------------------------------
+
+
+# =============================================================================
+# 02. Index, ràng buộc duy nhất và TTL
+# =============================================================================
 
 def ensure_indexes() -> None:
     try:
@@ -183,6 +193,11 @@ def ensure_indexes() -> None:
     except Exception as e:
         logger.warning("Không thể tạo MongoDB indexes: %s", e)
 
+
+
+# =============================================================================
+# 03. Đóng kết nối
+# =============================================================================
 
 def close_client() -> None:
     """Đóng kết nối MongoDB (gọi khi ứng dụng tắt nếu cần)."""

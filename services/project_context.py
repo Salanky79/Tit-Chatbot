@@ -11,6 +11,11 @@ from storage.projects import search_project_memories
 MAX_PROJECT_CONTEXT_CHARS = 9000
 
 
+
+# =============================================================================
+# 01. Ngữ cảnh giới hạn từ các chat khác và bộ nhớ Project
+# =============================================================================
+
 def build_project_context(
     project_id: str,
     current_thread_id: str,

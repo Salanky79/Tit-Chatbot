@@ -1,3 +1,8 @@
+
+# =============================================================================
+# 01. Nội dung prompt và cấu hình hướng dẫn
+# =============================================================================
+
 SYSTEM_PROMPT = """
 You are a helpful Agentic AI assistant named Tit, similar to ChatGPT.
 

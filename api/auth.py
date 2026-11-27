@@ -64,6 +64,11 @@ allow_immediate_resend = app_callable('allow_immediate_resend', allow_immediate_
 send_verification_code = app_callable('send_verification_code', send_verification_code)
 logger = AppValueProxy("logger", logging.getLogger("app"))
 
+
+# =============================================================================
+# 01. Đăng ký và bắt đầu đăng nhập
+# =============================================================================
+
 @router.post("/auth/signup")
 async def auth_signup(request: Request):
     try:
@@ -101,6 +106,11 @@ async def auth_signin(request: Request):
         }, status_code=401)
     return _begin_email_verification(user, request, "Mã xác minh đã được gửi đến email của bạn.")
 
+
+
+# =============================================================================
+# 02. Vòng đời xác minh email OTP
+# =============================================================================
 
 @router.get("/auth/challenge")
 async def auth_challenge_status(request: Request):
@@ -176,6 +186,11 @@ async def auth_cancel_challenge(request: Request):
     return response
 
 
+
+# =============================================================================
+# 03. Phiên đăng nhập và thông tin người dùng
+# =============================================================================
+
 @router.post("/auth/signout")
 async def auth_signout(request: Request):
     session_id = _session_id_from_request(request)
@@ -193,6 +208,11 @@ async def auth_me(request: Request):
     user = get_current_user(request)
     return {"authenticated": bool(user), "user": _serialize_user(user)}
 
+
+
+# =============================================================================
+# 04. Cập nhật hồ sơ và ảnh đại diện
+# =============================================================================
 
 @router.post("/auth/profile")
 async def auth_update_profile(request: Request):

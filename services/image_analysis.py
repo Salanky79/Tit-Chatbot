@@ -33,6 +33,11 @@ except ValueError:
     VISION_RATE_LIMIT_MAX_RETRIES = 3
 
 
+
+# =============================================================================
+# 01. Phân tích ảnh bằng model thị giác
+# =============================================================================
+
 def analyze_image(image_path: str, question: str, llm=None) -> str:
     """Answer a question about an uploaded image with a Groq vision model.
 

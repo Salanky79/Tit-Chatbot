@@ -44,6 +44,11 @@ DEFAULT_INPUT_TOKEN_BUDGET = 3200
 REDUCE_INPUT_TOKEN_BUDGET = 5500
 SUMMARY_OUTPUT_TOKENS = FINAL_SUMMARY_OUTPUT_TOKENS  # tương thích ngược
 
+
+# =============================================================================
+# 01. Cấu hình pipeline tóm tắt
+# =============================================================================
+
 @dataclass(frozen=True)
 class SummarySettings:
     """Validate environment configuration per request, rather than at import."""
@@ -76,6 +81,11 @@ class SummarySettings:
         return max(256, self.input_tokens - 150 - MAP_SUMMARY_OUTPUT_TOKENS)
 
 
+
+# =============================================================================
+# 02. Cô lập context và định dạng tài liệu
+# =============================================================================
+
 def validate_and_isolate_summarization_context(
     documents: Sequence[Document],
 ) -> list[Document]:
@@ -107,6 +117,11 @@ def _format_document(doc: Document) -> str:
     label = f"[Page {page}]\n" if page is not None else ""
     return f"{label}{doc.page_content.strip()}"
 
+
+
+# =============================================================================
+# 03. Chia nhóm theo token và thực thi song song
+# =============================================================================
 
 def _groups_by_budget(items: Sequence[str], budget: int) -> list[list[str]]:
     """Pack text without losing characters or exceeding the estimated text budget."""
@@ -172,6 +187,11 @@ def _invoke_groups_parallel(
     return [value for value in results if value is not None]
 
 
+
+# =============================================================================
+# 04. Pipeline map/reduce và checkpoint
+# =============================================================================
+
 def _execute_map_reduce(
     documents: list[Document], llm: Any, settings: SummarySettings,
     target_language: str, job_store: SummaryJobStore | None,
@@ -219,6 +239,11 @@ def _execute_map_reduce(
             status="partial",
         )
 
+
+
+# =============================================================================
+# 05. Điểm vào: cache, resume và kết quả tóm tắt
+# =============================================================================
 
 def summarize_documents(
     documents: Sequence[Document], llm: Any | None = None, *,

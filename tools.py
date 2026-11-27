@@ -1,5 +1,10 @@
 """Backward-compatible exports for the agent tool collection."""
 
+
+# =============================================================================
+# 01. Phụ thuộc và lớp tương thích công khai
+# =============================================================================
+
 from contextvars import ContextVar
 from typing import Annotated, Any
 import json

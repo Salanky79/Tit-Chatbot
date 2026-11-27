@@ -23,6 +23,11 @@ from storage.memories import (
 from utils.usage_logging import log_token_usage
 
 
+
+# =============================================================================
+# 01. Schema kế hoạch cập nhật bộ nhớ
+# =============================================================================
+
 class MemoryActionItem(BaseModel):
     """Một thao tác thêm, sửa hoặc xóa bộ nhớ cá nhân do LLM đề xuất."""
 
@@ -44,6 +49,11 @@ class MemoryActionPlan(BaseModel):
     # Câu tóm tắt ngắn gọn kết quả để hiển thị cho người dùng trên giao diện
     note: str = Field(default="")
 
+
+
+# =============================================================================
+# 02. Model và chuẩn hóa dữ liệu LLM
+# =============================================================================
 
 def _make_memory_llm(max_tokens: int = 700) -> Any:
     """Khởi tạo ChatGroq client gọn nhẹ cho tác vụ tóm tắt và cập nhật bộ nhớ."""
@@ -84,6 +94,11 @@ def _build_summary_system_prompt(language: str | None = None) -> str:
         rule = MEMORY_SUMMARY_DEFAULT_LANGUAGE_RULE
     return MEMORY_SUMMARY_SYSTEM_PROMPT.format(language_rule=rule)
 
+
+
+# =============================================================================
+# 03. Tóm tắt hồ sơ bộ nhớ cá nhân
+# =============================================================================
 
 def summarize_user_memories(
     user_id: str,
@@ -137,6 +152,11 @@ def summarize_user_memories(
         "count": len(memories),
     }
 
+
+
+# =============================================================================
+# 04. Phân tích kế hoạch và áp dụng thao tác có kiểm tra
+# =============================================================================
 
 def _parse_action_plan(result: Any) -> MemoryActionPlan:
     """Chuẩn hóa kết quả structured output từ LLM về đối tượng MemoryActionPlan."""

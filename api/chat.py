@@ -65,6 +65,11 @@ generate_followup_questions = app_callable('generate_followup_questions', genera
 logger = AppValueProxy("logger", logging.getLogger("app"))
 FOLLOWUPS_ENABLED = AppValueProxy("FOLLOWUPS_ENABLED", FOLLOWUPS_ENABLED)
 
+
+# =============================================================================
+# 01. Nhận diện dữ liệu đầu vào và định dạng SSE
+# =============================================================================
+
 def _looks_like_image(contents: bytes, suffix: str) -> bool:
     if suffix in {".jpg", ".jpeg"}:
         return contents.startswith(b"\xff\xd8\xff")
@@ -78,6 +83,11 @@ def _looks_like_image(contents: bytes, suffix: str) -> bool:
 def sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
+
+
+# =============================================================================
+# 02. Lọc nội dung và tách reasoning khỏi câu trả lời
+# =============================================================================
 
 def should_stream_chunk(chunk: Any, metadata: dict[str, Any] | None) -> bool:
     """
@@ -235,6 +245,11 @@ def extract_text_from_chunk(chunk: Any) -> str:
     return ""
 
 
+
+# =============================================================================
+# 03. Thiết lập context theo request
+# =============================================================================
+
 def _apply_chat_context(
     *,
     thread_id: str,
@@ -259,6 +274,11 @@ def _apply_chat_context(
     pers = personalization or {}
     set_current_personalization(pers.get("base_style"), pers.get("custom_instructions"))
 
+
+
+# =============================================================================
+# 04. Phát stream và lưu kết quả
+# =============================================================================
 
 def _chat_event_generator(
     agent: Any,
@@ -397,6 +417,11 @@ def _chat_event_generator(
     yield sse_data({"done": True})
 
 
+
+# =============================================================================
+# 05. Endpoint chat: xác thực, nạp context và gọi agent
+# =============================================================================
+
 @router.post("/chat/stream")
 async def chat_stream(request: Request):
     """Xác thực scope Project, lưu user turn và bắt đầu stream chat."""
@@ -513,6 +538,11 @@ async def chat_stream(request: Request):
         }
     )
 
+
+
+# =============================================================================
+# 06. Schema và endpoint câu hỏi gợi ý
+# =============================================================================
 
 class FollowupRequest(BaseModel):
     user_message: str = ""

@@ -21,6 +21,11 @@ web_search = TavilySearch(
     search_depth="advanced",
 )
 
+
+# =============================================================================
+# 01. Công cụ tính toán
+# =============================================================================
+
 @tool
 def calculator(expression: str) -> str:
     """Evaluate a mathematical expression and return the numeric result.

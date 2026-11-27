@@ -10,6 +10,11 @@ from typing import Any, Sequence
 from langchain_core.messages import BaseMessage, ToolMessage
 
 
+
+# =============================================================================
+# 01. Cấu hình ước lượng token
+# =============================================================================
+
 def _float_setting(name: str, default: float, minimum: float) -> float:
     try:
         value = float(os.getenv(name, str(default)))
@@ -23,6 +28,11 @@ def _float_setting(name: str, default: float, minimum: float) -> float:
 CHARS_PER_TOKEN = _float_setting("TOKEN_ESTIMATE_CHARS_PER_TOKEN", 2.5, 0.5)
 PROMPT_CHARS_PER_TOKEN = _float_setting("TOKEN_ESTIMATE_PROMPT_CHARS_PER_TOKEN", 4.0, 0.5)
 
+
+
+# =============================================================================
+# 02. Ước lượng văn bản, message và prompt
+# =============================================================================
 
 def estimate_tokens(text: str | None) -> int:
     if not text:
@@ -66,6 +76,11 @@ def estimate_message_tokens(message: BaseMessage) -> int:
     return total
 
 
+
+# =============================================================================
+# 03. Tính chi phí schema công cụ
+# =============================================================================
+
 def _tool_schema(tool: Any) -> dict[str, Any]:
     args = getattr(tool, "args", None)
     schema = getattr(tool, "args_schema", None)
@@ -98,6 +113,11 @@ def estimate_tool_schemas_tokens(tool_list: Sequence[Any] | None) -> int:
         total += estimate_prompt_tokens(serialized) + 12
     return total
 
+
+
+# =============================================================================
+# 04. Cắt văn bản theo ngân sách token
+# =============================================================================
 
 def truncate_text_to_tokens(text: str, max_tokens: int, marker: str = "\n[…đã rút gọn…]\n") -> str:
     """Keep the beginning and ending of text when an approximate cap is needed."""

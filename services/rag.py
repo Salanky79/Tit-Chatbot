@@ -30,6 +30,11 @@ _embeddings = None
 _vectorstore = None
 
 
+
+# =============================================================================
+# 01. Khởi tạo embeddings và vector store theo nhu cầu
+# =============================================================================
+
 def get_embeddings() -> Any:
     """Lazy loader for HuggingFace embeddings model on CPU."""
     global _embeddings
@@ -73,6 +78,11 @@ def __getattr__(name: str) -> Any:
 # ---------------------------------------------------------------------------
 # File readers – trả về List[Document] với metadata đầy đủ (source, page)
 # ---------------------------------------------------------------------------
+
+
+# =============================================================================
+# 02. Đọc tài liệu: PDF, OCR, DOCX và văn bản
+# =============================================================================
 
 def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None = None) -> list[Document]:
     """Extract each PDF page, falling back to OCR for scanned/sparse pages."""
@@ -213,6 +223,11 @@ def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) 
 # Chunking – giữ nguyên metadata (page, source, …) trên từng chunk
 # ---------------------------------------------------------------------------
 
+
+# =============================================================================
+# 03. Chia đoạn và lập chỉ mục tài liệu
+# =============================================================================
+
 def _split_documents(docs: list[Document]) -> list[Document]:
     """Chia mỗi Document thành nhiều chunk nhỏ hơn.
 
@@ -290,6 +305,11 @@ def add_document_to_rag(
         "pages": len(pages_found),
     }
 
+
+
+# =============================================================================
+# 04. Truy xuất ngữ nghĩa và đọc toàn bộ chunks
+# =============================================================================
 
 def retrieve_from_rag(
     query: str,
@@ -456,6 +476,11 @@ def get_document_chunks(
     return docs
 
 
+
+# =============================================================================
+# 05. Sắp xếp chunks và liệt kê nguồn tài liệu
+# =============================================================================
+
 def _sort_number(value: Any) -> int:
     try:
         return int(value)
@@ -506,6 +531,11 @@ def list_document_sources(
     return sources
 
 
+
+# =============================================================================
+# 06. Lập chỉ mục ảnh
+# =============================================================================
+
 def add_image_to_rag(
     file_path: str,
     thread_id: str,
@@ -537,6 +567,11 @@ def add_image_to_rag(
     get_vectorstore().add_documents([image_doc])
     return {"filename": filename, "images": 1}
 
+
+
+# =============================================================================
+# 07. Danh sách tài liệu cho quản trị
+# =============================================================================
 
 def list_admin_documents() -> list[dict[str, Any]]:
     """Lập danh sách tài liệu cho Admin bằng cách gom các chunks của cùng một upload.
@@ -581,6 +616,11 @@ def list_admin_documents() -> list[dict[str, Any]]:
         reverse=True,
     )
 
+
+
+# =============================================================================
+# 08. Dọn file và vector theo user, thread hoặc Project
+# =============================================================================
 
 def _unlink_upload_paths(file_paths: set[str] | list[str]) -> tuple[int, list[str]]:
     """Safely unlink files under uploads/ with a GC retry for Windows file locks."""
@@ -709,6 +749,11 @@ def delete_project_documents(project_id: str) -> dict[str, int]:
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
 
 
+
+# =============================================================================
+# 09. Xóa tài liệu qua quản trị
+# =============================================================================
+
 def delete_admin_document(document_key: str) -> bool:
     """Xóa tài liệu bằng metadata filter mà không tải toàn collection vào Python.
 
@@ -777,6 +822,11 @@ def delete_admin_document(document_key: str) -> bool:
     return True
 
 
+
+# =============================================================================
+# 10. Chuyển metadata tài liệu sang Project
+# =============================================================================
+
 def migrate_thread_documents_to_project(
     thread_id: str,
     project_id: str,
@@ -833,6 +883,11 @@ def migrate_thread_documents_to_project(
 
     return list(files_by_doc_id.values())
 
+
+
+# =============================================================================
+# 11. Liệt kê ảnh theo phạm vi truy cập
+# =============================================================================
 
 def list_uploaded_images(
     thread_id: str,

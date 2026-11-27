@@ -42,6 +42,11 @@ get_current_user = app_callable("get_current_user", get_current_user)
 logger = logging.getLogger(__name__)
 
 
+
+# =============================================================================
+# 01. URL mời, response lỗi và kiểm tra quyền
+# =============================================================================
+
 def _invitation_url(request: Request, token: str) -> str:
     base = (os.getenv("PUBLIC_APP_URL") or str(request.base_url)).rstrip("/")
     parsed = urlsplit(base)
@@ -68,6 +73,11 @@ def _membership(project_id: str, user: dict) -> dict | JSONResponse:
     return membership if membership else _error("Project not found or access denied.", 404)
 
 
+
+# =============================================================================
+# 02. Danh sách và tạo Project
+# =============================================================================
+
 @router.get("/projects")
 async def projects(request: Request):
     """Trả danh sách Project của user hiện tại."""
@@ -90,6 +100,11 @@ async def create_project_route(request: Request):
     except ValueError as exc:
         return _error(str(exc), 400)
 
+
+
+# =============================================================================
+# 03. Lời mời, SSE và phản hồi của người nhận
+# =============================================================================
 
 @router.get("/projects/invitations")
 async def invitations(request: Request):
@@ -174,6 +189,11 @@ async def decline_invitation(invitation_id: str, request: Request):
     return {"success": True}
 
 
+
+# =============================================================================
+# 04. Đọc, sửa và xóa Project
+# =============================================================================
+
 @router.get("/projects/{project_id}")
 async def project_detail(project_id: str, request: Request):
     """Trả thông tin Project cùng vai trò của user hiện tại."""
@@ -216,6 +236,11 @@ async def remove_project(project_id: str, request: Request):
         return _error("Project not found.", 404)
     return {"success": True, "cleanup": result}
 
+
+
+# =============================================================================
+# 05. Danh sách chat và quản lý thành viên
+# =============================================================================
 
 @router.get("/projects/{project_id}/conversations")
 async def project_conversations(project_id: str, request: Request):
@@ -300,6 +325,11 @@ async def delete_member(project_id: str, member_id: str, request: Request):
         return _error("Member not found, or only the owner may remove members.", 403)
     return {"success": True}
 
+
+
+# =============================================================================
+# 06. Liệt kê, tải xuống và xóa tài liệu Project
+# =============================================================================
 
 @router.get("/projects/{project_id}/files")
 async def project_files(project_id: str, request: Request):

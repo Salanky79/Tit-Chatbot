@@ -21,6 +21,11 @@ INVITATION_DURATIONS = {1, 3, 7, 14, 30}
 DEFAULT_INVITATION_DAYS = 7
 
 
+
+# =============================================================================
+# 01. Thời gian, hạn lời mời và biểu diễn dữ liệu
+# =============================================================================
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -60,6 +65,11 @@ def _member_public(row: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+
+# =============================================================================
+# 02. Chuẩn hóa ObjectId và dữ liệu công khai
+# =============================================================================
+
 def _oid(value: Any) -> ObjectId | None:
     """Chuyển ID hợp lệ sang MongoDB ObjectId."""
     if isinstance(value, ObjectId):
@@ -84,6 +94,11 @@ def _public(doc: dict[str, Any] | None) -> dict[str, Any] | None:
             result[key] = value.isoformat()
     return result
 
+
+
+# =============================================================================
+# 03. Tạo và truy vấn Project
+# =============================================================================
 
 def create_project(owner_id: str, name: str, description: str = "") -> dict[str, Any]:
     """Tạo Project mới thuộc sở hữu của user."""
@@ -140,6 +155,11 @@ def list_projects_for_user(user_id: str) -> list[dict[str, Any]]:
     return projects
 
 
+
+# =============================================================================
+# 04. Membership và quyền chỉnh sửa
+# =============================================================================
+
 def get_membership(project_id: str, user_id: str) -> dict[str, Any] | None:
     """Lấy quyền của user trong Project nếu membership đã được chấp nhận."""
     project_oid, user_oid = _oid(project_id), _oid(user_id)
@@ -161,6 +181,11 @@ def can_edit_project(project_id: str, user_id: str) -> bool:
     membership = get_membership(project_id, user_id)
     return bool(membership and membership.get("role") in {"owner", "editor"})
 
+
+
+# =============================================================================
+# 05. Cập nhật và xóa Project cùng tài nguyên
+# =============================================================================
 
 def update_project(project_id: str, user_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
     """Cập nhật thông tin Project nếu user có quyền chỉnh sửa."""
@@ -239,6 +264,11 @@ def delete_project(project_id: str, user_id: str) -> dict[str, int] | None:
     get_collection("projects").delete_one({"_id": project_oid})
     return {"conversations_deleted": len(thread_ids), "files_deleted": len(files), "checkpoints_deleted": checkpoints_deleted}
 
+
+
+# =============================================================================
+# 06. Tạo, cấp lại và liệt kê lời mời
+# =============================================================================
 
 def invite_project_member(project_id: str, inviter_id: str, identifier: str, role: str, expiry_days: int = DEFAULT_INVITATION_DAYS) -> dict[str, Any]:
     """Tạo lời mời tham gia Project cho tài khoản đã đăng ký."""
@@ -322,6 +352,11 @@ def list_pending_invitations(user_id: str) -> list[dict[str, Any]]:
     return result
 
 
+
+# =============================================================================
+# 07. Xem trước và phản hồi lời mời
+# =============================================================================
+
 def respond_to_invitation(invitation_id: str, user_id: str, accept: bool) -> bool:
     """Chấp nhận hoặc từ chối lời mời Project của user."""
     invitation_oid, user_oid = _oid(invitation_id), _oid(user_id)
@@ -372,6 +407,11 @@ def respond_to_invitation_token(token: str, user_id: str, accept: bool) -> str |
     return invitation["project_id"] if result.modified_count == 1 else None
 
 
+
+# =============================================================================
+# 08. Revision cho thông báo SSE
+# =============================================================================
+
 def project_update_state(user_id: str) -> dict[str, str]:
     """Hash a user's visible state; works across workers without a local event bus."""
     user_oid = _oid(user_id)
@@ -402,6 +442,11 @@ def project_update_state(user_id: str) -> dict[str, str]:
     return {"revision": digest([projects, members]), "members_revision": digest(members)}
 
 
+
+# =============================================================================
+# 09. Đổi quyền và thu hồi thành viên
+# =============================================================================
+
 def update_member_role(project_id: str, owner_id: str, member_id: str, role: str) -> bool:
     """Đổi vai trò thành viên trong Project do owner quản lý."""
     project_oid, owner_oid, member_oid = _oid(project_id), _oid(owner_id), _oid(member_id)
@@ -427,6 +472,11 @@ def remove_project_member(project_id: str, owner_id: str, member_id: str) -> boo
     return result.deleted_count == 1
 
 
+
+# =============================================================================
+# 10. Danh sách cuộc trò chuyện trong Project
+# =============================================================================
+
 def list_project_conversations(project_id: str) -> list[dict[str, Any]]:
     """Liệt kê các cuộc trò chuyện thuộc Project."""
     project_oid = _oid(project_id)
@@ -434,6 +484,11 @@ def list_project_conversations(project_id: str) -> list[dict[str, Any]]:
         return []
     return [_public(row) or {} for row in get_collection("conversations").find({"project_id": project_oid}).sort("updated_at", -1)]
 
+
+
+# =============================================================================
+# 11. Ghi và truy xuất bộ nhớ chung
+# =============================================================================
 
 def create_project_memory(project_id: str, user_id: str, memory: str, thread_id: str = "") -> str:
     """Lưu một fact dùng chung trong Project memory."""
@@ -478,6 +533,11 @@ def search_project_memories(project_id: str, query: str, limit: int = 5) -> list
     result = search_project_memory_entries(project_id, query, limit)
     return [str(item.get("memory", "")) for item in result.get("memories", [])]
 
+
+
+# =============================================================================
+# 12. Đăng ký và quản lý metadata tài liệu
+# =============================================================================
 
 def list_project_files(project_id: str) -> list[dict[str, Any]]:
     """Liệt kê file đã đăng ký trong Project."""

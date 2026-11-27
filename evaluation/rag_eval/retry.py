@@ -8,6 +8,11 @@ from typing import Any, Callable, TypeVar
 T = TypeVar("T")
 
 
+
+# =============================================================================
+# Đọc thời gian chờ từ lỗi
+# =============================================================================
+
 def _parse_retry_hint(message: str) -> float | None:
     lower = message.casefold()
     marker = "try again in "
@@ -29,6 +34,11 @@ def _parse_retry_hint(message: str) -> float | None:
                 return None
     return None
 
+
+
+# =============================================================================
+# Retry có giới hạn cho bước đánh giá
+# =============================================================================
 
 def retry_with_backoff(
     operation: Callable[[], T],

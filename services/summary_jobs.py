@@ -14,9 +14,19 @@ from storage.mongo_client import get_collection
 PIPELINE_VERSION = "2"
 
 
+
+# =============================================================================
+# 01. Thời gian lưu checkpoint
+# =============================================================================
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
+
+
+# =============================================================================
+# 02. Persistence cho job tóm tắt có thể tiếp tục
+# =============================================================================
 
 class SummaryJobStore:
     """Persist job metadata and individual stage results without storing source text."""

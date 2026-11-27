@@ -14,6 +14,11 @@ POLL_SECONDS = 2    # Chu kỳ kiểm tra thay đổi trong MongoDB (giây)
 STREAM_SECONDS = 300  # Ngắt stream sau 5 phút để client tự nối lại sạch
 
 
+
+# =============================================================================
+# 01. Kiểm tra phiên và phát thông báo thay đổi Project
+# =============================================================================
+
 async def project_event_stream(request, user_id: str, current_user):
     """Revalidate the session and detect changes across processes every two seconds."""
     previous = None  # Lưu snapshot hash lần trước để chỉ push khi có thay đổi

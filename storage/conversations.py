@@ -21,6 +21,11 @@ _now = database_callable("_now", _now_impl)
 _to_object_id = database_callable("_to_object_id", _to_object_id_impl)
 _conv_to_obj = database_callable("_conv_to_obj", _conv_to_obj_impl)
 
+
+# =============================================================================
+# 01. Tạo và truy vấn metadata cuộc trò chuyện
+# =============================================================================
+
 def create_or_update_conversation(
     thread_id: str,
     first_message: str | None = None,
@@ -173,6 +178,11 @@ def list_conversations(
     return items
 
 
+
+# =============================================================================
+# 02. Tra cứu cuộc trò chuyện cho quản trị
+# =============================================================================
+
 def list_admin_conversations(
     user_id: str,
     *,
@@ -223,6 +233,11 @@ def list_admin_conversations(
         "total": total,
     }
 
+
+
+# =============================================================================
+# 03. Ghim, đổi tên và xóa cuộc trò chuyện
+# =============================================================================
 
 def toggle_pin_conversation(thread_id: str, user_id: str | None = None) -> bool | None:
     """Bật/tắt trạng thái ghim (is_pinned) của một cuộc trò chuyện."""
@@ -318,6 +333,11 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
     return False
 
 
+
+# =============================================================================
+# 04. Chuyển phạm vi từ cá nhân sang Project
+# =============================================================================
+
 def assign_conversation_to_project(
     thread_id: str,
     user_id: str,
@@ -391,6 +411,11 @@ def assign_conversation_to_project(
         "project_id": str(project_oid),
     }
 
+
+
+# =============================================================================
+# 05. Lưu tin nhắn và đọc lịch sử
+# =============================================================================
 
 def save_chat_message(
     thread_id: str,
@@ -467,6 +492,11 @@ def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
     return [_conv_to_obj(doc) for doc in cursor]
 
 
+
+# =============================================================================
+# 06. Lịch sử dành cho quản trị
+# =============================================================================
+
 def get_admin_conversation_messages(
     user_id: str,
     thread_id: str,
@@ -533,6 +563,11 @@ def get_admin_conversation_messages(
         "total": total,
     }
 
+
+
+# =============================================================================
+# 07. Định dạng kết quả và tìm kiếm chat
+# =============================================================================
 
 def _build_search_snippet(text: str, query: str, max_len: int = 120) -> str:
     """Tạo đoạn trích ngắn (~120 ký tự) cắt quanh vị trí từ khóa xuất hiện trong nội dung tin nhắn."""

@@ -24,6 +24,11 @@ MAX_ATTEMPTS = 5                         # Số lần nhập sai tối đa trư�
 MAX_RESENDS = 5                          # Số lần tối đa được phép bấm gửi lại mã trên cùng một thử thách
 
 
+
+# =============================================================================
+# 01. Thời gian và băm secret, mã OTP
+# =============================================================================
+
 def _now() -> datetime:
     """Trả về thời gian hiện tại theo chuẩn UTC (timezone-aware)."""
     return datetime.now(timezone.utc)
@@ -59,6 +64,11 @@ def _aware(value: datetime) -> datetime:
     """Chuẩn hóa đối tượng datetime đọc từ MongoDB về dạng có múi giờ UTC (tránh lỗi TypeError so sánh datetime)."""
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
+
+
+# =============================================================================
+# 02. Tạo và khôi phục thử thách xác minh
+# =============================================================================
 
 def start_challenge(user: dict) -> tuple[str, str]:
     """Khởi tạo thử thách OTP mới: sinh secret (gắn cookie) + sinh mã 6 số (gửi email), lưu MongoDB (hạn 5p, cooldown 60s)."""
@@ -106,6 +116,11 @@ def _masked_email(email: str) -> str:
     local, _, domain = email.partition("@")
     return f"{local[:1]}{'*' * max(2, min(len(local) - 1, 6))}@{domain}"
 
+
+
+# =============================================================================
+# 03. Xác minh và tiêu thụ OTP nguyên tử
+# =============================================================================
 
 def verify_challenge(secret: str | None, code: str) -> tuple[str, str | None]:
     """Kiểm tra mã OTP 6 số người dùng nhập: sai thì tăng số lần thử (sai 5 lần -> locked), đúng thì tiêu thụ atomic và trả về user_id."""
@@ -163,6 +178,11 @@ def verify_challenge(secret: str | None, code: str) -> tuple[str, str | None]:
     # Trả về kết quả hợp lệ kèm ID người dùng để cấp session
     return "valid", str(consumed["user_id"])
 
+
+
+# =============================================================================
+# 04. Gửi lại, hủy và điều chỉnh quyền gửi OTP
+# =============================================================================
 
 def resend_challenge(secret: str | None) -> tuple[str, str | None, str | None]:
     """Cấp lại mã OTP mới: ghi đè mã 6 số mới vào challenge cũ, gia hạn 5 phút, reset số lần thử về 0 (tối đa 5 lần)."""

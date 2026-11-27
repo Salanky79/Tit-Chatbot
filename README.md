@@ -8,6 +8,37 @@ Hệ thống được thiết kế hướng tới khả năng tự chủ của A
 
 ---
 
+## Bản đồ code để đọc và bảo trì
+
+| Phần | Vị trí | Trách nhiệm |
+|---|---|---|
+| Điểm chạy | [app.py](app.py) | Nạp môi trường, tạo app, phục vụ static và đăng ký router |
+| HTTP API | [api/](api/) | Đọc request, xác thực/quyền truy cập và trả response |
+| Nghiệp vụ | [services/](services/) | RAG, tóm tắt, context, email, OTP, retry và thông báo SSE |
+| Persistence | [storage/](storage/) | MongoDB, bộ lọc dữ liệu, index và thao tác lưu/đọc |
+| Agent | [agent.py](agent.py), [agent_tools/](agent_tools/) | Đồ thị LangGraph, công cụ và context của request |
+| Prompt | [prompts/](prompts/) | Nội dung hướng dẫn và schema prompt cho model |
+| Tiện ích | [utils/](utils/) | Token budget và thống kê sử dụng |
+| HTML | [templates/index.html](templates/index.html), [templates/admin.html](templates/admin.html) | Cấu trúc DOM và các modal |
+| CSS | [static/css/chat.css](static/css/chat.css), [static/css/admin.css](static/css/admin.css) | Theme, layout, component và responsive |
+| JavaScript | [static/js/chat.js](static/js/chat.js), [static/js/admin.js](static/js/admin.js) | State giao diện, thao tác người dùng, API và stream |
+| Kiểm thử | [tests/](tests/), [evaluation/rag_eval/tests/](evaluation/rag_eval/tests/) | Regression của ứng dụng và bộ đánh giá RAG |
+
+Trong các module Python, comment phân cách đánh dấu từng nhóm trách nhiệm. JavaScript có các nhãn `KHỐI` để tìm nhanh theo tính năng; CSS giữ thứ tự các nhóm selector để bảo toàn cascade. Khi thêm tính năng, đặt code vào khối tương ứng thay vì thêm logic vào cuối file tùy ý.
+
+JavaScript được tải bằng classic script tại đúng vị trí giữa DOM chính và các modal. Các hàm vẫn được dùng bởi handler trong HTML; việc đổi sang `defer`/ES module hoặc đổi thứ tự khởi tạo cần kiểm tra riêng. Static files được FastAPI phục vụ tại `/static`, không cần bước build frontend mới.
+
+Các facade [tools.py](tools.py), [storage/database.py](storage/database.py) và [api/compat.py](api/compat.py) giữ các export/điểm patch cũ. Cần kiểm tra nơi sử dụng trước khi xóa một import có vẻ không được gọi trực tiếp.
+
+Kiểm tra sau khi tổ chức hoặc di chuyển code:
+
+```powershell
+python -m unittest discover -s tests -q
+python -m unittest discover -s evaluation/rag_eval/tests -q
+node --check static/js/chat.js
+node --check static/js/admin.js
+```
+
 ## Mục lục
 
 - [1. Kiến trúc tổng thể hệ thống](#1-kiến-trúc-tổng-thể-hệ-thống)
@@ -646,6 +677,9 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
 - Các hàm nghiệp vụ trò chuyện hỗ trợ `user_id`: `create_or_update_conversation`, `list_conversations`, `toggle_pin_conversation`, `save_chat_message`, `get_chat_history`, `save_memory`, `search_memory`, `delete_conversation`.
 
 ### 6.10. Giao diện người dùng Web (`templates/index.html`)
+
+HTML nằm trong `templates/`; stylesheet và logic giao diện được tách sang `static/css/chat.css` và `static/js/chat.js`. Trang admin sử dụng `static/css/admin.css` và `static/js/admin.js` theo cùng cách tổ chức.
+
 - Giao diện hiện đại tông màu tối (Dark Theme), tương thích mọi kích thước màn hình và thiết bị di động.
 - Tích hợp Marked.js phân tích cú pháp Markdown và Highlight.js tô màu cú pháp code.
 - Các tính năng vượt trội:

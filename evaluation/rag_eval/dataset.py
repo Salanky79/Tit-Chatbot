@@ -162,6 +162,11 @@ RAG_EXAMPLES: list[dict[str, Any]] = [
 ]
 
 
+
+# =============================================================================
+# Kiểm tra dữ liệu đánh giá
+# =============================================================================
+
 def validate_examples(
     documents: list[dict[str, str]] = RAG_TEST_DOCUMENTS,
     examples: list[dict[str, Any]] = RAG_EXAMPLES,
@@ -193,6 +198,11 @@ def validate_examples(
         if not isinstance(document.get("raw_text"), str) or not document["raw_text"].strip():
             raise ValueError(f"{document.get('document_id')}: raw_text must be a non-empty string.")
 
+
+
+# =============================================================================
+# Đồng bộ dataset khi được yêu cầu
+# =============================================================================
 
 def sync_dataset(client: Any | None = None) -> Any:
     """Create a versioned LangSmith dataset, only when explicitly called.

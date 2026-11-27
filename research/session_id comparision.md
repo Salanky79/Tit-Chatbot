@@ -24,7 +24,7 @@ Tài liệu này giải thích chi tiết vị trí trong mã nguồn (file và 
 - **Vị trí**: [`app.py`](../app.py) (Dòng 203–208 & 220–237)
 - **Cách hoạt động**:
   - Khi người dùng đăng nhập mật khẩu đúng tại `POST /auth/signin` (dòng 259) hoặc đăng ký tại `POST /auth/signup` (dòng 239), hàm `_begin_email_verification()` được gọi.
-  - Hàm `start_challenge(user)` trong [`services/authentication.py`](../services/authentication.py#L34) tạo chuỗi ngẫu nhiên 32 bytes (`secret`) và lưu hash vào MongoDB.
+  - Hàm `start_challenge(user)` trong [`services/authentication.py`](../services/authentication.py#L39) tạo chuỗi ngẫu nhiên 32 bytes (`secret`) và lưu hash vào MongoDB.
   - Server gắn secret này vào cookie thông qua:
     ```python
     # app.py (dòng 203)
@@ -55,29 +55,29 @@ Tài liệu này giải thích chi tiết vị trí trong mã nguồn (file và 
 ### Tiêu chí 2: Quyền hạn được kiểm soát như thế nào?
 
 #### Cookie Tạm (`tit_auth_challenge`):
-- **Phạm vi URL (`path="/auth"`)**: Trong [`app.py`](../app.py#L207), cookie này chỉ được cấp cho đường dẫn `/auth`. Trình duyệt theo chuẩn RFC 6265 sẽ **tuyệt đối không gửi** cookie này khi người dùng gọi các API chat như `/chat/send`, `/conversations`, `/upload`.
-- **Hệ thống phân quyền**: Hàm xác thực danh tính [`get_current_user(request)`](../app.py#L85) **chỉ tìm kiếm `tit_session`**. Nếu chỉ có `tit_auth_challenge`, người dùng vẫn là khách (Unauthenticated) và bị chặn toàn bộ chức năng.
+- **Phạm vi URL (`path="/auth"`)**: Trong [`app.py`](../app.py#L1), cookie này chỉ được cấp cho đường dẫn `/auth`. Trình duyệt theo chuẩn RFC 6265 sẽ **tuyệt đối không gửi** cookie này khi người dùng gọi các API chat như `/chat/send`, `/conversations`, `/upload`.
+- **Hệ thống phân quyền**: Hàm xác thực danh tính [`get_current_user(request)`](../app.py#L88) **chỉ tìm kiếm `tit_session`**. Nếu chỉ có `tit_auth_challenge`, người dùng vẫn là khách (Unauthenticated) và bị chặn toàn bộ chức năng.
 
 #### Session Thật (`tit_session`):
 - **Phạm vi URL (`path="/"`)**: Có hiệu lực trên toàn bộ trang web.
-- **Hệ thống phân quyền**: [`get_current_user()`](../app.py#L85) đọc `tit_session`, tra cứu trong MongoDB collection `sessions` để nạp thông tin user và cấp quyền sử dụng toàn bộ hệ thống chatbot.
+- **Hệ thống phân quyền**: [`get_current_user()`](../app.py#L88) đọc `tit_session`, tra cứu trong MongoDB collection `sessions` để nạp thông tin user và cấp quyền sử dụng toàn bộ hệ thống chatbot.
 
 ---
 
 ### Tiêu chí 3: Thời hạn được quy định ở đâu?
 
 #### Cookie Tạm (`tit_auth_challenge`):
-- **Trình duyệt**: `max_age=15 * 60` (15 phút) tại [`app.py`](../app.py#L207).
+- **Trình duyệt**: `max_age=15 * 60` (15 phút) tại [`app.py`](../app.py#L1).
 - **Mã OTP trong Database**: `OTP_TTL = timedelta(minutes=5)` tại [`services/authentication.py`](../services/authentication.py#L12) (Mã 6 số hết hạn sau 5 phút).
-- **Tự động dọn dẹp MongoDB (TTL Index)**: Collection `auth_challenges` được đánh chỉ mục tự xóa sau 1 giờ tại [`storage/mongo_client.py`](../storage/mongo_client.py#L116):
+- **Tự động dọn dẹp MongoDB (TTL Index)**: Collection `auth_challenges` được đánh chỉ mục tự xóa sau 1 giờ tại [`storage/mongo_client.py`](../storage/mongo_client.py#L126):
   ```python
   challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=3600, background=True)
   ```
 
 #### Session Thật (`tit_session`):
-- **Trình duyệt**: `max_age=7 * 24 * 3600` (7 ngày) tại [`app.py`](../app.py#L316).
-- **Database**: `expires_at = now + timedelta(days=duration_days)` (7 ngày) tại [`storage/database.py`](../storage/database.py#L411).
-- **Tự động dọn dẹp MongoDB (TTL Index)**: Tự xóa ngay khi hết hạn tại [`storage/mongo_client.py`](../storage/mongo_client.py#L111):
+- **Trình duyệt**: `max_age=7 * 24 * 3600` (7 ngày) tại [`app.py`](../app.py#L1).
+- **Database**: `expires_at = now + timedelta(days=duration_days)` (7 ngày) tại [`storage/database.py`](../storage/database.py#L1).
+- **Tự động dọn dẹp MongoDB (TTL Index)**: Tự xóa ngay khi hết hạn tại [`storage/mongo_client.py`](../storage/mongo_client.py#L121):
   ```python
   sessions.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
   ```
@@ -92,11 +92,11 @@ Tài liệu này giải thích chi tiết vị trí trong mã nguồn (file và 
   # app.py (dòng 318)
   _clear_challenge_cookie(response)  # Xóa sạch cookie tạm khỏi trình duyệt
   ```
-- Trong MongoDB, bản ghi được cập nhật `used_at = now` tại [`services/authentication.py`](../services/authentication.py#L118) để không thể tái sử dụng.
+- Trong MongoDB, bản ghi được cập nhật `used_at = now` tại [`services/authentication.py`](../services/authentication.py#L133) để không thể tái sử dụng.
 - Nếu người dùng bấm "Back to Login", endpoint `POST /auth/cancel-challenge` (dòng 342) sẽ xóa luôn bản ghi trong MongoDB và xóa cookie.
 
 #### Session Thật (`tit_session`):
-- Chỉ bị xóa khi người dùng chủ động bấm **"Đăng xuất"** tại `POST /auth/signout` ([`app.py`](../app.py#L350)):
+- Chỉ bị xóa khi người dùng chủ động bấm **"Đăng xuất"** tại `POST /auth/signout` ([`app.py`](../app.py#L1)):
   ```python
   delete_session(session_id)
   response.delete_cookie(key="tit_session", path="/")

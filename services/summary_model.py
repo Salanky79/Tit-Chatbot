@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 MAP_SUMMARY_OUTPUT_TOKENS = 350
 FINAL_SUMMARY_OUTPUT_TOKENS = 900
 
+
+# =============================================================================
+# 01. Chuẩn hóa nội dung và gọi model
+# =============================================================================
+
 def _content_text(response) -> str:
     content = getattr(response, "content", response)
     if isinstance(content, str):
@@ -109,6 +114,11 @@ def _invoke(
     logger.error("[SummarizationError] All configured models failed during %s: %s", operation, last_error)
     raise RuntimeError(f"Document summarization failed during {operation}: {last_error}") from last_error
 
+
+
+# =============================================================================
+# 02. Khởi tạo model dùng cho map và reduce
+# =============================================================================
 
 def _build_groq_llm(model_name: str | None = None, max_tokens: int = FINAL_SUMMARY_OUTPUT_TOKENS) -> ChatGroq:
     model = model_name or os.getenv("SUMMARIZATION_MODEL") or "openai/gpt-oss-20b"

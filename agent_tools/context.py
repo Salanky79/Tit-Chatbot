@@ -19,6 +19,11 @@ SUMMARY_ERROR_PREFIX = "Không thể tóm tắt tài liệu "
 SUMMARY_RESULT_PREFIX_VI = "B\u1ea3n t\u00f3m t\u1eaft c\u1ee7a "
 
 
+
+# =============================================================================
+# 01. Thiết lập user, thread, model và file đính kèm
+# =============================================================================
+
 def set_current_thread_id(thread_id: str) -> None:
     _current_thread_id.set(thread_id)
 
@@ -40,6 +45,11 @@ def get_current_attachment_source() -> str:
     return _current_attachment_source.get()
 
 
+
+# =============================================================================
+# 02. Thiết lập phạm vi và prompt Project
+# =============================================================================
+
 def set_current_project(project_id: str | None, memory_mode: str | None = None) -> None:
     """Đặt Project ID và memory mode cho request agent hiện tại."""
     _current_project_id.set(project_id or "")
@@ -52,6 +62,11 @@ def set_project_prompt_context(instructions: str | None, project_context: str | 
     _current_project_instructions.set(instructions or "")
     _current_project_context.set(project_context or "")
 
+
+
+# =============================================================================
+# 03. Đọc context của request
+# =============================================================================
 
 def get_current_thread_id() -> str:
     return _current_thread_id.get()
@@ -89,6 +104,11 @@ def get_current_project_context() -> str:
     """Lấy ngữ cảnh Project đã nạp cho request hiện tại."""
     return _current_project_context.get()
 
+
+
+# =============================================================================
+# 04. Thiết lập và đọc cá nhân hóa
+# =============================================================================
 
 def set_current_personalization(base_style: str | None = None, custom_instructions: str | None = None) -> None:
     """Đặt phong cách và hướng dẫn cá nhân cho request chat hiện tại."""

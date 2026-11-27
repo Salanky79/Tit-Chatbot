@@ -1,3 +1,8 @@
+
+# =============================================================================
+# 01. Nội dung prompt và cấu hình hướng dẫn
+# =============================================================================
+
 SUMMARY_SYSTEM_PROMPT = (
     "You summarize source material faithfully. Preserve the important "
     "claims, definitions, figures, conditions, and conclusions. Avoid "

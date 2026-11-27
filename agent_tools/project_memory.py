@@ -22,6 +22,11 @@ from storage.projects import (
 )
 
 
+
+# =============================================================================
+# 01. Kiểm tra mode và kết quả tìm kiếm của lượt hiện tại
+# =============================================================================
+
 def _project_memory_enabled() -> bool:
     """Return whether project memory is enabled for the current request."""
     return bool(get_current_project_id()) and get_current_project_memory_mode() != "current_chat_only"
@@ -45,6 +50,11 @@ def _current_turn_project_memory_results(state: dict[str, Any] | None) -> list[d
     return memories # trả về danh sách các project memory được search ra trong cùng request, để check trước khi update hoặc delete
 
 
+
+# =============================================================================
+# 02. Tool ghi fact dùng chung
+# =============================================================================
+
 @tool
 def remember_project_fact(fact: str) -> str:
     """Save one durable fact shared by members of the active project."""
@@ -63,6 +73,11 @@ def remember_project_fact(fact: str) -> str:
     )
 
 
+
+# =============================================================================
+# 03. Tool tìm fact dùng chung
+# =============================================================================
+
 @tool
 def search_project_facts(query: str = "") -> str:
     """Search the active project's saved facts and return IDs and versions."""
@@ -76,6 +91,11 @@ def search_project_facts(query: str = "") -> str:
     result = search_project_memory_entries(project_id, query, limit=5)
     return json.dumps(result, ensure_ascii=False, default=str)
 
+
+
+# =============================================================================
+# 04. Tool sửa và quên fact có kiểm tra quyền, phiên bản
+# =============================================================================
 
 @tool
 def update_project_fact(

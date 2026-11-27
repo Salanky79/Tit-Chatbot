@@ -9,6 +9,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+
+# =============================================================================
+# 01. Đọc thống kê token từ response
+# =============================================================================
+
 def extract_token_usage(response: Any) -> dict[str, int]:
     if response is None:
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -30,6 +35,11 @@ def extract_token_usage(response: Any) -> dict[str, int]:
 
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
+
+
+# =============================================================================
+# 02. Ghi log mức sử dụng token
+# =============================================================================
 
 def log_token_usage(model_name: str, task: str, response: Any) -> dict[str, int]:
     usage = extract_token_usage(response)

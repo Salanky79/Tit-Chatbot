@@ -17,6 +17,11 @@ _current_language: ContextVar[str] = ContextVar("current_language", default="vi"
 
 
 # Trích xuất mã ngôn ngữ chính theo chuẩn BCP 47 (bảo toàn cả mã 2 ký tự như 'vi', 'en' và 3 ký tự như 'fil')
+
+# =============================================================================
+# 01. Xác định ngôn ngữ từ request
+# =============================================================================
+
 def extract_primary_language(raw_lang: str | None) -> str:
     """Extract primary language subtag (BCP 47), preserving 2-letter or 3-letter ISO codes."""
     if not raw_lang:
@@ -44,6 +49,11 @@ def resolve_request_language(headers: Mapping[str, Any] | None) -> str:
 
 
 # Cất mã ngôn ngữ vào ContextVar cho lượt request hiện tại
+
+# =============================================================================
+# 02. Ngôn ngữ theo context hiện tại
+# =============================================================================
+
 def set_current_language(lang: str) -> None:
     """Set language code for the current request context."""
     _current_language.set(extract_primary_language(lang))

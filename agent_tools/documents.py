@@ -45,6 +45,11 @@ format_tool_limit_notice = tool_callable("format_tool_limit_notice", _format_too
 is_daily_token_limit = tool_callable("is_daily_token_limit", _is_daily_token_limit)
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# 01. Tool tìm kiếm nội dung tài liệu
+# =============================================================================
+
 @tool
 def search_uploaded_documents(query: str) -> str:
     """Search specific passages or answers in uploaded documents.
@@ -65,6 +70,11 @@ def search_uploaded_documents(query: str) -> str:
         source=get_current_attachment_source() or None,
     )
 
+
+
+# =============================================================================
+# 02. Chuẩn hóa và chọn đúng tài liệu
+# =============================================================================
 
 def _clean_source_name(name: str) -> str:
     """Normalize a source name by removing UUID prefix and unifying whitespace/underscores."""
@@ -108,6 +118,11 @@ def _select_uploaded_name(
         return partial_matches[0], []
     return None, partial_matches
 
+
+
+# =============================================================================
+# 03. Tool tóm tắt và xử lý kết quả
+# =============================================================================
 
 @tool(response_format="content_and_artifact")
 def summarize_uploaded_document(filename: str = "", target_language: str = "auto") -> tuple[str, dict[str, str]]:
@@ -185,6 +200,11 @@ def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
             "error",
         )
 
+
+
+# =============================================================================
+# 04. Tool phân tích ảnh
+# =============================================================================
 
 @tool
 def analyze_uploaded_image(question: str, filename: str = "") -> str:

@@ -38,6 +38,11 @@ from services.token_limit_handler import invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
 
 
+
+# =============================================================================
+# 01. Trạng thái đồ thị và theo dõi output
+# =============================================================================
+
 class AgentState(TypedDict, total=False):
     """Trạng thái hội thoại mở rộng cho Agentic Chatbot:
 
@@ -66,6 +71,11 @@ class _OutputStartedTracker(BaseCallbackHandler):
             self.output_started = True
 
 
+
+# =============================================================================
+# 02. Dọn checkpoint theo cuộc trò chuyện
+# =============================================================================
+
 def delete_user_checkpoints(thread_ids: Iterable[str]) -> int:
     """Xóa checkpoint LangGraph thuộc danh sách thread của user."""
     unique_thread_ids = dict.fromkeys(thread_id for thread_id in thread_ids if thread_id)
@@ -86,6 +96,11 @@ def delete_user_checkpoints(thread_ids: Iterable[str]) -> int:
 SUMMARY_DIRECT_RETURN = os.getenv("SUMMARY_DIRECT_RETURN", "1").lower() not in ("0", "false", "no")
 SUMMARY_TOOL_NAME = "summarize_uploaded_document"
 
+
+
+# =============================================================================
+# 03. Định tuyến và trả kết quả tóm tắt
+# =============================================================================
 
 def _summary_tool_results(state: AgentState) -> list[ToolMessage]:
     """Read summary outcomes only from the most recent tool batch."""
@@ -146,6 +161,11 @@ ALLOWED_MODELS = {
 
 
 
+
+# =============================================================================
+# 04. Lựa chọn và cấu hình model
+# =============================================================================
+
 def normalize_model_name(model_name: str | None) -> str:
     """
     HÀM 1: CHUẨN HÓA VÀ KIỂM TRA TÊN MODEL (Validation & Fallback)
@@ -182,6 +202,11 @@ def _build_reasoning_kwargs(model_name: str) -> dict[str, Any]:
         kwargs["reasoning_format"] = os.getenv("GROQ_REASONING_FORMAT", "parsed").strip() or "parsed"
     return kwargs
 
+
+
+# =============================================================================
+# 05. Xây dựng đồ thị agent
+# =============================================================================
 
 def build_agent(model_name: str) -> Any:
     """
@@ -313,6 +338,11 @@ def build_agent(model_name: str) -> Any:
 # Bộ nhớ đệm (Cache) lưu trữ các agent đã được khởi tạo để tái sử dụng, tránh tạo lại nhiều lần gây tốn tài nguyên
 _AGENT_CACHE: dict[str, Any] = {}
 
+
+
+# =============================================================================
+# 06. Cache và cung cấp agent
+# =============================================================================
 
 def get_agent(model_name: str | None = None) -> Any:
     """

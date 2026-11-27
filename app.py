@@ -1,3 +1,4 @@
+# Bootstrap: nạp môi trường và chứng chỉ trước các module ứng dụng.
 from dotenv import load_dotenv
 import os
 import certifi
@@ -17,9 +18,11 @@ import uvicorn
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage
 
+# Các import công khai được giữ để facade/patch tương thích tiếp tục hoạt động.
 from agent import get_agent, delete_user_checkpoints, normalize_model_name
 from services.followups import FOLLOWUPS_ENABLED, generate_followup_questions
 from services.token_limit_handler import handle_partial_stream, is_daily_token_limit, is_rate_limit
@@ -90,6 +93,9 @@ from api.chat import (
 from api.projects import router as _projects_router
 from api.personalization import router as _personalization_router
 
+# =============================================================================
+# Khởi tạo ứng dụng, template và thư mục dữ liệu
+# =============================================================================
 logger = logging.getLogger(__name__)
 app = FastAPI()
 templates = _default_templates
@@ -97,6 +103,11 @@ Path("uploads").mkdir(exist_ok=True)
 Path("uploads/avatars").mkdir(exist_ok=True, parents=True)
 Path("data").mkdir(exist_ok=True)
 
+
+
+# =============================================================================
+# 01. Khởi động ứng dụng và tạo index
+# =============================================================================
 
 @app.on_event("startup")
 def startup_event() -> None:
@@ -108,6 +119,14 @@ def startup_event() -> None:
         logger.warning("Could not initialize MongoDB indexes on startup: %s", exc)
 
 
+# =============================================================================
+# Tài nguyên giao diện và đăng ký router theo thứ tự hiện tại
+# =============================================================================
+app.mount(
+    "/static",
+    StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+    name="static",
+)
 app.include_router(_auth_router, prefix="/api")
 app.include_router(_pages_router)
 app.include_router(_admin_router, prefix="/api")
@@ -120,5 +139,6 @@ app.include_router(_personalization_router, prefix="/api")
 app.add_api_route("/uploads/avatars/{filename}", get_avatar_file, methods=["GET"])
 
 
+# Điểm chạy trực tiếp cho môi trường phát triển.
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)

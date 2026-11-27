@@ -1,3 +1,8 @@
+
+# =============================================================================
+# 01. Nội dung prompt và cấu hình hướng dẫn
+# =============================================================================
+
 FOLLOWUP_PROMPT = (
     "Create exactly two concise, distinct follow-up prompts that a user could send next based on this exchange.\n"
     "Use the same language as the conversation (e.g. Vietnamese). Write each prompt from the user's perspective.\n"

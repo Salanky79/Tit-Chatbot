@@ -8,6 +8,11 @@ import smtplib
 import ssl
 
 
+
+# =============================================================================
+# 01. Nội dung email xác minh tài khoản
+# =============================================================================
+
 def send_verification_code(email: str, code: str) -> None:
     """Send a short-lived sign-in verification code using configured SMTP."""
     message = EmailMessage()
@@ -54,6 +59,11 @@ def send_verification_code(email: str, code: str) -> None:
     _send_message(message)
 
 
+
+# =============================================================================
+# 02. Nội dung email mời Project
+# =============================================================================
+
 def send_project_invitation(email: str, project_name: str, inviter_name: str, role: str, invitation_url: str, expires_at: str) -> None:
     """Send a recipient-bound link; SMTP acceptance is reported separately by the API."""
     role_name = "Có thể chỉnh sửa" if role == "editor" else "Chỉ trò chuyện"
@@ -79,6 +89,11 @@ def send_project_invitation(email: str, project_name: str, inviter_name: str, ro
         </div></body></html>""", subtype="html")
     _send_message(message)
 
+
+
+# =============================================================================
+# 03. Vận chuyển SMTP dùng chung
+# =============================================================================
 
 def _send_message(message: EmailMessage) -> None:
     host = os.getenv("SMTP_HOST")

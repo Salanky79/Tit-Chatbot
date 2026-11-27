@@ -27,6 +27,11 @@ _public_user = database_callable("_public_user", _public_user_impl)
 hash_password = database_callable("hash_password", _hash_password_impl)
 verify_password = database_callable("verify_password", _verify_password_impl)
 
+
+# =============================================================================
+# 01. Tạo tài khoản và xác thực mật khẩu
+# =============================================================================
+
 def create_user(
     username: str,
     email: str,
@@ -115,6 +120,11 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
     return _public_user(user)
 
 
+
+# =============================================================================
+# 02. Tra cứu tài khoản
+# =============================================================================
+
 def get_user_by_id(user_id: str | ObjectId) -> dict | None:
     """Lấy thông tin user theo ID."""
     if not user_id:
@@ -144,6 +154,11 @@ def get_user_by_username(username: str) -> dict | None:
 
     return _public_user(user)
 
+
+
+# =============================================================================
+# 03. Danh sách và thao tác quản trị
+# =============================================================================
 
 def list_users(*, page: int = 1, page_size: int = 25, search: str = "") -> dict[str, Any]:
     """Tìm và phân trang danh sách user; giới hạn page size để tránh truy vấn lớn."""
@@ -262,6 +277,11 @@ def delete_user(user_id: str | ObjectId) -> dict:
     return _public_user(user)
 
 
+
+# =============================================================================
+# 04. Tra cứu thread của tài khoản
+# =============================================================================
+
 def list_user_thread_ids(user_id: str | ObjectId) -> list[str]:
     """Lấy danh sách thread ID thuộc về một user hợp lệ."""
     query_id = _to_object_id(user_id)
@@ -282,6 +302,11 @@ def list_user_thread_ids(user_id: str | ObjectId) -> list[str]:
         if conversation.get("thread_id")
     ))
 
+
+
+# =============================================================================
+# 05. Cập nhật hồ sơ và cấu hình cá nhân
+# =============================================================================
 
 def update_user_profile(
     user_id: str | ObjectId,
