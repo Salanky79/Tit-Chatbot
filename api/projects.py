@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from api.compat import app_callable
 from api.dependencies import get_current_user
+from services.email_service import send_project_invitation
+from services.project_events import project_event_stream
 from storage.projects import (
     can_edit_project,
     create_project,
@@ -23,14 +29,26 @@ from storage.projects import (
     list_project_files,
     list_project_members,
     list_projects_for_user,
+    preview_project_invitation,
     remove_project_member,
     respond_to_invitation,
+    respond_to_invitation_token,
     update_member_role,
     update_project,
 )
 
 router = APIRouter()
 get_current_user = app_callable("get_current_user", get_current_user)
+logger = logging.getLogger(__name__)
+
+
+def _invitation_url(request: Request, token: str) -> str:
+    base = (os.getenv("PUBLIC_APP_URL") or str(request.base_url)).rstrip("/")
+    parsed = urlsplit(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment or parsed.username:
+        raise ValueError("PUBLIC_APP_URL must be an absolute HTTP(S) application URL without query or fragment.")
+    # Fragments are kept out of server access logs and Referer headers.
+    return f"{base}/#project-invite={token}"
 
 
 def _error(message: str, status: int) -> JSONResponse:
@@ -82,6 +100,58 @@ async def invitations(request: Request):
     return {"success": True, "invitations": list_pending_invitations(str(user["id"]))}
 
 
+@router.get("/projects/events")
+async def project_events(request: Request):
+    """Mở kết nối SSE đẩy thông báo thay đổi Project/quyền về browser theo thời gian thực."""
+    user = _user(request)
+    if isinstance(user, JSONResponse):
+        return user
+    # Tắt cache & X-Accel-Buffering để Nginx/proxy đẩy từng event ngay, không giữ buffer
+    
+    return StreamingResponse(project_event_stream(request, str(user["id"]), get_current_user),
+                             media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"})
+
+
+@router.post("/projects/invitations/preview")
+async def preview_invitation(request: Request):
+    user = _user(request)
+    if isinstance(user, JSONResponse):
+        return user
+    try:
+        body = await request.json()
+    except ValueError:
+        return _error("Invalid JSON body.", 400)
+    if not isinstance(body, dict):
+        return _error("Invalid JSON body.", 400)
+    try:
+        invitation = await run_in_threadpool(preview_project_invitation, body.get("token", ""), str(user["id"]))
+    except ValueError as exc:
+        return _error(str(exc), 410)
+    if not invitation:
+        return _error("Invitation not found, revoked, already handled, or belongs to another account.", 404)
+    return {"success": True, "invitation": invitation}
+
+
+@router.post("/projects/invitations/respond")
+async def respond_invitation_link(request: Request):
+    user = _user(request)
+    if isinstance(user, JSONResponse):
+        return user
+    try:
+        body = await request.json()
+    except ValueError:
+        return _error("Invalid JSON body.", 400)
+    if not isinstance(body, dict) or type(body.get("accept")) is not bool:
+        return _error("A boolean accept value is required.", 400)
+    try:
+        project_id = await run_in_threadpool(respond_to_invitation_token, body.get("token", ""), str(user["id"]), body["accept"])
+    except ValueError as exc:
+        return _error(str(exc), 410)
+    if not project_id:
+        return _error("Invitation not found, revoked, already handled, or belongs to another account.", 404)
+    return {"success": True, "project_id": project_id}
+
+
 @router.post("/projects/invitations/{invitation_id}/accept")
 async def accept_invitation(invitation_id: str, request: Request):
     """Chấp nhận lời mời tham gia Project."""
@@ -89,7 +159,7 @@ async def accept_invitation(invitation_id: str, request: Request):
     if isinstance(user, JSONResponse):
         return user
     if not respond_to_invitation(invitation_id, str(user["id"]), True):
-        return _error("Invitation not found or already handled.", 404)
+        return _error("Invitation not found, expired, or already handled.", 404)
     return {"success": True}
 
 
@@ -100,7 +170,7 @@ async def decline_invitation(invitation_id: str, request: Request):
     if isinstance(user, JSONResponse):
         return user
     if not respond_to_invitation(invitation_id, str(user["id"]), False):
-        return _error("Invitation not found or already handled.", 404)
+        return _error("Invitation not found, expired, or already handled.", 404)
     return {"success": True}
 
 
@@ -179,10 +249,27 @@ async def invite_member(project_id: str, request: Request):
         return user
     try:
         body = await request.json()
-        member = invite_project_member(
-            project_id, str(user["id"]), body.get("identifier", ""), body.get("role", "chat_only")
+        if not isinstance(body, dict):
+            return _error("Invalid JSON body.", 400)
+        # Validate URL configuration before persisting or rotating an invitation.
+        _invitation_url(request, "")
+        member = await run_in_threadpool(
+            invite_project_member, project_id, str(user["id"]), body.get("identifier", ""),
+            body.get("role", "chat_only"), body.get("expiry_days", 7)
         )
-        return JSONResponse({"success": True, "invitation": member}, status_code=201)
+        token = member.pop("invitation_token")
+        invitation_url = _invitation_url(request, token)
+        project_name = member.pop("project_name")
+        email_sent = False
+        try:
+            await run_in_threadpool(send_project_invitation, member["email"], project_name,
+                                    user.get("full_name") or user.get("username") or "Chủ sở hữu",
+                                    member["role"], invitation_url, member["expires_at"])
+            email_sent = True
+        except Exception:
+            logger.warning("Could not deliver project invitation email", exc_info=True)
+        return JSONResponse({"success": True, "invitation": member, "invitation_url": invitation_url,
+                             "email_sent": email_sent, "email_error": None if email_sent else "Email delivery failed. The in-app invitation and link are still available."}, status_code=201)
     except PermissionError as exc:
         return _error(str(exc), 403)
     except ValueError as exc:

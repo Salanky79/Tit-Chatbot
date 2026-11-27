@@ -435,6 +435,66 @@
         .project-file-row span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .project-invite-row { padding:7px 8px; border-radius:8px; background:rgba(255,255,255,.04); margin:4px 2px; font-size:12px; color:var(--text-secondary); }
         .project-add-modal-note { font-size:12px; line-height:1.5; color:var(--text-muted); margin: 4px 0 14px; }
+        .auth-modal-container.project-members-dialog { max-width:760px; max-height:calc(100dvh - 40px); overflow-y:auto; }
+        #projectMembersModal [hidden], #projectInvitationModal [hidden] { display:none; }
+        .project-members-dialog .auth-modal-header { padding-right:28px; }
+        .project-members-dialog h3 { margin:0 0 12px; font-size:14px; }
+        .project-members-dialog fieldset { border:0; margin:0; padding:0; min-width:0; }
+        .project-members-dialog button:disabled { opacity:.5; cursor:not-allowed; }
+        .project-members-dialog .project-tool-btn { padding:8px 10px; }
+        .project-members-note { color:var(--text-secondary); font-size:12px; line-height:1.6; margin:14px 0; }
+        .project-members-notice { padding:10px 12px; margin:14px 0; border:1px solid var(--border-strong); border-radius:10px; font-size:13px; line-height:1.5; color:var(--text-main); background:rgba(255,255,255,.04); }
+        .project-members-notice[data-kind="error"] { color:#ffb3b8; border-color:rgba(255,82,82,.35); background:rgba(255,43,61,.08); }
+        .project-members-notice[data-kind="success"] { color:#a9e5c2; border-color:rgba(105,201,145,.3); background:rgba(105,201,145,.06); }
+        .project-members-notice[data-kind="warning"] { color:var(--amber); border-color:rgba(255,154,77,.3); }
+        .project-invitation-link { margin:14px 0; padding:12px; border:1px solid var(--border-strong); border-radius:10px; }
+        .project-invitation-link label { display:block; margin-bottom:8px; font-size:12px; }
+        .project-invitation-link-row { display:flex; gap:8px; }
+        .project-invitation-link-row input { min-width:0; flex:1; background:var(--bg-card); color:var(--text-secondary); border:1px solid var(--border-strong); border-radius:8px; padding:8px; font:12px var(--font-sans); }
+        .project-invitation-expiry { margin-top:8px; color:var(--text-muted); font-size:11px; line-height:1.5; }
+        .project-invitation-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:18px; }
+        .project-invitation-actions .auth-submit-btn { width:auto; margin:0; padding:10px 16px; }
+        .project-invite-form { padding:18px; border:1px solid var(--border-color); border-radius:14px; background:rgba(255,255,255,.02); }
+        .project-invite-form .auth-field { margin-bottom:14px; }
+        .project-invite-form legend { padding:0; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-secondary); }
+        .project-role-options { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        .project-role-option { display:flex; align-items:flex-start; gap:9px; padding:12px; border:1px solid var(--border-strong); border-radius:10px; cursor:pointer; }
+        .project-role-option:has(input:checked) { border-color:var(--accent); background:rgba(255,43,61,.08); }
+        .project-role-option input { margin:3px 0 0; accent-color:var(--accent); }
+        .project-role-option strong { display:block; font-size:12px; line-height:1.5; }
+        .project-role-option small { display:block; margin-top:4px; font-size:11px; line-height:1.6; color:var(--text-secondary); }
+        .project-invite-footer { display:flex; align-items:center; gap:16px; margin-top:14px; }
+        .project-invite-footer p { flex:1; margin:0; font-size:11px; line-height:1.6; color:var(--text-muted); }
+        .project-invite-footer .auth-submit-btn { width:auto; flex-shrink:0; margin:0; padding:10px 16px; }
+        .project-members-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:22px 0 4px; }
+        .project-members-heading h3 { margin:0; }
+        .project-members-count { color:var(--text-muted); font-size:11px; text-align:right; }
+        .project-members-list { list-style:none; margin:0; padding:0; }
+        .project-member-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:15px 0; border-bottom:1px solid var(--border-color); }
+        .project-member-avatar { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:34px; height:34px; border-radius:50%; background:rgba(255,43,61,.12); color:var(--accent-soft); font-size:13px; font-weight:700; }
+        .project-member-info { flex:1; min-width:120px; overflow-wrap:anywhere; }
+        .project-member-name { font-size:13px; font-weight:600; }
+        .project-member-detail { margin-top:3px; font-size:11px; color:var(--text-muted); line-height:1.5; }
+        .project-member-status { color:var(--text-secondary); }
+        .project-member-status[data-status="invited"] { color:var(--amber); }
+        .project-member-role { color:var(--text-secondary); font-size:12px; }
+        .project-members-dialog .project-member-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+        .project-member-actions select { max-width:100%; min-height:34px; padding:6px 8px; border:1px solid var(--border-strong); border-radius:8px; background:var(--bg-card); color:var(--text-main); font:12px var(--font-sans); }
+        .project-member-remove { color:#ffb3b8; }
+        .project-members-dialog .project-member-confirm { flex-basis:100%; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; padding:12px; border:1px solid rgba(255,82,82,.25); border-radius:10px; background:rgba(255,43,61,.05); }
+        .project-member-confirm p { flex:1; min-width:140px; margin:0; font-size:12px; line-height:1.5; }
+        .project-members-empty { padding:18px 0; font-size:13px; color:var(--text-secondary); line-height:1.6; }
+        .project-members-empty button { margin-left:8px; }
+        .project-members-footer { display:flex; justify-content:flex-end; margin-top:18px; }
+        @media (max-width:600px) {
+            #projectMembersModal { padding:12px; }
+            .auth-modal-container.project-members-dialog { padding:24px 16px; max-height:calc(100dvh - 24px); }
+            .project-invite-form { padding:14px; }
+            .project-role-options { grid-template-columns:1fr; }
+            .project-invite-footer { align-items:stretch; flex-direction:column; gap:10px; }
+            .project-members-dialog .project-member-actions { width:100%; padding-left:44px; }
+            .project-members-heading { align-items:flex-start; }
+        }
         .message-author-label { display:block; margin-bottom:4px; color:var(--text-muted); font-size:11px; font-weight:600; }
 
         #projectConversationList,
@@ -3336,6 +3396,16 @@
     let activeProject = null;
     let cachedProjects = [];
     let pendingAddThreadId = "";
+    let projectMembersState = null;
+    let projectLoadVersion = 0;
+    let projectEventsSource = null;
+    let projectEventsUserId = "";
+    let projectEventsFallback = null;
+    let projectRefreshRunning = false;
+    let projectRefreshPending = false;
+    let projectMembersRefreshPending = false;
+    let pendingProjectInvitationToken = sessionStorage.getItem("pending_project_invitation") || "";
+    let projectInvitationState = null;
 
     /**
      * Cập nhật thanh workspace Project, khu vực chat của Project ở sidebar và trạng thái nút Temporary chat.
@@ -3362,6 +3432,9 @@
 
         const deleteBtn = document.getElementById("projectDeleteBtn");
         if (deleteBtn) deleteBtn.style.display = activeProject?.membership?.role === "owner" ? "inline-flex" : "none";
+        if (projectMembersState && (!currentUser || activeProjectId !== projectMembersState.projectId)) {
+            closeProjectMembersModal();
+        }
     }
 
     function toggleTemporaryChat() {
@@ -3788,13 +3861,17 @@
     }
 
     async function loadProjects() {
+        const version = ++projectLoadVersion;
+        const userId = currentUser?.id;
         const section = document.getElementById("projectSection");
         const list = document.getElementById("projectList");
         const invitationBox = document.getElementById("projectInvitations");
         if (!section || !list) return;
         if (!currentUser) {
+            stopProjectEvents();
             section.style.display = "none";
             list.innerHTML = "";
+            if (invitationBox) invitationBox.innerHTML = "";
             cachedProjects = [];
             activeProjectId = "";
             activeProject = null;
@@ -3809,6 +3886,15 @@
             ]);
             const projectData = await projectResponse.json();
             const inviteData = await inviteResponse.json();
+            if (version !== projectLoadVersion || currentUser?.id !== userId) return;
+            if (projectResponse.status === 401 || inviteResponse.status === 401) {
+                currentUser = null;
+                renderUserUI();
+                await loadProjects();
+                await newChat();
+                return;
+            }
+            if (!projectResponse.ok || !inviteResponse.ok) throw new Error(projectData.error || inviteData.error || "Không tải được Project.");
             const projects = projectData.projects || [];
             // Lưu danh sách Project kèm membership role để dùng lại cho modal Add to Project.
             cachedProjects = projects;
@@ -3828,7 +3914,10 @@
                 (inviteData.invitations || []).forEach(invite => {
                     const row = document.createElement("div");
                     row.className = "project-invite-row";
-                    row.innerHTML = `<div>${escapeHtml(invite.project?.name || "Project invitation")} · ${escapeHtml(invite.role)}</div><div style="margin-top:6px"><button class="project-tool-btn" onclick="respondProjectInvite('${escapeHtml(invite._id)}',true)">Accept</button> <button class="project-tool-btn" onclick="respondProjectInvite('${escapeHtml(invite._id)}',false)">Decline</button></div>`;
+                    row.innerHTML = `<div>${escapeHtml(invite.project?.name || "Lời mời Project")} · ${invite.role === "editor" ? "Có thể chỉnh sửa" : "Chỉ trò chuyện"}</div><div class="project-invitation-expiry">${invite.expires_at ? `Hết hạn: ${escapeHtml(new Date(invite.expires_at).toLocaleString("vi-VN"))}` : ""}</div><div style="margin-top:6px"><button class="project-tool-btn">Chấp nhận</button> <button class="project-tool-btn">Từ chối</button></div>`;
+                    const [accept, decline] = row.querySelectorAll("button");
+                    accept.onclick = () => respondProjectInvite(invite._id, true, row);
+                    decline.onclick = () => respondProjectInvite(invite._id, false, row);
                     invitationBox.appendChild(row);
                 });
             }
@@ -3839,7 +3928,16 @@
                     activeProject = null;
                     localStorage.removeItem("active_project_id");
                 } else {
-                    const detail = await fetch(`/api/projects/${activeProjectId}`).then(r => r.json());
+                    const detailResponse = await fetch(`/api/projects/${activeProjectId}`);
+                    const detail = await detailResponse.json();
+                    if (version !== projectLoadVersion || currentUser?.id !== userId) return;
+                    if (!detailResponse.ok) {
+                        activeProjectId = "";
+                        activeProject = null;
+                        localStorage.removeItem("active_project_id");
+                        updateProjectWorkspace();
+                        return;
+                    }
                     activeProject = detail.project || found;
                     activeProject.membership = detail.membership;
                 }
@@ -3848,7 +3946,96 @@
         } catch (error) {
             console.error("Failed to load projects:", error);
         }
+        if (currentUser?.id === userId) syncProjectEvents();
     }
+
+    // Đóng kết nối SSE và xóa timer polling dự phòng
+    function stopProjectEvents() {
+        projectEventsSource?.close();
+        projectEventsSource = null;
+        projectEventsUserId = "";
+        clearInterval(projectEventsFallback);
+        projectEventsFallback = null;
+    }
+
+    // Quản lý luồng SSE /api/projects/events; tự chuyển sang polling 10s khi SSE lỗi
+    function syncProjectEvents() {
+        // Ngắt kết nối nếu chưa đăng nhập hoặc tab đang bị ẩn để tiết kiệm tài nguyên
+        if (!currentUser || document.hidden) { stopProjectEvents(); return; }
+        const userId = String(currentUser.id);
+        if (projectEventsUserId === userId) return; // Đang kết nối đúng user -> không mở lại
+        stopProjectEvents();
+        projectEventsUserId = userId;
+        const fallback = () => {
+            if (!currentUser || projectEventsUserId !== userId || document.hidden) return;
+            // Khi SSE rớt/không hỗ trợ -> tải lại định kỳ mỗi 10 giây
+            if (!projectEventsFallback) projectEventsFallback = setInterval(() => queueProjectRefresh(true), 10000);
+        };
+        if (typeof EventSource === "undefined") { fallback(); return; }
+        const source = new EventSource("/api/projects/events");
+        projectEventsSource = source;
+        let membersRevision = "";
+        source.addEventListener("projects_changed", event => {
+            if (projectEventsSource !== source || String(currentUser?.id) !== userId) return;
+            try {
+                const update = JSON.parse(event.data);
+                // So sánh members_revision để biết có cần reload luôn modal thành viên không
+                const membersChanged = membersRevision !== update.members_revision;
+                membersRevision = update.members_revision;
+                queueProjectRefresh(membersChanged);
+            } catch (error) { console.error("Invalid Project notification", error); }
+        });
+        source.addEventListener("session_expired", async () => {
+            if (projectEventsSource !== source) return;
+            stopProjectEvents();
+            await checkAuthStatus();
+            await loadProjects();
+            if (!currentUser) await newChat();
+        });
+        source.addEventListener("retry_later", fallback);
+        // SSE mở lại thành công -> tắt timer polling 10s
+        source.onopen = () => { clearInterval(projectEventsFallback); projectEventsFallback = null; };
+        source.onerror = fallback;
+    }
+
+    // Gom các yêu cầu refresh liên tiếp thành 1 hàng đợi tuần tự, tránh gọi API chồng chéo
+    async function queueProjectRefresh(membersChanged = false) {
+        projectRefreshPending = true;
+        projectMembersRefreshPending ||= membersChanged;
+        if (projectRefreshRunning) return;
+        projectRefreshRunning = true;
+        try {
+            while (projectRefreshPending && currentUser) {
+                projectRefreshPending = false;
+                const refreshMembers = projectMembersRefreshPending;
+                projectMembersRefreshPending = false;
+                const previousProject = activeProjectId;
+                await loadProjects();
+                // Nếu đang mở một Project nhưng bị thu hồi quyền/xóa mất -> quay về chat mới
+                if (previousProject && !activeProjectId) await newChat();
+                await loadConversations();
+                if (refreshMembers && projectMembersState) await refreshProjectMembersWhenSafe(projectMembersState);
+            }
+        } finally { projectRefreshRunning = false; }
+    }
+
+    // Không tự render đè modal thành viên nếu Owner đang chọn role hoặc xác nhận xóa
+    async function refreshProjectMembersWhenSafe(state) {
+        if (projectMembersState !== state) return;
+        const list = document.getElementById("projectMembersList");
+        if (state.busy || !state.loaded || list.querySelector('[data-save-role]:not(:disabled), .project-member-confirm')) {
+            document.getElementById("projectMembersRefreshBtn").hidden = false;
+            return;
+        }
+        await loadProjectMembers(state);
+    }
+
+    document.addEventListener("visibilitychange", () => {
+        syncProjectEvents();
+        if (!document.hidden && currentUser) queueProjectRefresh(true);
+    });
+    window.addEventListener("pagehide", stopProjectEvents);
+    window.addEventListener("pageshow", () => { if (currentUser) syncProjectEvents(); });
 
     async function selectProject(projectId) {
         activeProjectId = projectId;
@@ -3924,50 +4111,268 @@
 
     async function manageProjectMembers() {
         if (!activeProjectId || !activeProject) return;
-        const membership = activeProject.membership || {};
-        const response = await fetch(`/api/projects/${activeProjectId}/members`);
-        const data = await response.json();
-        const members = data.members || [];
-        const summary = members.map(m => `${m.full_name || m.username || m.email} — ${m.role} (${m.status})`).join("\n");
-        if (membership.role !== "owner") { alert(summary || "Không có thành viên."); return; }
-        const action = prompt(`Thành viên hiện tại:\n${summary || "Chưa có thành viên khác."}\n\nNhập thao tác: invite, role, remove`, "invite");
-        if (!action) return;
-        if (action.trim().toLowerCase() === "invite") {
-            const identifier = prompt("Email hoặc username tài khoản đã đăng ký:");
-            if (!identifier) return;
-            const role = prompt("Vai trò:\neditor = sửa hướng dẫn, upload và quản lý file\nchat_only = chỉ trò chuyện, đọc chat và tải file\nNhập editor hoặc chat_only:", "chat_only");
-            if (!role) return;
-            const inviteResponse = await fetch(`/api/projects/${activeProjectId}/members`, {
-                method: "POST", headers: {"Content-Type":"application/json"},
-                body: JSON.stringify({identifier, role: role.trim()})
+        if (projectMembersState) return;
+        const state = {
+            projectId: activeProjectId,
+            isOwner: activeProject.membership?.role === "owner",
+            members: [], loaded: false, busy: false,
+            returnFocus: document.activeElement
+        };
+        projectMembersState = state;
+        document.getElementById("projectMembersProjectName").textContent = activeProject.name || "Project";
+        document.getElementById("projectInviteForm").reset();
+        document.getElementById("projectInvitationLinkBox").hidden = true;
+        document.getElementById("projectMembersRefreshBtn").hidden = true;
+        document.getElementById("projectInviteForm").hidden = !state.isOwner;
+        document.getElementById("projectMembersReadOnly").hidden = state.isOwner;
+        document.getElementById("projectMembersCount").textContent = "";
+        setProjectMembersFeedback("");
+        document.getElementById("projectMembersModal").style.display = "flex";
+        document.addEventListener("keydown", handleProjectMembersKeydown, true);
+        document.getElementById("projectMembersCloseBtn").focus();
+        await loadProjectMembers(state);
+    }
+
+    function closeProjectMembersModal() {
+        const state = projectMembersState;
+        projectMembersState = null;
+        document.getElementById("projectMembersModal").style.display = "none";
+        document.removeEventListener("keydown", handleProjectMembersKeydown, true);
+        if (state?.returnFocus?.isConnected && state.returnFocus.offsetParent !== null) state.returnFocus.focus();
+    }
+
+    function handleProjectMembersKeydown(event) {
+        if (!projectMembersState) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeProjectMembersModal();
+        } else if (event.key === "Tab") {
+            const modal = document.getElementById("projectMembersModal");
+            const items = [...modal.querySelectorAll("button, input, select, [tabindex='0']")]
+                .filter(el => !el.matches(":disabled") && el.offsetParent !== null);
+            const first = items[0], last = items[items.length - 1];
+            if (!modal.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+            else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+    }
+
+    function setProjectMembersFeedback(message, kind = "success") {
+        const notice = document.getElementById("projectMembersFeedback");
+        notice.textContent = message;
+        notice.dataset.kind = kind;
+        notice.hidden = !message;
+    }
+
+    function projectMemberError(message) {
+        return ({
+            "Sign-in required.": "Vui lòng đăng nhập để quản lý thành viên.",
+            "Only the project owner can invite members.": "Chỉ chủ sở hữu mới có thể mời thành viên.",
+            "No registered account matches that email or username.": "Không tìm thấy tài khoản với email hoặc tên đăng nhập này.",
+            "You already own this project.": "Bạn đã là chủ sở hữu của Project này.",
+            "This user is already a project member.": "Người này đã là thành viên của Project.",
+            "This account is inactive.": "Tài khoản này hiện đã bị vô hiệu hóa.",
+            "Invitation has expired. Ask the owner to send a new invitation.": "Lời mời đã hết hạn. Hãy nhờ chủ sở hữu gửi lời mời mới.",
+            "Invitation not found, revoked, already handled, or belongs to another account.": "Link không còn hiệu lực hoặc không thuộc tài khoản này. Hãy đăng nhập đúng tài khoản được mời hoặc nhờ chủ sở hữu gửi lại.",
+            "Invitation not found, expired, or already handled.": "Lời mời đã hết hạn, bị thu hồi hoặc đã được xử lý.",
+            "Project not found or access denied.": "Project không tồn tại hoặc bạn không còn quyền truy cập.",
+            "Member or project not found, or only the owner may change roles.": "Không thể đổi quyền. Hãy kiểm tra quyền chủ sở hữu và trạng thái thành viên.",
+            "Member not found, or only the owner may remove members.": "Không thể xóa thành viên. Hãy kiểm tra quyền chủ sở hữu và tải lại danh sách."
+        })[message] || message || "Không thể thực hiện thao tác. Vui lòng thử lại.";
+    }
+
+    function updateProjectMembersBusy(state) {
+        if (projectMembersState !== state) return;
+        document.getElementById("projectInviteFields").disabled = !state.loaded || state.busy;
+        document.querySelectorAll("#projectMembersList fieldset, #projectMembersList .project-members-retry")
+            .forEach(el => { el.disabled = state.busy; });
+        document.getElementById("projectInviteSubmitBtn").textContent = state.busy ? "Đang xử lý…" : "Gửi lời mời";
+    }
+
+    async function loadProjectMembers(state) {
+        if (projectMembersState !== state) return;
+        const list = document.getElementById("projectMembersList");
+        state.loaded = false;
+        document.getElementById("projectMembersRefreshBtn").hidden = true;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = '<li class="project-members-empty">Đang tải thành viên…</li>';
+        updateProjectMembersBusy(state);
+        try {
+            const response = await fetch(`/api/projects/${encodeURIComponent(state.projectId)}/members`);
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(projectMemberError(data.error));
+            if (projectMembersState !== state) return;
+            state.members = data.members || [];
+            state.loaded = true;
+            renderProjectMembers(state);
+        } catch (error) {
+            if (projectMembersState !== state) return;
+            document.getElementById("projectMembersCount").textContent = "";
+            list.innerHTML = '<li class="project-members-empty"><span></span><button type="button" class="project-tool-btn project-members-retry">Thử lại</button></li>';
+            list.querySelector("span").textContent = `Không tải được danh sách thành viên. ${error.message}`;
+            list.querySelector("button").onclick = () => loadProjectMembers(state);
+        } finally {
+            if (projectMembersState === state) {
+                list.setAttribute("aria-busy", "false");
+                updateProjectMembersBusy(state);
+            }
+        }
+    }
+
+    function renderProjectMembers(state) {
+        const list = document.getElementById("projectMembersList");
+        list.replaceChildren();
+        const roleNames = {owner: "Chủ sở hữu", editor: "Có thể chỉnh sửa", chat_only: "Chỉ trò chuyện"};
+        const statuses = {accepted: "Đã tham gia", invited: "Đang chờ chấp nhận", declined: "Đã từ chối", expired: "Đã hết hạn"};
+        const accepted = state.members.filter(m => m.status === "accepted").length;
+        const pending = state.members.filter(m => m.status === "invited").length;
+        document.getElementById("projectMembersCount").textContent = `${accepted} đã tham gia${pending ? ` · ${pending} đang chờ` : ""}`;
+        state.members.forEach(member => {
+            const name = member.full_name || member.username || member.email || "Thành viên";
+            const row = document.createElement("li");
+            row.className = "project-member-row";
+            row.innerHTML = `<div class="project-member-avatar" aria-hidden="true">${escapeHtml(Array.from(name)[0]?.toUpperCase() || "?")}</div>
+                <div class="project-member-info">
+                    <div class="project-member-name">${escapeHtml(name)}${String(member.user_id) === String(currentUser?.id) ? " (Bạn)" : ""}</div>
+                    <div class="project-member-detail">${escapeHtml(member.email || (member.username ? `@${member.username}` : ""))}</div>
+                    <div class="project-member-detail project-member-status" data-status="${escapeHtml(member.status)}">${escapeHtml(statuses[member.status] || member.status)}${member.status === "invited" && member.expires_at ? ` · Hết hạn ${escapeHtml(new Date(member.expires_at).toLocaleString("vi-VN"))}` : ""}</div>
+                </div>`;
+            const actions = document.createElement("fieldset");
+            actions.className = "project-member-actions";
+            actions.setAttribute("aria-label", `Quản lý ${name}`);
+            actions.disabled = state.busy;
+            if (state.isOwner && member.role !== "owner" && member.status === "accepted") {
+                const select = document.createElement("select");
+                select.setAttribute("aria-label", `Quyền của ${name}`);
+                select.innerHTML = '<option value="chat_only">Chỉ trò chuyện</option><option value="editor">Có thể chỉnh sửa</option>';
+                select.value = member.role;
+                const save = document.createElement("button");
+                save.type = "button";
+                save.className = "project-tool-btn";
+                save.textContent = "Lưu quyền";
+                save.dataset.saveRole = "true";
+                save.disabled = true;
+                select.onchange = () => { save.disabled = select.value === member.role; };
+                save.onclick = () => runProjectMemberAction(state, `/${encodeURIComponent(member.user_id)}`, "PATCH", {role: select.value}, `Đã cập nhật quyền của ${name}.`);
+                actions.append(select, save);
+            } else {
+                const role = document.createElement("span");
+                role.className = "project-member-role";
+                role.textContent = roleNames[member.role] || member.role;
+                actions.appendChild(role);
+            }
+            if (state.isOwner && member.role !== "owner") {
+                if (["invited", "declined", "expired"].includes(member.status)) {
+                    const reinvite = document.createElement("button");
+                    reinvite.type = "button";
+                    reinvite.className = "project-tool-btn";
+                    reinvite.textContent = member.status === "invited" ? "Gửi lại" : "Mời lại";
+                    reinvite.onclick = () => {
+                        document.getElementById("projectInviteIdentifier").value = member.email || member.username || "";
+                        document.getElementById(member.role === "editor" ? "projectInviteEditor" : "projectInviteChatOnly").checked = true;
+                        document.getElementById("projectInviteIdentifier").focus();
+                    };
+                    actions.appendChild(reinvite);
+                }
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "project-tool-btn project-member-remove";
+                remove.textContent = member.status === "invited" ? "Thu hồi lời mời" : "Xóa";
+                remove.onclick = () => confirmProjectMemberRemoval(state, member, row, remove);
+                actions.appendChild(remove);
+            }
+            row.appendChild(actions);
+            list.appendChild(row);
+        });
+        if (!state.members.length) list.innerHTML = '<li class="project-members-empty">Chưa có thành viên.</li>';
+    }
+
+    function confirmProjectMemberRemoval(state, member, row, trigger) {
+        if (state.busy || row.querySelector(".project-member-confirm")) return;
+        const name = member.full_name || member.username || member.email || "thành viên này";
+        const pending = member.status === "invited";
+        const declined = ["declined", "expired"].includes(member.status);
+        const confirmation = document.createElement("fieldset");
+        confirmation.className = "project-member-confirm";
+        confirmation.innerHTML = '<p></p><button type="button" class="project-tool-btn">Hủy</button><button type="button" class="project-tool-btn project-member-remove"></button>';
+        confirmation.querySelector("p").textContent = pending ? `Thu hồi lời mời gửi đến ${name}?`
+            : declined ? `Xóa lời mời của ${name}?` : `Xóa ${name} khỏi Project? Người này sẽ mất quyền truy cập.`;
+        const [cancel, confirm] = confirmation.querySelectorAll("button");
+        cancel.onclick = () => { confirmation.remove(); trigger.focus(); };
+        confirm.textContent = pending ? "Thu hồi" : declined ? "Xóa lời mời" : "Xóa thành viên";
+        confirm.onclick = () => runProjectMemberAction(state, `/${encodeURIComponent(member.user_id)}`, "DELETE", null,
+            pending ? `Đã thu hồi lời mời gửi đến ${name}.` : declined ? `Đã xóa lời mời của ${name}.` : `Đã xóa ${name} khỏi Project.`);
+        row.appendChild(confirmation);
+        cancel.focus();
+    }
+
+    async function submitProjectInvitation(event) {
+        event.preventDefault();
+        const state = projectMembersState;
+        if (!state?.isOwner || state.busy || !state.loaded) return;
+        const input = document.getElementById("projectInviteIdentifier");
+        const identifier = input.value.trim();
+        if (!identifier) {
+            setProjectMembersFeedback("Vui lòng nhập email hoặc tên đăng nhập của người được mời.", "error");
+            input.focus();
+            return;
+        }
+        const role = document.querySelector('input[name="projectInviteRole"]:checked').value;
+        const expiry_days = Number(document.getElementById("projectInviteDuration").value);
+        await runProjectMemberAction(state, "", "POST", {identifier, role, expiry_days},
+            "Đã tạo lời mời.", data => {
+                document.getElementById("projectInviteForm").reset();
+                document.getElementById("projectInvitationLinkValue").value = data.invitation_url;
+                document.getElementById("projectInvitationLinkExpiry").textContent = `Hết hạn: ${new Date(data.invitation.expires_at).toLocaleString("vi-VN")}. Gửi lại sẽ vô hiệu hóa link cũ.`;
+                document.getElementById("projectInvitationCopyBtn").textContent = "Sao chép";
+                document.getElementById("projectInvitationLinkBox").hidden = false;
             });
-            const inviteData = await inviteResponse.json();
-            if (!inviteResponse.ok) { alert(inviteData.error || "Không gửi được lời mời."); return; }
-            alert("Đã tạo lời mời. Người được mời sẽ thấy lời mời sau khi đăng nhập.");
-            return;
+    }
+
+    async function copyProjectInvitationLink() {
+        const input = document.getElementById("projectInvitationLinkValue");
+        try {
+            await navigator.clipboard.writeText(input.value);
+            document.getElementById("projectInvitationCopyBtn").textContent = "Đã sao chép";
+        } catch (error) {
+            input.focus();
+            input.select();
+            setProjectMembersFeedback("Link đã được chọn. Nhấn Ctrl+C hoặc dùng thao tác sao chép của thiết bị.", "warning");
         }
-        const target = prompt(`Nhập user_id thành viên cần ${action.trim().toLowerCase()}:\n${members.filter(m => m.role !== "owner").map(m => `${m.full_name || m.username}: ${m.user_id}`).join("\n")}`);
-        if (!target) return;
-        if (action.trim().toLowerCase() === "role") {
-            const role = prompt("Vai trò mới: editor hoặc chat_only", "chat_only");
-            if (!role) return;
-            const response = await fetch(`/api/projects/${activeProjectId}/members/${encodeURIComponent(target.trim())}`, {
-                method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({role: role.trim()})
-            });
-            const result = await response.json();
-            if (!response.ok || !result.success) alert(result.error || "Không đổi được vai trò.");
-            else alert("Đã cập nhật vai trò thành viên.");
-            return;
+    }
+
+    async function runProjectMemberAction(state, suffix, method, body, successMessage, onSuccess) {
+        if (projectMembersState !== state || !state.isOwner || state.busy || !state.loaded) return;
+        state.busy = true;
+        document.getElementById("projectInvitationLinkBox").hidden = true;
+        setProjectMembersFeedback("");
+        updateProjectMembersBusy(state);
+        try {
+            const options = {method};
+            if (body) {
+                options.headers = {"Content-Type": "application/json"};
+                options.body = JSON.stringify(body);
+            }
+            const response = await fetch(`/api/projects/${encodeURIComponent(state.projectId)}/members${suffix}`, options);
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(projectMemberError(data.error));
+            if (projectMembersState !== state) return;
+            if (onSuccess) onSuccess(data);
+            if (method === "POST") {
+                setProjectMembersFeedback(data.email_sent
+                    ? "Đã gửi lời mời qua email và trong ứng dụng. Bạn cũng có thể sao chép link bên dưới."
+                    : "Đã tạo lời mời trong ứng dụng nhưng chưa gửi được email. Bạn có thể sao chép link bên dưới để gửi cho người nhận.", data.email_sent ? "success" : "warning");
+            } else setProjectMembersFeedback(successMessage);
+            await loadProjectMembers(state);
+        } catch (error) {
+            if (projectMembersState === state) setProjectMembersFeedback(error.message || "Không thể kết nối. Vui lòng thử lại.", "error");
+        } finally {
+            if (projectMembersState === state) {
+                state.busy = false;
+                updateProjectMembersBusy(state);
+            }
         }
-        if (action.trim().toLowerCase() === "remove") {
-            if (!confirm("Xóa thành viên này khỏi Project?")) return;
-            const response = await fetch(`/api/projects/${activeProjectId}/members/${encodeURIComponent(target.trim())}`, {method:"DELETE"});
-            const result = await response.json();
-            if (!response.ok) alert(result.error || "Không xóa được thành viên.");
-            else alert("Đã xóa thành viên khỏi Project.");
-            return;
-        }
-        alert("Thao tác phải là invite, role hoặc remove.");
     }
 
     async function deleteActiveProject() {
@@ -3985,12 +4390,115 @@
         await loadProjects();
     }
 
-    async function respondProjectInvite(invitationId, accept) {
+    async function respondProjectInvite(invitationId, accept, row) {
         const action = accept ? "accept" : "decline";
-        const response = await fetch(`/api/projects/invitations/${invitationId}/${action}`, {method:"POST"});
-        const data = await response.json();
-        if (!response.ok) alert(data.error || "Không thể xử lý lời mời.");
-        await loadProjects();
+        row?.querySelectorAll("button").forEach(button => { button.disabled = true; });
+        try {
+            const response = await fetch(`/api/projects/invitations/${encodeURIComponent(invitationId)}/${action}`, {method:"POST"});
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(projectMemberError(data.error));
+            await queueProjectRefresh(true);
+        } catch (error) {
+            if (row) {
+                let message = row.querySelector('[role="status"]');
+                if (!message) { message = document.createElement("div"); message.setAttribute("role", "status"); row.appendChild(message); }
+                message.textContent = error.message || "Không thể xử lý lời mời. Vui lòng thử lại.";
+            }
+        } finally { row?.querySelectorAll("button").forEach(button => { button.disabled = false; }); }
+    }
+
+    function captureProjectInvitationLink() {
+        const params = new URLSearchParams(location.hash.slice(1));
+        const token = params.get("project-invite");
+        if (!token) return;
+        pendingProjectInvitationToken = token;
+        sessionStorage.setItem("pending_project_invitation", token);
+        params.delete("project-invite");
+        history.replaceState(null, "", location.pathname + location.search + (params.size ? `#${params}` : ""));
+    }
+
+    async function showProjectInvitationLink() {
+        if (!pendingProjectInvitationToken || projectInvitationState) return;
+        const state = {token: pendingProjectInvitationToken, userId: currentUser?.id, busy: false, returnFocus: document.activeElement};
+        projectInvitationState = state;
+        document.getElementById("projectInvitationModal").style.display = "flex";
+        document.getElementById("projectInvitationActions").hidden = true;
+        document.getElementById("projectInvitationSignInBtn").hidden = Boolean(currentUser);
+        const description = document.getElementById("projectInvitationDescription");
+        const errorBox = document.getElementById("projectInvitationError");
+        errorBox.hidden = true;
+        document.getElementById("projectInvitationCloseBtn").focus();
+        document.addEventListener("keydown", handleProjectInvitationKeydown, true);
+        if (!currentUser) {
+            description.textContent = "Đăng nhập đúng tài khoản nhận lời mời để xem và tham gia Project.";
+            return;
+        }
+        description.textContent = "Đang kiểm tra lời mời…";
+        try {
+            const response = await fetch("/api/projects/invitations/preview", {
+                method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({token: state.token})
+            });
+            const data = await response.json();
+            if (projectInvitationState !== state) return;
+            if (!response.ok || !data.success) throw new Error(projectMemberError(data.error));
+            const invite = data.invitation;
+            state.invitation = invite;
+            description.textContent = `${invite.inviter_name} mời bạn tham gia “${invite.project_name}”. Quyền: ${invite.role === "editor" ? "Có thể chỉnh sửa" : "Chỉ trò chuyện"}. Hết hạn: ${new Date(invite.expires_at).toLocaleString("vi-VN")}.`;
+            document.getElementById("projectInvitationActions").hidden = false;
+            document.querySelectorAll("#projectInvitationActions button").forEach(button => { button.disabled = false; });
+        } catch (error) {
+            if (projectInvitationState !== state) return;
+            description.textContent = "Không thể mở lời mời này.";
+            errorBox.textContent = error.message || "Không thể kết nối. Hãy thử mở lại link.";
+            errorBox.hidden = false;
+        }
+    }
+
+    function closeProjectInvitationModal(clearToken = true) {
+        const state = projectInvitationState;
+        projectInvitationState = null;
+        document.getElementById("projectInvitationModal").style.display = "none";
+        document.removeEventListener("keydown", handleProjectInvitationKeydown, true);
+        if (clearToken) { pendingProjectInvitationToken = ""; sessionStorage.removeItem("pending_project_invitation"); }
+        if (state?.returnFocus?.isConnected) state.returnFocus.focus();
+    }
+
+    function handleProjectInvitationKeydown(event) {
+        if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeProjectInvitationModal(); }
+        else if (event.key === "Tab") {
+            const modal = document.getElementById("projectInvitationModal");
+            const buttons = [...modal.querySelectorAll("button")].filter(button => !button.disabled && button.offsetParent !== null);
+            const first = buttons[0], last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!modal.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last)) { event.preventDefault(); first.focus(); }
+        }
+    }
+
+    async function respondProjectInvitationLink(accept) {
+        const state = projectInvitationState;
+        if (!state?.invitation || state.busy || currentUser?.id !== state.userId) return;
+        state.busy = true;
+        document.querySelectorAll("#projectInvitationActions button").forEach(button => { button.disabled = true; });
+        const errorBox = document.getElementById("projectInvitationError");
+        errorBox.hidden = true;
+        try {
+            const response = await fetch("/api/projects/invitations/respond", {
+                method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({token: state.token, accept})
+            });
+            const data = await response.json();
+            if (projectInvitationState !== state) return;
+            if (!response.ok || !data.success) throw new Error(projectMemberError(data.error));
+            closeProjectInvitationModal();
+            await queueProjectRefresh(true);
+            if (accept) await selectProject(data.project_id);
+        } catch (error) {
+            if (projectInvitationState === state) { errorBox.textContent = error.message; errorBox.hidden = false; }
+        } finally {
+            if (projectInvitationState === state) {
+                state.busy = false;
+                document.querySelectorAll("#projectInvitationActions button").forEach(button => { button.disabled = false; });
+            }
+        }
     }
 
     async function toggleProjectFiles() {
@@ -5916,6 +6424,7 @@
         localStorage.removeItem("thread_id");
         await loadProjects();
         await newChat();
+        await showProjectInvitationLink();
     }
 
     async function handleSignInSubmit(event) {
@@ -6421,6 +6930,13 @@
 
     // Kh?i d?ng: ki?m tra auth tru?c, sau d� load d�ng tr?ng th�i
     // checkAuthStatus() c?n ho�n th�nh tru?c d? bi?t user d� dang nh?p chua
+    captureProjectInvitationLink();
+    window.addEventListener("hashchange", () => {
+        if (!new URLSearchParams(location.hash.slice(1)).has("project-invite")) return;
+        if (projectInvitationState) closeProjectInvitationModal(false);
+        captureProjectInvitationLink();
+        showProjectInvitationLink();
+    });
     checkAuthStatus().then(async () => {
         restoreAuthChallenge();
         renderWelcome();
@@ -6431,6 +6947,7 @@
         } else {
             await loadConversations();
         }
+        await showProjectInvitationLink();
     });
 </script>
 
@@ -6576,6 +7093,90 @@
                 <span>Lưu thay đổi</span>
             </button>
         </form>
+    </div>
+</div>
+
+<!-- Recipient Invitation Modal -->
+<div class="auth-modal-overlay" id="projectInvitationModal" style="display:none;">
+    <div class="auth-modal-backdrop" onclick="closeProjectInvitationModal()"></div>
+    <div class="auth-modal-container" role="dialog" aria-modal="true" aria-labelledby="projectInvitationTitle" aria-describedby="projectInvitationDescription">
+        <button type="button" class="auth-modal-close" id="projectInvitationCloseBtn" onclick="closeProjectInvitationModal()" aria-label="Đóng lời mời">&times;</button>
+        <div class="auth-modal-header"><h2 class="auth-modal-title" id="projectInvitationTitle">Lời mời tham gia Project</h2></div>
+        <p class="auth-modal-desc" id="projectInvitationDescription" role="status"></p>
+        <div class="project-members-notice" id="projectInvitationError" data-kind="error" role="alert" hidden></div>
+        <button type="button" class="auth-submit-btn" id="projectInvitationSignInBtn" onclick="closeProjectInvitationModal(false); openAuthModal('signin');" hidden>Đăng nhập để xem lời mời</button>
+        <div class="project-invitation-actions" id="projectInvitationActions" hidden>
+            <button type="button" class="project-tool-btn" onclick="respondProjectInvitationLink(false)">Từ chối</button>
+            <button type="button" class="auth-submit-btn" onclick="respondProjectInvitationLink(true)">Chấp nhận</button>
+        </div>
+    </div>
+</div>
+
+<!-- Project Members Modal -->
+<div class="auth-modal-overlay" id="projectMembersModal" style="display: none;">
+    <div class="auth-modal-backdrop" onclick="closeProjectMembersModal()"></div>
+    <div class="auth-modal-container project-members-dialog" role="dialog" aria-modal="true" aria-labelledby="projectMembersTitle" aria-describedby="projectMembersDescription">
+        <button type="button" class="auth-modal-close" id="projectMembersCloseBtn" onclick="closeProjectMembersModal()" aria-label="Đóng quản lý thành viên">&times;</button>
+        <div class="auth-modal-header">
+            <h2 class="auth-modal-title" id="projectMembersTitle">Chia sẻ Project</h2>
+            <p class="auth-modal-desc" id="projectMembersProjectName"></p>
+        </div>
+        <p class="project-members-note" id="projectMembersDescription">Thành viên đã tham gia có thể đọc các cuộc trò chuyện và tải tài liệu trong Project.</p>
+        <div class="project-members-notice" id="projectMembersFeedback" role="status" aria-live="polite" hidden></div>
+        <p class="project-members-note" id="projectMembersReadOnly" hidden>Chỉ chủ sở hữu Project có thể mời, đổi quyền hoặc xóa thành viên.</p>
+        <form class="project-invite-form" id="projectInviteForm" onsubmit="submitProjectInvitation(event)">
+            <fieldset id="projectInviteFields" disabled>
+                <h3>Mời thành viên</h3>
+                <div class="auth-field">
+                    <label for="projectInviteIdentifier">Email hoặc tên đăng nhập</label>
+                    <input type="text" id="projectInviteIdentifier" placeholder="Nhập email hoặc tên đăng nhập" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="projectInviteHint">
+                </div>
+                <fieldset>
+                    <legend>Quyền truy cập</legend>
+                    <div class="project-role-options">
+                        <label class="project-role-option">
+                            <input type="radio" name="projectInviteRole" id="projectInviteChatOnly" value="chat_only" checked>
+                            <span><strong>Chỉ trò chuyện</strong><small>Trò chuyện, đọc lịch sử và tải tài liệu.</small></span>
+                        </label>
+                        <label class="project-role-option">
+                            <input type="radio" name="projectInviteRole" id="projectInviteEditor" value="editor">
+                            <span><strong>Có thể chỉnh sửa</strong><small>Thêm quyền sửa cài đặt, hướng dẫn, quản lý tài liệu và bộ nhớ chung.</small></span>
+                        </label>
+                    </div>
+                </fieldset>
+                <div class="auth-field" style="margin-top:14px;">
+                    <label for="projectInviteDuration">Thời hạn lời mời</label>
+                    <select id="projectInviteDuration">
+                        <option value="1">1 ngày</option>
+                        <option value="3">3 ngày</option>
+                        <option value="7" selected>7 ngày</option>
+                        <option value="14">14 ngày</option>
+                        <option value="30">30 ngày</option>
+                    </select>
+                </div>
+                <div class="project-invite-footer">
+                    <p id="projectInviteHint">Người nhận cần có tài khoản và chấp nhận lời mời trong ứng dụng để tham gia.</p>
+                    <button type="submit" class="auth-submit-btn" id="projectInviteSubmitBtn">Gửi lời mời</button>
+                </div>
+            </fieldset>
+        </form>
+        <div class="project-invitation-link" id="projectInvitationLinkBox" hidden>
+            <label for="projectInvitationLinkValue">Link dành riêng cho tài khoản được mời</label>
+            <div class="project-invitation-link-row">
+                <input type="text" id="projectInvitationLinkValue" readonly>
+                <button type="button" class="project-tool-btn" id="projectInvitationCopyBtn" onclick="copyProjectInvitationLink()">Sao chép</button>
+            </div>
+            <div class="project-invitation-expiry" id="projectInvitationLinkExpiry"></div>
+        </div>
+        <div class="project-members-heading">
+            <h3 id="projectMembersListTitle">Thành viên &amp; lời mời</h3>
+            <span class="project-members-count" id="projectMembersCount"></span>
+        </div>
+        <button type="button" class="project-tool-btn" id="projectMembersRefreshBtn" onclick="loadProjectMembers(projectMembersState)" hidden>Có thay đổi mới · Tải lại</button>
+        <ul class="project-members-list" id="projectMembersList" aria-labelledby="projectMembersListTitle" aria-busy="false"></ul>
+        <div class="project-members-footer">
+            <button type="button" class="project-tool-btn" onclick="closeProjectMembersModal()">Xong</button>
+        </div>
     </div>
 </div>
 

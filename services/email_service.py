@@ -1,6 +1,8 @@
-"""SMTP delivery for account verification messages."""
+"""SMTP delivery for account verification and project invitations."""
 
+from datetime import datetime
 from email.message import EmailMessage
+from html import escape
 import os
 import smtplib
 import ssl
@@ -8,21 +10,8 @@ import ssl
 
 def send_verification_code(email: str, code: str) -> None:
     """Send a short-lived sign-in verification code using configured SMTP."""
-    host = os.getenv("SMTP_HOST")
-    username = os.getenv("SMTP_USERNAME") or os.getenv("SMTP_EMAIL")
-    password = os.getenv("SMTP_PASSWORD")
-    sender = os.getenv("SMTP_FROM", username or "")
-    if not host or not sender:
-        raise RuntimeError(
-            "Email delivery is not configured. Set SMTP_HOST and SMTP_EMAIL "
-            "(or SMTP_USERNAME). SMTP_FROM is optional."
-        )
-
-    port = int(os.getenv("SMTP_PORT", "587"))
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
     message = EmailMessage()
     message["Subject"] = "Mã xác minh email | Tit Chatbot"
-    message["From"] = sender
     message["To"] = email
     message.set_content(
         f"Xin chào,\n\n"
@@ -62,6 +51,45 @@ def send_verification_code(email: str, code: str) -> None:
         subtype="html",
     )
 
+    _send_message(message)
+
+
+def send_project_invitation(email: str, project_name: str, inviter_name: str, role: str, invitation_url: str, expires_at: str) -> None:
+    """Send a recipient-bound link; SMTP acceptance is reported separately by the API."""
+    role_name = "Có thể chỉnh sửa" if role == "editor" else "Chỉ trò chuyện"
+    deadline = datetime.fromisoformat(expires_at).strftime("%d/%m/%Y %H:%M UTC")
+    message = EmailMessage()
+    message["Subject"] = "Lời mời tham gia Project | Tit Chatbot"
+    message["To"] = email
+    message.set_content(
+        f"{inviter_name} mời bạn tham gia Project {project_name} trên Tit Chatbot.\n\n"
+        f"Quyền: {role_name}\nHết hạn: {deadline}\n\n{invitation_url}\n\n"
+        "Hãy đăng nhập đúng tài khoản nhận lời mời, sau đó chọn Chấp nhận hoặc Từ chối. "
+        "Bạn cũng có thể tìm lời mời trong mục Project của ứng dụng.\n"
+        "Nếu không mong đợi lời mời này, bạn có thể bỏ qua email."
+    )
+    message.add_alternative(f"""<!doctype html><html lang="vi"><body style="font-family:Arial,sans-serif;background:#f8f4f5;color:#241519;padding:24px;">
+        <div style="max-width:520px;margin:auto;background:white;padding:28px;border-radius:14px;">
+        <h2>Lời mời tham gia Project</h2>
+        <p><strong>{escape(inviter_name)}</strong> mời bạn tham gia <strong>{escape(project_name)}</strong>.</p>
+        <p>Quyền: {escape(role_name)}<br>Hết hạn: {escape(deadline)}</p>
+        <p style="margin:28px 0;"><a href="{escape(invitation_url, quote=True)}" style="display:inline-block;background:#c92038;color:white;padding:12px 20px;border-radius:8px;text-decoration:none;">Xem lời mời</a></p>
+        <p>Đăng nhập đúng tài khoản nhận lời mời để chấp nhận hoặc từ chối.</p>
+        <p style="font-size:12px;color:#665;"><a href="{escape(invitation_url, quote=True)}">Mở link mời</a> · Bạn cũng có thể xem lời mời trong mục Project của ứng dụng.</p>
+        </div></body></html>""", subtype="html")
+    _send_message(message)
+
+
+def _send_message(message: EmailMessage) -> None:
+    host = os.getenv("SMTP_HOST")
+    username = os.getenv("SMTP_USERNAME") or os.getenv("SMTP_EMAIL")
+    password = os.getenv("SMTP_PASSWORD")
+    sender = os.getenv("SMTP_FROM", username or "")
+    if not host or not sender:
+        raise RuntimeError("Email delivery is not configured. Set SMTP_HOST and SMTP_EMAIL (or SMTP_USERNAME). SMTP_FROM is optional.")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
+    message["From"] = sender
     context = ssl.create_default_context()
     if use_ssl:
         with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as smtp:

@@ -81,10 +81,10 @@ def create_or_update_conversation(
     oid = _to_object_id(user_id)
     if oid:
         # Người dùng đã đăng nhập: gắn user_id (trong Project chỉ gán lúc insert để giữ nguyên chủ tạo chat gốc)
-        if not project_oid:
+        if not project_oid: # chat cá nhân
             set_fields["user_id"] = oid
-        else:
-            set_on_insert["user_id"] = oid
+        else: # chat project
+            set_on_insert["user_id"] = oid 
         set_on_insert["is_guest"] = False
         set_on_insert["created_by"] = oid
     else:
@@ -98,7 +98,7 @@ def create_or_update_conversation(
         {"thread_id": thread_id},
         {
             "$set": set_fields,
-            "$setOnInsert": set_on_insert,
+            "$setOnInsert": set_on_insert, # Giữ nguyên người tạo thread gốc 
         },
         upsert=True,
     )

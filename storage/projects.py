@@ -2,17 +2,62 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from bson import ObjectId
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from storage.mongo_client import get_collection
 
 
 VALID_MEMBER_ROLES = {"editor", "chat_only"}
+INVITATION_DURATIONS = {1, 3, 7, 14, 30}
+DEFAULT_INVITATION_DAYS = 7
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def _invitation_expiry(row: dict[str, Any]) -> datetime:
+    """Legacy invitations expire seven days after creation as well."""
+    if isinstance(row.get("expires_at"), datetime):
+        return _aware(row["expires_at"])
+    created = row.get("created_at")
+    return _aware(created) + timedelta(days=DEFAULT_INVITATION_DAYS) if isinstance(created, datetime) else datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _valid_invitation(now: datetime) -> dict[str, Any]:
+    return {"$or": [
+        {"expires_at": {"$gt": now}},
+        {"expires_at": {"$exists": False}, "created_at": {"$gt": now - timedelta(days=DEFAULT_INVITATION_DAYS)}},
+    ]}
+
+
+def _token_hash(token: str) -> str | None:
+    if not isinstance(token, str) or not 32 <= len(token) <= 128:
+        return None
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _member_public(row: dict[str, Any]) -> dict[str, Any]:
+    result = _public(row) or {}
+    if row.get("status") == "invited":
+        expiry = _invitation_expiry(row)
+        result["expires_at"] = expiry.isoformat()
+        if expiry <= _now():
+            result["status"] = "expired"
+    return result
 
 
 def _oid(value: Any) -> ObjectId | None:
@@ -29,10 +74,11 @@ def _public(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     if not doc:
         return None
     result = dict(doc)
+    result.pop("invitation_token_hash", None)
     for key in ("_id", "owner_id", "project_id", "user_id", "invited_by", "created_by", "uploaded_by", "last_actor_id", "sender_id"):
         if isinstance(result.get(key), ObjectId):
             result[key] = str(result[key])
-    for key in ("created_at", "updated_at", "accepted_at"):
+    for key in ("created_at", "updated_at", "accepted_at", "expires_at"):
         value = result.get(key)
         if hasattr(value, "isoformat"):
             result[key] = value.isoformat()
@@ -102,6 +148,8 @@ def get_membership(project_id: str, user_id: str) -> dict[str, Any] | None:
     project = get_collection("projects").find_one({"_id": project_oid}, {"owner_id": 1})
     if project and str(project.get("owner_id")) == str(user_oid):
         return {"project_id": str(project_oid), "user_id": str(user_oid), "role": "owner", "status": "accepted"}
+    if not project:
+        return None
     row = get_collection("project_members").find_one(
         {"project_id": project_oid, "user_id": user_oid, "status": "accepted"}
     )
@@ -192,7 +240,7 @@ def delete_project(project_id: str, user_id: str) -> dict[str, int] | None:
     return {"conversations_deleted": len(thread_ids), "files_deleted": len(files), "checkpoints_deleted": checkpoints_deleted}
 
 
-def invite_project_member(project_id: str, inviter_id: str, identifier: str, role: str) -> dict[str, Any]:
+def invite_project_member(project_id: str, inviter_id: str, identifier: str, role: str, expiry_days: int = DEFAULT_INVITATION_DAYS) -> dict[str, Any]:
     """Tạo lời mời tham gia Project cho tài khoản đã đăng ký."""
     project_oid, inviter_oid = _oid(project_id), _oid(inviter_id)
     if not project_oid or not inviter_oid:
@@ -200,28 +248,43 @@ def invite_project_member(project_id: str, inviter_id: str, identifier: str, rol
     project = get_collection("projects").find_one({"_id": project_oid, "owner_id": inviter_oid})
     if not project:
         raise PermissionError("Only the project owner can invite members.")
-    if role not in VALID_MEMBER_ROLES:
+    if not isinstance(role, str) or role not in VALID_MEMBER_ROLES:
         raise ValueError("Role must be 'editor' or 'chat_only'.")
+    if type(expiry_days) is not int or expiry_days not in INVITATION_DURATIONS:
+        raise ValueError("Invitation duration must be 1, 3, 7, 14, or 30 days.")
+    if not isinstance(identifier, str):
+        raise ValueError("Email or username is required.")
     lookup = (identifier or "").strip().lower()
     user = get_collection("users").find_one({"$or": [{"email": lookup}, {"username": lookup}]})
     if not user:
         raise ValueError("No registered account matches that email or username.")
+    if not user.get("is_active", True):
+        raise ValueError("This account is inactive.")
     target_oid = user["_id"]
     if target_oid == inviter_oid:
         raise ValueError("You already own this project.")
     members = get_collection("project_members")
     existing = members.find_one({"project_id": project_oid, "user_id": target_oid})
-    now = datetime.now(timezone.utc)
+    now = _now()
     if existing and existing.get("status") == "accepted":
         raise ValueError("This user is already a project member.")
-    if existing:
-        members.update_one({"_id": existing["_id"]}, {"$set": {"role": role, "status": "invited", "invited_by": inviter_oid, "created_at": now}})
-        existing.update({"role": role, "status": "invited", "invited_by": inviter_oid, "created_at": now})
-        return _public(existing) or {}
-    doc = {"project_id": project_oid, "user_id": target_oid, "role": role, "status": "invited", "invited_by": inviter_oid, "created_at": now, "accepted_at": None}
-    result = members.insert_one(doc)
-    doc["_id"] = result.inserted_id
-    return _public(doc) or {}
+    token = secrets.token_urlsafe(32)
+    try:
+        doc = members.find_one_and_update(
+            {"project_id": project_oid, "user_id": target_oid, "status": {"$ne": "accepted"}},
+            {"$set": {"role": role, "status": "invited", "invited_by": inviter_oid,
+                      "created_at": now, "expires_at": now + timedelta(days=expiry_days),
+                      "accepted_at": None, "invitation_token_hash": _token_hash(token)},
+             "$setOnInsert": {"project_id": project_oid, "user_id": target_oid}},
+            upsert=True, return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError as exc:
+        # An invitation may have been accepted between the read and the write.
+        raise ValueError("This user is already a project member.") from exc
+    result = _member_public(doc)
+    # This raw token is returned once to the invitation route, never persisted.
+    result.update(invitation_token=token, email=user.get("email", ""), project_name=project.get("name", "Project"))
+    return result
 
 
 def list_project_members(project_id: str) -> list[dict[str, Any]]:
@@ -237,7 +300,7 @@ def list_project_members(project_id: str) -> list[dict[str, Any]]:
     result = [{"user_id": str(owner_id), "role": "owner", "status": "accepted", "username": owner.get("username", ""), "full_name": owner.get("full_name", ""), "email": owner.get("email", ""), "avatar_url": owner.get("avatar_url", "")}]
     for row in get_collection("project_members").find({"project_id": project_oid}):
         user = get_collection("users").find_one({"_id": row.get("user_id")}, {"username": 1, "full_name": 1, "email": 1, "avatar_url": 1}) or {}
-        item = _public(row) or {}
+        item = _member_public(row)
         item.update({key: user.get(key, "") for key in ("username", "full_name", "email", "avatar_url")})
         result.append(item)
     return result
@@ -248,13 +311,13 @@ def list_pending_invitations(user_id: str) -> list[dict[str, Any]]:
     user_oid = _oid(user_id)
     if not user_oid:
         return []
-    rows = get_collection("project_members").find({"user_id": user_oid, "status": "invited"})
+    rows = get_collection("project_members").find({"user_id": user_oid, "status": "invited", **_valid_invitation(_now())})
     result = []
     for row in rows:
         project = get_collection("projects").find_one({"_id": row["project_id"]})
         if project:
-            item = _public(row) or {}
-            item["project"] = _public(project)
+            item = _member_public(row)
+            item["project"] = {"_id": str(project["_id"]), "name": project.get("name", "Project")}
             result.append(item)
     return result
 
@@ -264,11 +327,79 @@ def respond_to_invitation(invitation_id: str, user_id: str, accept: bool) -> boo
     invitation_oid, user_oid = _oid(invitation_id), _oid(user_id)
     if not invitation_oid or not user_oid:
         return False
+    row = get_collection("project_members").find_one({"_id": invitation_oid, "user_id": user_oid, "status": "invited"})
+    if not row or not get_project(str(row["project_id"])):
+        return False
+    now = _now()
     result = get_collection("project_members").update_one(
-        {"_id": invitation_oid, "user_id": user_oid, "status": "invited"},
-        {"$set": {"status": "accepted" if accept else "declined", "accepted_at": datetime.now(timezone.utc) if accept else None}},
+        {"_id": invitation_oid, "user_id": user_oid, "status": "invited", **_valid_invitation(now)},
+        {"$set": {"status": "accepted" if accept else "declined", "accepted_at": now if accept else None},
+         "$unset": {"invitation_token_hash": ""}},
     )
-    return result.modified_count == 1
+    return result.modified_count == 1 # số lượng document bị thay đổi, 1 nếu thành công, 0 nếu không có gì thay đổi
+
+# Khi user mở link mời dạng /#project-invite={token} (từ email hoặc link copy), gọi trước lúc user bấm nút Chấp nhận/Từ chối để hiển thị popup xem trước lời mời (#projectInvitationModal).
+def preview_project_invitation(token: str, user_id: str) -> dict[str, Any] | None:
+    """Reveal a minimal preview only to the signed-in intended recipient."""
+    hashed, user_oid = _token_hash(token), _oid(user_id)
+    if not hashed or not user_oid:
+        return None
+    row = get_collection("project_members").find_one({"invitation_token_hash": hashed, "user_id": user_oid, "status": "invited"})
+    if not row:
+        return None
+    if _invitation_expiry(row) <= _now():
+        raise ValueError("Invitation has expired. Ask the owner to send a new invitation.")
+    project = get_project(str(row["project_id"]))
+    if not project:
+        return None
+    inviter = get_collection("users").find_one({"_id": row.get("invited_by")}, {"full_name": 1, "username": 1}) or {}
+    return {"_id": str(row["_id"]), "project_id": str(row["project_id"]), "project_name": project.get("name", "Project"),
+            "role": row["role"], "expires_at": _invitation_expiry(row).isoformat(),
+            "inviter_name": inviter.get("full_name") or inviter.get("username") or "Chủ sở hữu"}
+
+
+def respond_to_invitation_token(token: str, user_id: str, accept: bool) -> str | None:
+    invitation = preview_project_invitation(token, user_id)
+    if not invitation:
+        return None
+    now = _now()
+    result = get_collection("project_members").update_one(
+        {"_id": _oid(invitation["_id"]), "user_id": _oid(user_id), "status": "invited",
+         "invitation_token_hash": _token_hash(token), **_valid_invitation(now)},
+        {"$set": {"status": "accepted" if accept else "declined", "accepted_at": now if accept else None},
+         "$unset": {"invitation_token_hash": ""}},
+    )
+    return invitation["project_id"] if result.modified_count == 1 else None
+
+
+def project_update_state(user_id: str) -> dict[str, str]:
+    """Hash a user's visible state; works across workers without a local event bus."""
+    user_oid = _oid(user_id)
+    if not user_oid:
+        return {"revision": "", "members_revision": ""}
+    # Lấy các Project user tham gia hoặc được mời để gom phạm vi cần theo dõi
+    own_rows = list(get_collection("project_members").find({"user_id": user_oid}, {"project_id": 1, "status": 1}))
+    project_ids = [r["project_id"] for r in own_rows if r.get("project_id")]
+    projects = list(get_collection("projects").find(
+        {"$or": [{"owner_id": user_oid}, {"_id": {"$in": project_ids}}]},
+        {"name": 1, "owner_id": 1, "updated_at": 1},
+    ).sort("_id", 1))
+    # Chỉ thành viên đã accepted hoặc owner mới thấy biến động thành viên của Project đó
+    accepted_ids = {r["project_id"] for r in own_rows if r.get("status") == "accepted"}
+    visible_ids = [p["_id"] for p in projects if p.get("owner_id") == user_oid or p["_id"] in accepted_ids]
+    members = [_member_public(r) for r in get_collection("project_members").find(
+        {"$or": [{"user_id": user_oid}, {"project_id": {"$in": visible_ids}}]},
+        {"project_id": 1, "user_id": 1, "role": 1, "status": 1, "created_at": 1, "expires_at": 1},
+    ).sort("_id", 1)]
+    def digest(value: Any) -> str:
+        # sort_keys=True đảm bảo cùng dữ liệu luôn cho ra cùng 1 mã hash SHA-256
+        # chuyển dữ liệu python (list/dict lấy từ MongoDB) thành 1 chuỗi JSON chuẩn
+        # sắp xếp theo thứ tự A -> Z
+        # default=str để chuyển các giá trị không phải kiểu JSON (ví dụ datetime) thành chuỗi
+        # .encode() để chuyển chuỗi JSON thành bytes trước khi băm
+        # Băm mảng byte đó bằng SHA-256 và dùng .hexdigest() đổi ra chuỗi 64 ký tự hex gọn nhẹ (ví dụ "a3f8c2...").
+        return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+    return {"revision": digest([projects, members]), "members_revision": digest(members)}
 
 
 def update_member_role(project_id: str, owner_id: str, member_id: str, role: str) -> bool:

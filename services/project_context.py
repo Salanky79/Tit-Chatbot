@@ -25,7 +25,7 @@ def build_project_context(
         get_collection("conversations").find(
             {"project_id": project_oid, "thread_id": {"$ne": current_thread_id}},
             {"thread_id": 1, "title": 1},
-        ).sort("updated_at", -1).limit(12)
+        ).sort("updated_at", -1).limit(12) # tối đa 12 cuộc trò chuyện khác
     )
     thread_ids = [row["thread_id"] for row in conversations if row.get("thread_id")]
     messages = []
@@ -34,7 +34,7 @@ def build_project_context(
             get_collection("chat_messages").find(
                 {"thread_id": {"$in": thread_ids}},
                 {"role": 1, "content": 1, "thread_id": 1, "created_at": 1, "sender_id": 1, "user_id": 1},
-            ).sort("created_at", -1).limit(24)
+            ).sort("created_at", -1).limit(24) # tối đa 24 tin nhắn mới nhất từ chat_message
         )
         messages.reverse()
 

@@ -141,6 +141,9 @@ def ensure_indexes() -> None:
         members = get_collection("project_members")
         members.create_index([("project_id", ASCENDING), ("user_id", ASCENDING)], unique=True, background=True)
         members.create_index([("user_id", ASCENDING), ("status", ASCENDING)], background=True)
+        members.create_index([("invitation_token_hash", ASCENDING)], unique=True, sparse=True, background=True)
+        # Do not use a TTL index: accepted memberships must survive invitation expiry.
+        members.create_index([("user_id", ASCENDING), ("status", ASCENDING), ("expires_at", ASCENDING)], background=True)
         project_files = get_collection("project_files")
         project_files.create_index([("project_id", ASCENDING), ("document_id", ASCENDING)], unique=True, background=True)
         project_files.create_index([("project_id", ASCENDING), ("created_at", DESCENDING)], background=True)
