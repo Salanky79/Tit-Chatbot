@@ -101,7 +101,7 @@ def prepare_context_for_llm(
     if max_history_turns > 0:
         turns = group_messages_into_turns(cleaned_messages)
         if len(turns) > max_history_turns:
-            turns = turns[-max_history_turns:]
+            turns = turns[-max_history_turns:] # cắt lấy các lượt chat gần nhất
             cleaned_messages = [msg for turn in turns for msg in turn]
 
     full_system = system_prompt.strip()
@@ -113,4 +113,4 @@ def prepare_context_for_llm(
             "Use these notes only when relevant to the latest request."
         )
 
-    return [SystemMessage(content=full_system), *cleaned_messages], existing_summary
+    return [SystemMessage(content=full_system), *cleaned_messages], existing_summary # sau này có thể thêm logic tính toán token budget nếu cần, nhưng hiện tại chỉ chuẩn bị context

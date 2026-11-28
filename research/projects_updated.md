@@ -1,7 +1,4 @@
-
----
-
-## 2. Bản đồ File Toàn hệ thống
+## 1. Bản đồ File Toàn hệ thống
 
 | Tầng | File Path | Vai trò chính trong luồng Projects |
 | :--- | :--- | :--- |
@@ -26,9 +23,9 @@
 
 ---
 
-## 3. Thiết kế Dữ liệu (MongoDB, ChromaDB & Local Disk)
+## 2. Thiết kế Dữ liệu (MongoDB, ChromaDB & Local Disk)
 
-### 3.1. Sơ đồ Quan hệ Thực thể (MongoDB ER Diagram)
+### 2.1. Sơ đồ Quan hệ Thực thể (MongoDB ER Diagram)
 
 ```mermaid
 erDiagram
@@ -118,7 +115,7 @@ erDiagram
     }
 ```
 
-### 3.2. MongoDB Indexes ([`storage/mongo_client.py#L148-L189`](../storage/mongo_client.py#L148-L189))
+### 2.2. MongoDB Indexes ([`storage/mongo_client.py#L148-L189`](../storage/mongo_client.py#L148-L189))
 
 | Collection | Key Indexes | Ghi chú thiết kế |
 | :--- | :--- | :--- |
@@ -129,7 +126,7 @@ erDiagram
 | `chat_messages` | `(project_id ASC, created_at ASC)` | Truy vấn lịch sử tin nhắn thuộc Project theo thời gian. |
 | `long_term_memory` | `(user_id ASC, is_deleted ASC, created_at DESC)`<br>`(project_id ASC, is_deleted ASC, created_at DESC)`<br>`(thread_id ASC)`<br>`("memory", "text")` | Tách hoàn toàn truy vấn memory cá nhân và memory Project, kết hợp text + vector search. |
 
-### 3.3. ChromaDB & File hệ thống (`uploads/`)
+### 2.3. ChromaDB & File hệ thống (`uploads/`)
 
 - **Metadata vector chunks trong [`services/rag.py`](../services/rag.py#L286-L287), [`services/rag.py#L564`](../services/rag.py#L564)**:
   - Khi upload vào Project, mọi chunk tài liệu và ảnh đều gắn `project_id: str(project_id)`, `scope: "project"`, `document_id`, `thread_id`, `file_path` / `image_path`.
@@ -143,11 +140,12 @@ erDiagram
 
 ---
 
-## 4. Mô hình Phân quyền (RBAC) & Cô lập Dữ liệu
+## 3. Mô hình Phân quyền (RBAC) & Cô lập Dữ liệu
 
-### 4.1. Ma trận Phân quyền theo Vai trò
+### 3.1. Ma trận Phân quyền theo Vai trò
 
 Hệ thống định nghĩa 3 vai trò thực tế tại [`storage/projects.py#L19`](../storage/projects.py#L19) và [`storage/projects.py#L163-L182`](../storage/projects.py#L163-L182):
+
 - `owner`: Xác định động bằng `project.owner_id == user_oid` (không lưu trong `project_members`).
 - `editor`: Bản ghi `project_members` có `status="accepted"`, `role="editor"`.
 - `chat_only`: Bản ghi `project_members` có `status="accepted"`, `role="chat_only"`.
@@ -181,14 +179,14 @@ def _can_manage_project_conversation(conv: dict, user: dict | None) -> bool:
     return can_edit_project(str(project_id), user["id"])
 ```
 
-### 4.2. Bảo toàn dữ liệu chung khi User xóa dữ liệu cá nhân
+### 3.2. Bảo toàn dữ liệu chung khi User xóa dữ liệu cá nhân
 
 - **Khi user xóa toàn bộ bộ nhớ cá nhân (`clear_user_memories`)**: [`storage/memories.py#L365-L372`](../storage/memories.py#L365-L372) chỉ đánh dấu `is_deleted=True` cho các bản ghi thỏa mãn `{"$or": [{"project_id": {"$exists": False}}, {"project_id": None}]}` -> Project memories vẫn nguyên vẹn.
 - **Khi user xóa tài khoản (`delete_user_account`)**: [`storage/users.py#L264-L275`](../storage/users.py#L264-L275) chỉ xóa các `conversations` và `chat_messages` cá nhân (`project_id` rỗng hoặc không tồn tại) để không làm mất lịch sử thảo luận chung trong Project của người khác.
 
 ---
 
-## 5. Luồng 1: Vòng đời Project (Tạo, Cập nhật & Cascade Delete)
+## 4. Luồng 1: Vòng đời Project (Tạo, Cập nhật & Cascade Delete)
 
 1. **Tạo Project ([`storage/projects.py#L103-L123`](../storage/projects.py#L103-L123))**: Giới hạn `name[:100]` (bắt buộc không rỗng), `description[:500]`, mặc định `instructions=""` và `memory_mode="project_only"`.
 2. **Cập nhật Project ([`storage/projects.py#L190-L214`](../storage/projects.py#L190-L214))**: Kiểm tra `can_edit_project(project_id, user_id)`. Chỉ chấp nhận `name[:100]`, `description[:500]`, `instructions[:8000]`, `memory_mode` thuộc `{"project_only", "project_and_personal", "current_chat_only"}`.
@@ -212,9 +210,9 @@ flowchart TD
 
 ---
 
-## 6. Luồng 2: Mời Thành viên khác vào Nhóm & Vòng đời Token Lời mời
+## 5. Luồng 2: Mời Thành viên khác vào Nhóm & Vòng đời Token Lời mời
 
-### 6.1. Máy trạng thái Thành viên (`project_members`)
+### 5.1. Máy trạng thái Thành viên (`project_members`)
 
 Trạng thái thực tế trong DB chỉ lưu 3 giá trị (`invited`, `accepted`, `declined`). Riêng trạng thái `expired` không lưu cứng trong DB mà được [`_member_public()`](../storage/projects.py#L58-L65) tính động khi đọc nếu `status == "invited"` và `expires_at <= now` (giúp membership đã `accepted` không bao giờ bị xóa nhầm bởi TTL index).
 
@@ -230,7 +228,7 @@ stateDiagram-v2
     accepted --> [*]: Owner xoa thanh vien qua remove_project_member
 ```
 
-### 6.2. Sơ đồ Tuần tự Toàn bộ Quá trình Mời & Tiếp nhận (Link + In-app)
+### 5.2. Sơ đồ Tuần tự Toàn bộ Quá trình Mời & Tiếp nhận (Link + In-app)
 
 ```mermaid
 sequenceDiagram
@@ -287,7 +285,7 @@ sequenceDiagram
     API->>Storage: respond_to_invitation() cung $unset invitation_token_hash
 ```
 
-### 6.3. Diễn giải Từng Bước & Code Chi tiết
+### 5.3. Diễn giải Từng Bước & Code Chi tiết
 
 #### Bước 1: Owner gửi lời mời từ Modal Thành viên ([`static/js/chat.js#L1132-L1187`](../static/js/chat.js#L1132-L1187))
 - Khi Owner mở `#projectMembersModal` và submit form `#projectInviteForm`, hàm `submitProjectInvitation()` đọc `identifier` (email hoặc username), `role` (`"editor"` hoặc `"chat_only"`), và `expiry_days` (`1`, `3`, `7`, `14`, `30`).
@@ -309,6 +307,7 @@ def _invitation_url(request: Request, token: str) -> str:
     # Fragments are kept out of server access logs and Referer headers.
     return f"{base}/#project-invite={token}"
 ```
+
 3. **Tách biệt tạo lời mời DB và gửi email SMTP**: Nếu `send_project_invitation()` ([`services/email_service.py#L67-L90`](../services/email_service.py#L67-L90)) ném exception (do chưa cấu hình SMTP hoặc lỗi mạng), API chỉ log warning và **vẫn trả `201 Created`** kèm `invitation_url` và `email_sent: False` để lời mời không bị mất.
 
 #### Bước 3: Lưu DB an toàn, băm SHA-256 & chống Race Condition ([`storage/projects.py#L52-L65`](../storage/projects.py#L52-L65), [`storage/projects.py#L273-L317`](../storage/projects.py#L273-L317))
@@ -358,6 +357,7 @@ def respond_to_invitation_token(token: str, user_id: str, accept: bool) -> str |
     )
     return invitation["project_id"] if result.modified_count == 1 else None
 ```
+
 - **Qua danh sách chờ trong ứng dụng (`respond_to_invitation`)** ([`storage/projects.py#L360-L374`](../storage/projects.py#L360-L374)):
   - Khi user đang mở sẵn app, [`list_pending_invitations()`](../storage/projects.py#L339-L352) trả về các lời mời còn hạn; user bấm Accept/Decline ngay trên sidebar (`respondProjectInvite()` tại [`static/js/chat.js#L1207-L1231`](../static/js/chat.js#L1207-L1231)) gọi `POST /api/projects/invitations/{invitation_id}/accept` hoặc `/decline`.
   - Cả hai hàm `respond_to_invitation` và `respond_to_invitation_token` đều dùng bộ lọc `status == "invited"` + `**_valid_invitation(now)` và thực hiện **`$unset: {"invitation_token_hash": ""}`** trong cùng một lệnh `update_one` -> đảm bảo token chỉ dùng được **đúng 1 lần**, không thể replay link email sau khi đã xử lý trong app hoặc ngược lại.
@@ -371,7 +371,7 @@ def respond_to_invitation_token(token: str, user_id: str, accept: bool) -> str |
 
 ---
 
-## 7. Luồng 3: Đồng bộ Realtime đa Worker qua SSE (`/api/projects/events`)
+## 6. Luồng 3: Đồng bộ Realtime đa Worker qua SSE (`/api/projects/events`)
 
 Để mọi tab/trình duyệt của Owner và các Member cập nhật ngay lập tức khi có lời mời mới, đổi quyền (`editor` <-> `chat_only`), bị xóa khỏi Project, hoặc hết phiên đăng nhập mà không cần cài Redis Pub/Sub:
 
@@ -414,9 +414,9 @@ sequenceDiagram
 
 ---
 
-## 8. Luồng 4: Chat trong Project, 3 Chế độ `memory_mode` & Cách ly Personalization
+## 7. Luồng 4: Chat trong Project, 3 Chế độ `memory_mode` & Cách ly Personalization
 
-### 8.1. Sơ đồ Luồng Xử lý Request `/chat/stream`
+### 7.1. Sơ đồ Luồng Xử lý Request `/chat/stream`
 
 ```mermaid
 flowchart TD
@@ -443,7 +443,7 @@ flowchart TD
     CopyCtx --> RunAgent["agent.stream() chạy trong stream_ctx -> chatbot_node()"]
 ```
 
-### 8.2. Ma trận hành vi của 3 `memory_mode`
+### 7.2. Ma trận hành vi của 3 `memory_mode`
 
 | Thành phần bị chi phối | `project_only` *(Mặc định)* | `project_and_personal` | `current_chat_only` | Nguồn kiểm tra |
 | :--- | :--- | :--- | :--- | :--- |
@@ -453,7 +453,7 @@ flowchart TD
 | **Phạm vi RAG & Hình ảnh** | Toàn bộ tài liệu/ảnh của Project | Toàn bộ tài liệu/ảnh của Project | **Chỉ tài liệu/ảnh thuộc `thread_id` hiện tại** | [`agent_tools/documents.py#L55-L239`](../agent_tools/documents.py#L55-L239), [`services/rag.py#L340-L347`](../services/rag.py#L340-L347) |
 | **Personalization (Style & Custom Instructions)** | **Tắt hoàn toàn** | **Tắt hoàn toàn** | **Tắt hoàn toàn** | [`agent.py`](../agent.py#L235-L285) |
 
-### 8.3. Chi tiết Context Builder, Prompt Isolation & Quyền sở hữu Tin nhắn
+### 7.3. Chi tiết Context Builder, Prompt Isolation & Quyền sở hữu Tin nhắn
 
 1. **Giới hạn ngữ cảnh Project ([`services/project_context.py#L11-L79`](../services/project_context.py#L11-L79))**:
    - `MAX_PROJECT_CONTEXT_CHARS = 9000`.
@@ -478,9 +478,9 @@ flowchart TD
 
 ---
 
-## 9. Luồng 5: Tài liệu dùng chung (RAG), Summary Jobs & Chuyển Chat Cá nhân vào Project
+## 8. Luồng 5: Tài liệu dùng chung (RAG), Summary Jobs & Chuyển Chat Cá nhân vào Project
 
-### 9.1. Upload & Khai thác Tài liệu / Ảnh trong Project
+### 8.1. Upload & Khai thác Tài liệu / Ảnh trong Project
 
 - **Upload ([`api/documents.py#L57-L170`](../api/documents.py#L57-L170))**:
   - Khi request `/upload-document` có `project_id`, API kiểm tra đăng nhập (`401`), sự tồn tại Project (`404`) và quyền chỉnh sửa `can_edit_project(project_id, user_id)` (`403` nếu là `chat_only`).
@@ -490,7 +490,7 @@ flowchart TD
   - Cả 3 tools `search_uploaded_documents`, `summarize_uploaded_document`, và `analyze_uploaded_image` đều đọc `project_id = get_current_project_id() or None` và `current_chat_only = get_current_project_memory_mode() == "current_chat_only"` rồi chuyển xuống [`services/rag.py`](../services/rag.py#L314-L929).
   - Với tài liệu dài cần tóm tắt nhiều bước (`summary_jobs`), `project_id` được lưu vào `job["context"]["project_id"]` ([`services/summary_jobs.py#L54`](../services/summary_jobs.py#L54)) để khi xóa Project hay chuyển thread vào Project, các checkpoint tóm tắt được dọn dẹp hoặc gán đúng ngữ cảnh.
 
-### 9.2. Chuyển Chat Cá nhân vào Project (`Add to Project`)
+### 8.2. Chuyển Chat Cá nhân vào Project (`Add to Project`)
 
 ```mermaid
 flowchart LR
@@ -506,13 +506,12 @@ flowchart LR
 ```
 
 Code API điều phối quá trình migrate tại [`api/conversations.py#L268-L315`](../api/conversations.py#L268-L315) và hàm migrate Chroma tại [`services/rag.py#L830-L884`](../services/rag.py#L830-L884). Lưu ý đặc thù thiết kế:
+
 - Một cuộc trò chuyện **đã thuộc Project khác** (`conv.project_id` đã có giá trị khác) hoặc là **Temporary Chat** (`is_temporary=True`) đều bị từ chối chuyển để tránh trộn chéo dữ liệu giữa hai Project.
 
 ---
 
-
-
-## 11. Bảng Tổng hợp API Endpoints (`/api/projects*` & Liên quan)
+## 9. Bảng Tổng hợp API Endpoints (`/api/projects*` & Liên quan)
 
 | Method & Path | Quyền yêu cầu | Trạng thái / Output chính | Định nghĩa tại |
 | :--- | :--- | :--- | :--- |
@@ -542,7 +541,7 @@ Code API điều phối quá trình migrate tại [`api/conversations.py#L268-L3
 
 ---
 
-## 12. Ràng buộc Kỹ thuật & Lưu ý Vận hành
+## 10. Ràng buộc Kỹ thuật & Lưu ý Vận hành
 
 1. **Multi-worker SSE Polling Load**: [`services/project_events.py`](../services/project_events.py#L13-L51) giữ kết nối mở tối đa 300 giây và query MongoDB mỗi 2 giây cho mỗi client đang mở tab. Khi số lượng user đồng thời tăng lớn (hàng nghìn kết nối), nên thay vòng polling này bằng MongoDB Change Streams hoặc Redis Pub/Sub.
 2. **Kiểm tra Quyền theo Request (Per-request Authorization)**: Quyền thành viên (`get_membership`) được kiểm tra ở đầu mỗi HTTP request/SSE turn. Nếu Owner thu hồi quyền hoặc xóa một thành viên **trong khi** phiên `/chat/stream` của người đó đang chạy dở, stream hiện tại sẽ hoàn tất nốt lượt đó và request tiếp theo mới bị chặn `404`.
