@@ -201,7 +201,21 @@ DEFAULT_INVITE_ROLE = "chat_only"
 INVITATION_DURATIONS = (1, 3, 7, 14, 30)
 DEFAULT_INVITATION_DAYS = 7
 DEFAULT_MEMORY_MODE = "project_only"
-PROJECT_MEMORY_MODES = (DEFAULT_MEMORY_MODE, "project_and_personal", "current_chat_only")
+PROJECT_MEMORY_OPTIONS = {
+    DEFAULT_MEMORY_MODE: (
+        "Chỉ Project",
+        "Dùng chat gần đây, tài liệu và bộ nhớ của Project.",
+    ),
+    "project_and_personal": (
+        "Project và cá nhân",
+        "Dùng ngữ cảnh Project và bộ nhớ cá nhân của người đang chat.",
+    ),
+    "current_chat_only": (
+        "Chỉ chat hiện tại",
+        "Chỉ dùng cuộc trò chuyện và tài liệu trong chat hiện tại.",
+    ),
+}
+PROJECT_MEMORY_MODES = tuple(PROJECT_MEMORY_OPTIONS)
 PROJECT_NAME_CHARS = 100
 PROJECT_DESCRIPTION_CHARS = 500
 PROJECT_INSTRUCTION_CHARS = 8000

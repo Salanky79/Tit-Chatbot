@@ -32,7 +32,13 @@ async def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={}
+        context={
+            "project_memory_options": cfg.PROJECT_MEMORY_OPTIONS,
+            "default_memory_mode": cfg.DEFAULT_MEMORY_MODE,
+            "project_name_chars": cfg.PROJECT_NAME_CHARS,
+            "project_description_chars": cfg.PROJECT_DESCRIPTION_CHARS,
+            "project_instruction_chars": cfg.PROJECT_INSTRUCTION_CHARS,
+        }
     )
 
 

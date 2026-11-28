@@ -234,6 +234,12 @@
 
         if (bar) bar.classList.toggle("active", isInProject);
         if (name) name.textContent = activeProject ? activeProject.name : "";
+        const memoryLabel = document.getElementById("projectMemoryModeLabel");
+        memoryLabel.textContent = isInProject ? projectMemoryOption(activeProject.memory_mode).textContent : "";
+        document.getElementById("projectSettingsButton").hidden =
+            !isInProject || !["owner", "editor"].includes(activeProject.membership?.role);
+        const settingsDialog = document.getElementById("projectSettingsDialog");
+        if (settingsDialog.open && settingsDialog.dataset.projectId !== activeProjectId) settingsDialog.close();
         if (tempBtn) tempBtn.style.display = activeProjectId ? "none" : "inline-flex";
         if (projectChatSection) projectChatSection.classList.toggle("active", isInProject);
         if (projectChatTitle) {
@@ -897,37 +903,74 @@
         } catch (error) { alert(error.message); }
     }
 
-    async function editProjectSettings() {
-        if (!activeProjectId || !activeProject) return;
-        const membership = activeProject.membership || {};
-        if (!["owner", "editor"].includes(membership.role)) { alert("Bạn chỉ có quyền trò chuyện trong Project này."); return; }
-        const instructions = prompt("Project Instructions — áp dụng cho mọi chat trong Project:", activeProject.instructions || "");
-        if (instructions === null) return;
-        const name = prompt("Tên Project:", activeProject.name || "");
-        if (name === null || !name.trim()) return;
-        const description = prompt("Mô tả Project:", activeProject.description || "");
-        if (description === null) return;
-        const currentMode = activeProject.memory_mode || "project_only";
-        const modeKeys = {project_only: "1", project_and_personal: "2", current_chat_only: "3"};
-        const modeInput = prompt(
-            "Chọn chế độ ngữ cảnh:\n1. Project-only: dùng ngữ cảnh các chat gần đây, file và memory của Project; không dùng memory cá nhân.\n2. Project + cá nhân: dùng ngữ cảnh Project và memory cá nhân của người đang chat.\n3. Chat hiện tại: chỉ dùng chat và file trong thread hiện tại; không nạp chat khác, Project memory hoặc memory cá nhân.",
-            modeKeys[currentMode] || "1"
-        );
-        if (modeInput === null) return;
-        const selectedMode = ({"1": "project_only", "2": "project_and_personal", "3": "current_chat_only"})[modeInput.trim()] || modeInput.trim();
-        if (!["project_only", "project_and_personal", "current_chat_only"].includes(selectedMode)) {
-            alert("Hãy nhập 1, 2 hoặc 3.");
+    function projectMemoryOption(mode) {
+        const select = document.getElementById("projectSettingsMemoryMode");
+        return Array.from(select.options).find(option => option.value === mode)
+            || select.querySelector("option[selected]");
+    }
+
+    function updateProjectModeHint() {
+        const select = document.getElementById("projectSettingsMemoryMode");
+        document.getElementById("projectSettingsModeHint").textContent = select.selectedOptions[0].dataset.description;
+    }
+
+    function editProjectSettings() {
+        if (!activeProjectId || !["owner", "editor"].includes(activeProject?.membership?.role)) return;
+        const dialog = document.getElementById("projectSettingsDialog");
+        const form = document.getElementById("projectSettingsForm");
+        const fields = form.elements;
+        fields.namedItem("name").value = activeProject.name || "";
+        fields.namedItem("description").value = activeProject.description || "";
+        fields.namedItem("instructions").value = activeProject.instructions || "";
+        fields.namedItem("memory_mode").value = projectMemoryOption(activeProject.memory_mode).value;
+        document.getElementById("projectSettingsError").hidden = true;
+        dialog.dataset.projectId = activeProjectId;
+        updateProjectModeHint();
+        dialog.showModal();
+    }
+
+    async function saveProjectSettings(event) {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const dialog = form.closest("dialog");
+        const fieldset = form.querySelector("fieldset");
+        const errorMessage = document.getElementById("projectSettingsError");
+        const projectId = dialog.dataset.projectId;
+        if (fieldset.disabled || projectId !== activeProjectId) return;
+
+        const settings = Object.fromEntries(new FormData(form));
+        settings.name = settings.name.trim();
+        errorMessage.hidden = true;
+        if (!settings.name) {
+            errorMessage.textContent = "Nhập tên Project.";
+            errorMessage.hidden = false;
+            form.elements.namedItem("name").focus();
             return;
         }
-        const response = await fetch(`/api/projects/${activeProjectId}`, {
-            method: "PATCH", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: name.trim(), description, instructions, memory_mode: selectedMode})
-        });
-        const data = await response.json();
-        if (!response.ok) { alert(data.error || "Không thể lưu cài đặt."); return; }
-        activeProject = {...activeProject, ...data.project, membership};
-        updateProjectWorkspace();
-        alert("Đã lưu Project Instructions và chế độ memory.");
+
+        fieldset.disabled = true;
+        const blockDismiss = event => event.preventDefault();
+        dialog.addEventListener("cancel", blockDismiss);
+        try {
+            const response = await fetch(`/api/projects/${projectId}`, {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(settings)
+            });
+            const data = await response.json();
+            if (!response.ok || !data.project) throw new Error(data.error || "Không thể lưu cài đặt.");
+            if (activeProjectId === projectId && activeProject) {
+                activeProject = {...activeProject, ...data.project, membership: activeProject.membership};
+                updateProjectWorkspace();
+            }
+            if (dialog.dataset.projectId === projectId) dialog.close();
+        } catch (error) {
+            errorMessage.textContent = error.message;
+            errorMessage.hidden = false;
+        } finally {
+            dialog.removeEventListener("cancel", blockDismiss);
+            fieldset.disabled = false;
+        }
     }
 
     // === KHỐI 12: Modal Share: thành viên, quyền và lời mời ===

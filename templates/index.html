@@ -104,10 +104,13 @@
     </div>
 
     <div id="projectWorkspaceBar">
-        <div class="project-workspace-name" id="projectWorkspaceName"></div>
+        <div class="project-workspace-identity">
+            <div class="project-workspace-name" id="projectWorkspaceName"></div>
+            <div class="auth-modal-desc" id="projectMemoryModeLabel" aria-live="polite"></div>
+        </div>
         <div class="project-workspace-actions">
             <button class="project-tool-btn" onclick="toggleProjectFiles()">Files</button>
-            <button class="project-tool-btn" onclick="editProjectSettings()">Instructions</button>
+            <button type="button" class="project-tool-btn" id="projectSettingsButton" onclick="editProjectSettings()" hidden>Settings</button>
             <button class="project-tool-btn" onclick="manageProjectMembers()">Share</button>
             <button class="project-tool-btn" onclick="newChat()" title="Tạo cuộc trò chuyện mới trong Project">New project chat</button>
             <button class="project-tool-btn" id="projectDeleteBtn" onclick="deleteActiveProject()" title="Xóa Project">Delete</button>
@@ -339,6 +342,42 @@
 </div>
 
 <!-- Recipient Invitation Modal -->
+<dialog class="auth-modal-container project-settings-dialog" id="projectSettingsDialog" aria-labelledby="projectSettingsTitle">
+    <div class="auth-modal-header">
+        <h2 class="auth-modal-title" id="projectSettingsTitle">Cài đặt Project</h2>
+    </div>
+    <form id="projectSettingsForm" onsubmit="saveProjectSettings(event)">
+        <fieldset class="project-settings-fields">
+            <div class="auth-field">
+                <label for="projectSettingsMemoryMode">Chế độ ngữ cảnh</label>
+                <select id="projectSettingsMemoryMode" name="memory_mode" aria-describedby="projectSettingsModeHint" onchange="updateProjectModeHint()" autofocus>
+                    {% for mode, (label, description) in project_memory_options.items() %}
+                    <option value="{{ mode }}" data-description="{{ description }}"{% if mode == default_memory_mode %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <p class="auth-modal-desc" id="projectSettingsModeHint"></p>
+            </div>
+            <div class="auth-field">
+                <label for="projectSettingsName">Tên Project</label>
+                <input id="projectSettingsName" name="name" maxlength="{{ project_name_chars }}" required>
+            </div>
+            <div class="auth-field">
+                <label for="projectSettingsDescription">Mô tả</label>
+                <textarea id="projectSettingsDescription" name="description" rows="2" maxlength="{{ project_description_chars }}"></textarea>
+            </div>
+            <div class="auth-field">
+                <label for="projectSettingsInstructions">Hướng dẫn cho các chat trong Project</label>
+                <textarea id="projectSettingsInstructions" name="instructions" rows="4" maxlength="{{ project_instruction_chars }}"></textarea>
+            </div>
+            <p class="auth-modal-desc" id="projectSettingsError" role="alert" hidden></p>
+            <div class="project-settings-actions">
+                <button type="button" class="project-tool-btn" onclick="this.closest('dialog').close()">Hủy</button>
+                <button type="submit" class="auth-submit-btn">Lưu cài đặt</button>
+            </div>
+        </fieldset>
+    </form>
+</dialog>
+
 <div class="auth-modal-overlay" id="projectInvitationModal" style="display:none;">
     <div class="auth-modal-backdrop" onclick="closeProjectInvitationModal()"></div>
     <div class="auth-modal-container" role="dialog" aria-modal="true" aria-labelledby="projectInvitationTitle" aria-describedby="projectInvitationDescription">
