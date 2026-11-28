@@ -25,6 +25,7 @@ from api.dependencies import (
     SUPPORTED_IMAGE_TYPES,
     _can_access_conversation,
 )
+from services.image_analysis import detect_image_format
 from storage.projects import can_edit_project, get_membership, get_project, register_project_file
 
 router = APIRouter()
@@ -42,13 +43,7 @@ logger = AppValueProxy("logger", logging.getLogger("app"))
 # =============================================================================
 
 def _looks_like_image(contents: bytes, suffix: str) -> bool:
-    if suffix in {".jpg", ".jpeg"}:
-        return contents.startswith(b"\xff\xd8\xff")
-    if suffix == ".png":
-        return contents.startswith(b"\x89PNG\r\n\x1a\n")
-    if suffix == ".webp":
-        return len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP"
-    return False
+    return suffix.lower() in SUPPORTED_IMAGE_TYPES and detect_image_format(contents) is not None
 
 
 # =============================================================================
@@ -90,11 +85,14 @@ async def upload_document(
                     {"success": False, "message": "Image is too large (maximum 14 MB)."},
                     status_code=413,
                 )
-            if not _looks_like_image(contents, suffix):
+            detected = detect_image_format(contents)
+            if detected is None:
                 return JSONResponse(
                     {"success": False, "message": "The uploaded file is not a valid JPG, PNG, or WEBP image."},
                     status_code=400,
                 )
+            actual_suffix, _ = detected
+            file_path = f"{cfg.UPLOAD_DIR}/{file_id}_{Path(safe_filename).stem}{actual_suffix}"
 
         user = get_current_user(request)
         user_id = user["id"] if user else None

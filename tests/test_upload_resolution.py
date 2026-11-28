@@ -121,6 +121,48 @@ class UploadResolutionTests(unittest.TestCase):
             list(chat._chat_event_generator(FakeAgent(), "thread", "user", "follow-up", "model", {}))
         self.assertEqual(observed, [self.new, self.new, "", ""])
 
+    def test_mismatched_image_extension_uses_detected_format_and_rejects_invalid_bytes(self):
+        import asyncio
+        import io
+        import tempfile
+        from pathlib import Path
+        from starlette.datastructures import UploadFile
+        from api import documents as api_documents
+        from services import image_analysis
+
+        webp_bytes = b"RIFF\x24\x00\x00\x00WEBPVP8 \x18\x00\x00\x00\x00\x00\x00\x00"
+        self.assertTrue(api_documents._looks_like_image(webp_bytes, ".jpg"))
+        self.assertFalse(api_documents._looks_like_image(b"not an image", ".jpg"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            upload_dir = Path(tmpdir)
+            with (
+                patch.object(api_documents.cfg, "UPLOAD_DIR", str(upload_dir)),
+                patch.object(image_analysis.cfg, "UPLOAD_DIR", str(upload_dir)),
+                patch.object(api_documents, "get_current_user", return_value={"id": "u1"}),
+                patch.object(api_documents, "get_conversation", return_value=None),
+                patch.object(api_documents, "create_or_update_conversation"),
+                patch.object(api_documents, "add_image_to_rag", return_value={"filename": "photo.jpg", "images": 1}) as add_img,
+            ):
+                bad_upload = UploadFile(filename="fake.jpg", file=io.BytesIO(b"plain text"))
+                bad_resp = asyncio.run(api_documents.upload_document(Mock(), file=bad_upload, thread_id="t1", is_temporary="false", project_id=""))
+                self.assertEqual(bad_resp.status_code, 400)
+
+                good_upload = UploadFile(filename="photo.jpg", file=io.BytesIO(webp_bytes))
+                good_resp = asyncio.run(api_documents.upload_document(Mock(), file=good_upload, thread_id="t1", is_temporary="false", project_id=""))
+                self.assertEqual(good_resp.status_code, 200)
+                saved_path = Path(add_img.call_args.args[0])
+                self.assertEqual(saved_path.suffix, ".webp")
+                self.assertTrue(saved_path.is_file())
+
+                fake_llm = Mock()
+                fake_llm.invoke.return_value = Mock(content="ok")
+                with patch.object(image_analysis, "log_token_usage"):
+                    answer = image_analysis.analyze_image(str(saved_path), "describe", llm=fake_llm)
+                self.assertEqual(answer, "ok")
+                sent_url = fake_llm.invoke.call_args.args[0][0].content[1]["image_url"]["url"]
+                self.assertTrue(sent_url.startswith("data:image/webp;base64,"))
+
 
 if __name__ == "__main__":
     unittest.main()

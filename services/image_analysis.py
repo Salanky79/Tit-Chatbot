@@ -25,6 +25,17 @@ from services.token_limit_handler import (
 # 01. Phân tích ảnh bằng model thị giác
 # =============================================================================
 
+def detect_image_format(contents: bytes) -> tuple[str, str] | None:
+    """Detect real JPG, PNG, or WEBP image format from binary magic bytes."""
+    if contents.startswith(b"\xff\xd8\xff"):
+        return ".jpg", SUPPORTED_IMAGE_TYPES[".jpg"]
+    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png", SUPPORTED_IMAGE_TYPES[".png"]
+    if len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
+        return ".webp", SUPPORTED_IMAGE_TYPES[".webp"]
+    return None
+
+
 def analyze_image(image_path: str, question: str, llm=None) -> str:
     """Answer a question about an uploaded image with a Groq vision model.
 
@@ -33,18 +44,19 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
     - Giới hạn token trước khi gọi: kiểm soát độ dài câu hỏi để không vượt ngân sách vision model.
     """
     path = Path(image_path).resolve()
-    upload_root = Path("uploads").resolve()
+    upload_root = Path(cfg.UPLOAD_DIR).resolve()
     if not path.is_relative_to(upload_root):
         raise ValueError("Image path is outside the upload directory.")
     if not path.is_file():
         raise ValueError("The uploaded image is no longer available on the server.")
 
-    mime_type = SUPPORTED_IMAGE_TYPES.get(path.suffix.lower())
-    if not mime_type:
-        raise ValueError("Unsupported image type. Upload a JPG, PNG, or WEBP image.")
     image_bytes = path.read_bytes()
     if len(image_bytes) > MAX_IMAGE_BYTES:
         raise ValueError("Image is too large for vision analysis (maximum 14 MB).")
+    detected = detect_image_format(image_bytes)
+    mime_type = detected[1] if detected else SUPPORTED_IMAGE_TYPES.get(path.suffix.lower())
+    if not mime_type:
+        raise ValueError("Unsupported image type. Upload a JPG, PNG, or WEBP image.")
 
     # Bước 3 & 4: Cô lập context và kiểm soát token cho câu hỏi thị giác
     clean_question = (question or "").strip()

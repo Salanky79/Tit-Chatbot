@@ -301,7 +301,7 @@ def invoke_with_rate_limit_retry(
 
 
 async def ainvoke_with_rate_limit_retry(
-    invoke: Callable[[], Awaitable[T]],
+    invoke: Callable[[], Awaitable[T]], #type hint
     *,
     max_retries: int | None,
     operation: str,
