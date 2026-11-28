@@ -1,3 +1,5 @@
+
+import config as cfg
 from pathlib import Path
 from datetime import datetime, timezone
 import logging
@@ -23,8 +25,8 @@ from pypdf import PdfReader
 import docx2txt
 
 
-Path("uploads").mkdir(exist_ok=True)
-Path("chroma_db_hf").mkdir(exist_ok=True)
+Path(cfg.UPLOAD_DIR).mkdir(exist_ok=True)
+Path(cfg.CHROMA_DIR).mkdir(exist_ok=True)
 
 
 _embeddings = None
@@ -43,13 +45,13 @@ def get_embeddings() -> Any:
         from langchain_huggingface import HuggingFaceEmbeddings
         try:
             _embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                model_kwargs={"device": "cpu", "local_files_only": True}
+                model_name=cfg.EMBEDDING_MODEL,
+                model_kwargs={"device": cfg.EMBEDDING_DEVICE, "local_files_only": True}
             )
         except Exception:
             _embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                model_kwargs={"device": "cpu"}
+                model_name=cfg.EMBEDDING_MODEL,
+                model_kwargs={"device": cfg.EMBEDDING_DEVICE}
             )
     return _embeddings
 
@@ -60,9 +62,9 @@ def get_vectorstore() -> Any:
     if _vectorstore is None:
         from langchain_chroma import Chroma
         _vectorstore = Chroma(
-            collection_name="agentic_chatbot_docs_hf",
+            collection_name=cfg.CHROMA_COLLECTION,
             embedding_function=get_embeddings(),
-            persist_directory="chroma_db_hf"
+            persist_directory=cfg.CHROMA_DIR
         )
     return _vectorstore
 
@@ -93,14 +95,14 @@ def _read_pdf(file_path: str, filename: str, thread_id: str, user_id: str | None
 
     try:
         try:
-            min_native_chars = int(os.getenv("PDF_OCR_TRIGGER_CHARS", "40"))
+            min_native_chars = int(os.getenv("PDF_OCR_TRIGGER_CHARS", str(cfg.OCR_MIN_TEXT_CHARS)))
         except ValueError:
-            min_native_chars = 40
+            min_native_chars = cfg.OCR_MIN_TEXT_CHARS
         try:
-            ocr_dpi = int(os.getenv("PDF_OCR_DPI", "300")) # Độ phân giải DPI cho OCR, mặc định 300 DPI. Tăng DPI có thể cải thiện độ chính xác nhận dạng ký tự nhưng cũng làm chậm quá trình OCR và tăng kích thước dữ liệu.
+            ocr_dpi = int(os.getenv("PDF_OCR_DPI", str(cfg.OCR_DPI))) # Độ phân giải DPI cho OCR, mặc định 300 DPI. Tăng DPI có thể cải thiện độ chính xác nhận dạng ký tự nhưng cũng làm chậm quá trình OCR và tăng kích thước dữ liệu.
         except ValueError:
-            ocr_dpi = 300
-        ocr_languages = os.getenv("PDF_OCR_LANGUAGES", "vie+eng")
+            ocr_dpi = cfg.OCR_DPI
+        ocr_languages = os.getenv("PDF_OCR_LANGUAGES", cfg.OCR_LANGUAGES)
 
         for page_num, page in enumerate(reader.pages, start=1):
             text = (page.extract_text() or "").strip()
@@ -214,7 +216,7 @@ def _load_documents(file_path: str, thread_id: str, user_id: str | None = None) 
         return _read_pdf(file_path, filename, thread_id, user_id=user_id)
     if suffix == ".docx":
         return _read_docx(file_path, filename, thread_id, user_id=user_id)
-    if suffix in {".txt", ".md", ".py", ".csv"}:
+    if suffix in cfg.TEXT_EXTENSIONS:
         return _read_text(file_path, filename, thread_id, user_id=user_id)
 
     raise ValueError("Unsupported file type. Upload PDF, DOCX, TXT, MD, PY, or CSV.")
@@ -236,8 +238,8 @@ def _split_documents(docs: list[Document]) -> list[Document]:
     sang từng chunk. Thêm ``chunk_index`` để phân biệt các chunk cùng trang.
     """
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=900,
-        chunk_overlap=150,
+        chunk_size=cfg.RAG_CHUNK_CHARS,
+        chunk_overlap=cfg.RAG_OVERLAP_CHARS,
         add_start_index=True,  # thêm 'start_index' vào metadata
     )
 
@@ -317,7 +319,7 @@ def retrieve_from_rag(
     query: str,
     thread_id: str,
     user_id: str | None = None,
-    k: int = 4,
+    k: int = cfg.RAG_TOP_K,
     project_id: str | None = None,
     current_chat_only: bool = False,
     source: str | None = None,
@@ -574,7 +576,7 @@ def list_admin_documents() -> list[dict[str, Any]]:
 
 def _unlink_upload_paths(file_paths: set[str] | list[str]) -> tuple[int, list[str]]:
     """Safely unlink files under uploads/ with a GC retry for Windows file locks."""
-    upload_root = Path("uploads").resolve()
+    upload_root = Path(cfg.UPLOAD_DIR).resolve()
     deleted_files = 0
     failed_paths: list[str] = []
     for file_path in file_paths:
@@ -744,7 +746,7 @@ def delete_admin_document(document_key: str) -> bool:
     if file_path:
         # Resolve cả hai phía để chặn đường dẫn kiểu ../uploads hoặc symlink
         # thoát khỏi thư mục upload; chỉ file nằm trong uploads mới được unlink.
-        upload_root = Path("uploads").resolve()
+        upload_root = Path(cfg.UPLOAD_DIR).resolve()
         candidate = Path(file_path).resolve()
         if candidate.is_relative_to(upload_root) and candidate.is_file():
             try:

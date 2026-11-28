@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import json
 import logging
 import uuid
@@ -66,12 +67,10 @@ async def upload_document(
     file_path: str | None = None
     written_to_disk = False
     try:
-        allowed_extensions = {".pdf", ".docx", ".txt", ".md", ".py", ".csv"}
-
         filename = Path(file.filename or "uploaded_file").name
         suffix = Path(filename).suffix.lower()
 
-        if suffix not in allowed_extensions and suffix not in SUPPORTED_IMAGE_TYPES:
+        if suffix not in cfg.DOCUMENT_EXTENSIONS and suffix not in SUPPORTED_IMAGE_TYPES:
             return JSONResponse(
                 {
                     "success": False,
@@ -82,7 +81,7 @@ async def upload_document(
 
         file_id = str(uuid.uuid4())
         safe_filename = filename.replace(" ", "_")
-        file_path = f"uploads/{file_id}_{safe_filename}"
+        file_path = f"{cfg.UPLOAD_DIR}/{file_id}_{safe_filename}"
         contents = await file.read()
 
         if suffix in SUPPORTED_IMAGE_TYPES:

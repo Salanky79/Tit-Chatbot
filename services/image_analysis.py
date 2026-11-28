@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import config as cfg
+from config import (SUPPORTED_IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_QUESTION_TOKENS, VISION_OUTPUT_TOKENS, VISION_RATE_LIMIT_MAX_RETRIES)
+
 import base64
 import os
 from pathlib import Path
@@ -16,22 +19,6 @@ from services.token_limit_handler import (
     invoke_with_rate_limit_retry,
     is_daily_token_limit,
 )
-
-
-SUPPORTED_IMAGE_TYPES = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-}
-MAX_IMAGE_BYTES = 14 * 1024 * 1024
-MAX_IMAGE_QUESTION_TOKENS = 350
-VISION_OUTPUT_TOKENS = 800
-try:
-    VISION_RATE_LIMIT_MAX_RETRIES = max(0, int(os.getenv("VISION_RATE_LIMIT_MAX_RETRIES", "3")))
-except ValueError:
-    VISION_RATE_LIMIT_MAX_RETRIES = 3
-
 
 
 # =============================================================================
@@ -70,8 +57,8 @@ def analyze_image(image_path: str, question: str, llm=None) -> str:
 
     if llm is None:
         llm = ChatGroq(
-            model=os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b"),
-            temperature=0.2,
+            model=os.getenv("GROQ_VISION_MODEL", cfg.VISION_MODEL),
+            temperature=cfg.VISION_TEMPERATURE,
             max_tokens=VISION_OUTPUT_TOKENS,
         )
     # lưu dạng chuỗi base64 để gửi đến model thị giác, tránh gửi file nhị phân trực tiếp

@@ -8,12 +8,14 @@ Quản lý ngôn ngữ tập trung:
 
 from __future__ import annotations
 
+import config as cfg
+
 from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import Any
 
 # Ngăn kéo tạm (ContextVar) lưu mã ngôn ngữ của request hiện tại, mặc định là "vi"
-_current_language: ContextVar[str] = ContextVar("current_language", default="vi")
+_current_language: ContextVar[str] = ContextVar("current_language", default=cfg.DEFAULT_LANGUAGE)
 
 
 # Trích xuất mã ngôn ngữ chính theo chuẩn BCP 47 (bảo toàn cả mã 2 ký tự như 'vi', 'en' và 3 ký tự như 'fil')
@@ -24,9 +26,9 @@ _current_language: ContextVar[str] = ContextVar("current_language", default="vi"
 
 def normalize_summary_language(language: str | None) -> str:
     """Canonicalize the output language used in summary prompts and job lookups."""
-    value = (language or "auto").strip().casefold()
+    value = (language or cfg.SUMMARY_LANGUAGE).strip().casefold()
     if value in {"", "auto", "original", "default", "ngôn ngữ gốc"}:
-        return "auto"
+        return cfg.SUMMARY_LANGUAGE
     if value in {"vi", "vietnamese", "tiếng việt", "tieng viet"}:
         return "Vietnamese"
     if value in {"en", "english", "tiếng anh", "tieng anh"}:
@@ -37,18 +39,18 @@ def normalize_summary_language(language: str | None) -> str:
 def extract_primary_language(raw_lang: str | None) -> str:
     """Extract primary language subtag (BCP 47), preserving 2-letter or 3-letter ISO codes."""
     if not raw_lang:
-        return "vi"
+        return cfg.DEFAULT_LANGUAGE
     # Lấy phần tử đầu tiên nếu có dấu phẩy và cắt trước dấu gạch ngang '-' hoặc gạch dưới '_'
     clean = str(raw_lang).strip().split(",")[0].strip()
     primary = clean.split("-")[0].split("_")[0].strip().lower()
-    return primary or "vi"
+    return primary or cfg.DEFAULT_LANGUAGE
 
 
 # Đọc mã ngôn ngữ từ HTTP headers (ưu tiên X-Language, fallback sang Accept-Language)
 def resolve_request_language(headers: Mapping[str, Any] | None) -> str:
     """Resolve user language from request headers (X-Language preferred, then Accept-Language)."""
     if not headers:
-        return "vi"
+        return cfg.DEFAULT_LANGUAGE
     # Kiểm tra X-Language tùy biến trước
     for key, val in headers.items():
         if str(key).casefold() == "x-language" and val:
@@ -57,7 +59,7 @@ def resolve_request_language(headers: Mapping[str, Any] | None) -> str:
     for key, val in headers.items():
         if str(key).casefold() == "accept-language" and val:
             return extract_primary_language(str(val))
-    return "vi"
+    return cfg.DEFAULT_LANGUAGE
 
 
 # Cất mã ngôn ngữ vào ContextVar cho lượt request hiện tại

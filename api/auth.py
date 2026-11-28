@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import json
 import logging
 import uuid
@@ -149,9 +150,9 @@ async def auth_verify(request: Request):
         "user": _serialize_user(user), "token": session_id,
     })
     response.set_cookie(
-        key="tit_session", value=session_id, httponly=True,
+        key=cfg.SESSION_COOKIE, value=session_id, httponly=True,
         secure=request.url.scheme == "https", samesite="lax",
-        max_age=7 * 24 * 3600, path="/",
+        max_age=cfg.SESSION_DAYS * 24 * 3600, path="/",
     )
     _clear_challenge_cookie(response)
     return response
@@ -198,7 +199,7 @@ async def auth_signout(request: Request):
         delete_session(session_id)
     cancel_challenge(request.cookies.get(AUTH_CHALLENGE_COOKIE))
     response = JSONResponse({"success": True, "message": "Đã đăng xuất thành công."})
-    response.delete_cookie(key="tit_session", path="/")
+    response.delete_cookie(key=cfg.SESSION_COOKIE, path="/")
     _clear_challenge_cookie(response)
     return response
 
@@ -258,19 +259,18 @@ async def auth_avatar(request: Request, file: UploadFile = File(...)):
     if not user:
         return JSONResponse({"success": False, "error": "Bạn cần đăng nhập để thực hiện tính năng này."}, status_code=401)
 
-    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in allowed_exts:
+    if ext not in cfg.AVATAR_TYPES:
         return JSONResponse({
             "success": False,
             "error": "Định dạng file không hỗ trợ. Vui lòng tải file ảnh (PNG, JPG, WEBP, GIF)."
         }, status_code=400)
 
     content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
+    if len(content) > cfg.MAX_AVATAR_BYTES:
         return JSONResponse({"success": False, "error": "Kích thước ảnh không được vượt quá 5MB."}, status_code=400)
 
-    avatar_dir = Path("uploads/avatars")
+    avatar_dir = Path(cfg.AVATAR_DIR)
     avatar_dir.mkdir(exist_ok=True, parents=True)
     safe_filename = f"{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
     target_path = avatar_dir / safe_filename
@@ -292,16 +292,9 @@ async def auth_avatar(request: Request, file: UploadFile = File(...)):
 async def get_avatar_file(filename: str):
     """Trả về file ảnh đại diện."""
     safe_name = Path(filename).name
-    file_path = Path("uploads/avatars") / safe_name
+    file_path = Path(cfg.AVATAR_DIR) / safe_name
     if not file_path.exists() or not file_path.is_file():
         return JSONResponse({"error": "Không tìm thấy ảnh đại diện."}, status_code=404)
     suffix = file_path.suffix.lower()
-    media_types = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".gif": "image/gif",
-    }
-    media_type = media_types.get(suffix, "application/octet-stream")
+    media_type = cfg.AVATAR_TYPES.get(suffix, "application/octet-stream")
     return FileResponse(file_path, media_type=media_type)

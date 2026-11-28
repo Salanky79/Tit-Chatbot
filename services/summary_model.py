@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import config as cfg
+from config import MAP_SUMMARY_OUTPUT_TOKENS, FINAL_SUMMARY_OUTPUT_TOKENS
+
 import logging
 import os
 from typing import Any
@@ -17,8 +20,6 @@ from services.token_limit_handler import is_daily_token_limit, invoke_with_rate_
 from utils.usage_logging import log_token_usage
 
 logger = logging.getLogger(__name__)
-MAP_SUMMARY_OUTPUT_TOKENS = 350
-FINAL_SUMMARY_OUTPUT_TOKENS = 900
 
 
 # =============================================================================
@@ -55,7 +56,7 @@ def _invoke(
     stage: str,
     group_number: int,
     max_retries: int | None = None,
-    target_language: str = "auto",
+    target_language: str = cfg.SUMMARY_LANGUAGE,
 ) -> str:
     """Invoke the summarization LLM for a prompt unit.
 
@@ -72,7 +73,7 @@ def _invoke(
     if isinstance(llm, ChatGroq):
         configured = os.getenv(
             "SUMMARIZATION_FALLBACK_MODELS",
-            "openai/gpt-oss-20b,qwen/qwen3.8-27b,openai/gpt-oss-120b",
+            cfg.SUMMARY_FALLBACK_MODELS,
         )
         fallback_names = [name.strip() for name in configured.split(",") if name.strip()]
         fallback_names = [name for name in dict.fromkeys(fallback_names) if name != primary_name]
@@ -124,10 +125,10 @@ def _invoke(
 # =============================================================================
 
 def _build_groq_llm(model_name: str | None = None, max_tokens: int = FINAL_SUMMARY_OUTPUT_TOKENS) -> ChatGroq:
-    model = model_name or os.getenv("SUMMARIZATION_MODEL") or "openai/gpt-oss-20b"
+    model = model_name or os.getenv("SUMMARIZATION_MODEL") or cfg.CHAT_MODEL
     return ChatGroq(
         model=model,
-        temperature=0.1,
+        temperature=cfg.SUMMARY_TEMPERATURE,
         max_tokens=max_tokens,
     )
 

@@ -7,12 +7,13 @@ evaluation target; no separate corpus file is required.
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
-DATASET_NAME = "tit-rag-small-v1"
-DATASET_DESCRIPTION = "Small, hand-authored Vietnamese RAG evaluation set (v1)."
-DATASET_VERSION = "v1"
-MAX_CASES_PER_RUN = 20
+DATASET_NAME = cfg.DATASET_NAME
+DATASET_DESCRIPTION = cfg.DATASET_DESCRIPTION
+DATASET_VERSION = cfg.DATASET_VERSION
+MAX_CASES_PER_RUN = cfg.MAX_CASES_PER_RUN
 
 RAG_TEST_DOCUMENTS: list[dict[str, str]] = [
     {

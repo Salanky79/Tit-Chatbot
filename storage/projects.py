@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import hashlib
 import json
 import secrets
@@ -17,9 +18,9 @@ from services.summary_jobs import delete_summary_jobs
 from storage.mongo_client import get_collection
 
 
-VALID_MEMBER_ROLES = {"editor", "chat_only"}
-INVITATION_DURATIONS = {1, 3, 7, 14, 30}
-DEFAULT_INVITATION_DAYS = 7
+VALID_MEMBER_ROLES = cfg.VALID_MEMBER_ROLES
+INVITATION_DURATIONS = cfg.INVITATION_DURATIONS
+DEFAULT_INVITATION_DAYS = cfg.DEFAULT_INVITATION_DAYS
 
 
 
@@ -104,7 +105,7 @@ def _public(doc: dict[str, Any] | None) -> dict[str, Any] | None:
 def create_project(owner_id: str, name: str, description: str = "") -> dict[str, Any]:
     """Tạo Project mới thuộc sở hữu của user."""
     owner_oid = _oid(owner_id)
-    clean_name = (name or "").strip()[:100]
+    clean_name = (name or "").strip()[:cfg.PROJECT_NAME_CHARS]
     if not owner_oid:
         raise ValueError("Valid user is required to create a project.")
     if not clean_name:
@@ -113,9 +114,9 @@ def create_project(owner_id: str, name: str, description: str = "") -> dict[str,
     doc = {
         "owner_id": owner_oid,
         "name": clean_name,
-        "description": (description or "").strip()[:500],
+        "description": (description or "").strip()[:cfg.PROJECT_DESCRIPTION_CHARS],
         "instructions": "",
-        "memory_mode": "project_only",
+        "memory_mode": cfg.DEFAULT_MEMORY_MODE,
         "created_at": now,
         "updated_at": now,
     }
@@ -195,17 +196,17 @@ def update_project(project_id: str, user_id: str, fields: dict[str, Any]) -> dic
         return None
     allowed: dict[str, Any] = {}
     if "name" in fields:
-        name = str(fields["name"] or "").strip()[:100]
+        name = str(fields["name"] or "").strip()[:cfg.PROJECT_NAME_CHARS]
         if not name:
             raise ValueError("Project name is required.")
         allowed["name"] = name
     if "description" in fields:
-        allowed["description"] = str(fields["description"] or "").strip()[:500]
+        allowed["description"] = str(fields["description"] or "").strip()[:cfg.PROJECT_DESCRIPTION_CHARS]
     if "instructions" in fields:
-        allowed["instructions"] = str(fields["instructions"] or "").strip()[:8000]
+        allowed["instructions"] = str(fields["instructions"] or "").strip()[:cfg.PROJECT_INSTRUCTION_CHARS]
     if "memory_mode" in fields:
         mode = fields["memory_mode"]
-        if mode not in {"project_only", "project_and_personal", "current_chat_only"}:
+        if mode not in cfg.PROJECT_MEMORY_MODES:
             raise ValueError("Invalid project memory mode.")
         allowed["memory_mode"] = mode
     if not allowed:
@@ -247,7 +248,7 @@ def delete_project(project_id: str, user_id: str) -> dict[str, int] | None:
         delete_project_documents(str(project_oid))
     except Exception:
         pass
-    upload_root = Path("uploads").resolve()
+    upload_root = Path(cfg.UPLOAD_DIR).resolve()
     for file_doc in files:
         try:
             candidate = Path(file_doc.get("path", "")).resolve()
@@ -295,7 +296,7 @@ def invite_project_member(project_id: str, inviter_id: str, identifier: str, rol
     now = _now()
     if existing and existing.get("status") == "accepted":
         raise ValueError("This user is already a project member.")
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(cfg.SECRET_TOKEN_BYTES)
     try:
         doc = members.find_one_and_update(
             {"project_id": project_oid, "user_id": target_oid, "status": {"$ne": "accepted"}},
@@ -490,7 +491,7 @@ def list_project_conversations(project_id: str) -> list[dict[str, Any]]:
 def create_project_memory(project_id: str, user_id: str, memory: str, thread_id: str = "") -> str:
     """Lưu một fact dùng chung trong Project memory."""
     project_oid, user_oid = _oid(project_id), _oid(user_id)
-    text = (memory or "").strip()[:2000]
+    text = (memory or "").strip()[:cfg.PROJECT_MEMORY_CHARS]
     if not project_oid or not user_oid or not text:
         return "Project memory could not be saved."
     if not can_edit_project(project_id, user_id):
@@ -509,7 +510,7 @@ def create_project_memory(project_id: str, user_id: str, memory: str, thread_id:
     }, ensure_ascii=False)
 
 
-def search_project_memory_entries(project_id: str, query: str = "", limit: int = 5) -> dict[str, Any]:
+def search_project_memory_entries(project_id: str, query: str = "", limit: int = cfg.MEMORY_TOP_K) -> dict[str, Any]:
     """Trả memory Project kèm ID và version để agent có thể quản lý chính xác."""
     if not get_project(project_id):
         return {"status": "invalid_scope", "source": "none", "memories": []}
@@ -525,7 +526,7 @@ def search_project_memory_entries(project_id: str, query: str = "", limit: int =
     return result
 
 
-def search_project_memories(project_id: str, query: str, limit: int = 5) -> list[str]:
+def search_project_memories(project_id: str, query: str, limit: int = cfg.MEMORY_TOP_K) -> list[str]:
     """Tìm các fact Project memory liên quan đến câu hỏi."""
     result = search_project_memory_entries(project_id, query, limit)
     return [str(item.get("memory", "")) for item in result.get("memories", [])]

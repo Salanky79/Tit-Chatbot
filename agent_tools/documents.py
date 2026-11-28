@@ -1,5 +1,7 @@
 """Tools for uploaded documents and images."""
 
+import config as cfg
+
 import logging
 
 from langchain_core.tools import tool
@@ -125,7 +127,7 @@ def _select_uploaded_name(
 # =============================================================================
 
 @tool(response_format="content_and_artifact")
-def summarize_uploaded_document(filename: str = "", target_language: str = "auto") -> tuple[str, dict[str, str]]:
+def summarize_uploaded_document(filename: str = "", target_language: str = cfg.SUMMARY_LANGUAGE) -> tuple[str, dict[str, str]]:
     """Summarize the complete contents of one uploaded file in this conversation.
 
     CRITICAL: ALWAYS use this tool (and NEVER search_uploaded_documents) whenever

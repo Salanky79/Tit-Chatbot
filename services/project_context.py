@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import config as cfg
+from config import MAX_PROJECT_CONTEXT_CHARS
+
 from bson import ObjectId
 
 from storage.mongo_client import get_collection
 from storage.projects import search_project_memories
 
 
-MAX_PROJECT_CONTEXT_CHARS = 9000
 
 
 
@@ -20,7 +22,7 @@ def build_project_context(
     project_id: str,
     current_thread_id: str,
     query: str,
-    memory_mode: str = "project_only",
+    memory_mode: str = cfg.DEFAULT_MEMORY_MODE,
 ) -> str:
     """Tạo ngữ cảnh giới hạn từ chat gần đây và memory của Project."""
     if not ObjectId.is_valid(project_id) or memory_mode == "current_chat_only":
@@ -30,7 +32,7 @@ def build_project_context(
         get_collection("conversations").find(
             {"project_id": project_oid, "thread_id": {"$ne": current_thread_id}},
             {"thread_id": 1, "title": 1},
-        ).sort("updated_at", -1).limit(12) # tối đa 12 cuộc trò chuyện khác
+        ).sort("updated_at", -1).limit(cfg.PROJECT_CONTEXT_THREADS) # tối đa 12 cuộc trò chuyện khác
     )
     thread_ids = [row["thread_id"] for row in conversations if row.get("thread_id")]
     messages = []
@@ -39,7 +41,7 @@ def build_project_context(
             get_collection("chat_messages").find(
                 {"thread_id": {"$in": thread_ids}},
                 {"role": 1, "content": 1, "thread_id": 1, "created_at": 1, "sender_id": 1, "user_id": 1},
-            ).sort("created_at", -1).limit(24) # tối đa 24 tin nhắn mới nhất từ chat_message
+            ).sort("created_at", -1).limit(cfg.PROJECT_CONTEXT_MESSAGES) # tối đa 24 tin nhắn mới nhất từ chat_message
         )
         messages.reverse()
 
@@ -71,7 +73,7 @@ def build_project_context(
         if dialogue:
             pieces.append("Recent conversations in this project:\n" + "\n".join(dialogue))
 
-    memories = search_project_memories(project_id, query, limit=5)
+    memories = search_project_memories(project_id, query, limit=cfg.MEMORY_TOP_K)
     if memories:
         pieces.append("Saved project facts and decisions:\n" + "\n".join(f"- {item}" for item in memories))
 

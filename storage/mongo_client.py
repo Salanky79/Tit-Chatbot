@@ -7,6 +7,7 @@ Cách dùng:
     db   = get_db()
 """
 
+import config as cfg
 import os
 import logging
 from pathlib import Path
@@ -22,8 +23,7 @@ from pymongo.database import Database
 logger = logging.getLogger(__name__)
 
 # Đọc .env từ thư mục gốc của project
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_DIR / ".env")
+load_dotenv(cfg.PROJECT_DIR / ".env")
 
 # Dùng file chứng chỉ SSL hợp lệ
 os.environ["SSL_CERT_FILE"] = certifi.where()
@@ -31,7 +31,7 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 # Dùng Google DNS cho các truy vấn SRV của MongoDB Atlas
 resolver = dns.resolver.get_default_resolver()
-resolver.nameservers = ["8.8.8.8", "8.8.4.4"]
+resolver.nameservers = list(cfg.MONGO_DNS_SERVERS)
 
 # ---------------------------------------------------------------------------
 # Singleton instance
@@ -62,7 +62,7 @@ def get_client() -> MongoClient:
             )
         _client = MongoClient(
             uri,
-            serverSelectionTimeoutMS=10000,
+            serverSelectionTimeoutMS=cfg.MONGO_SERVER_TIMEOUT_MS,
             tlsCAFile=certifi.where(),
         )
         logger.info("Đã kết nối MongoDB thành công.")
@@ -75,7 +75,7 @@ def get_db() -> Database:
     Tên database được lấy từ biến môi trường ``MONGODB_DB_NAME``
     (mặc định: ``tit_chatbot``).
     """
-    db_name = os.getenv("MONGODB_DB_NAME", "tit_chatbot")
+    db_name = os.getenv("MONGODB_DB_NAME", cfg.MONGO_DATABASE)
     return get_client()[db_name]
 
 
@@ -115,7 +115,7 @@ def ensure_indexes() -> None:
         # Authentication challenges are short-lived and are restored through an HttpOnly cookie.
         challenges = get_collection("auth_challenges")
         challenges.create_index([("challenge_key", ASCENDING)], unique=True, background=True)
-        challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=3600, background=True)
+        challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=cfg.CHALLENGE_RETENTION_SECONDS, background=True)
 
         # conversations
         conv = get_collection("conversations")

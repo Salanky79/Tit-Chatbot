@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import logging
 import sys
 from datetime import datetime, timezone
@@ -91,16 +92,16 @@ def _conv_to_obj(doc: dict[str, Any] | None) -> SimpleNamespace | None:
     return SimpleNamespace(**converted)
 
 
-VALID_BASE_STYLES = ("default", "professional", "friendly", "efficient", "creative")
-MAX_CUSTOM_INSTRUCTIONS_LEN = 1500
+VALID_BASE_STYLES = cfg.VALID_BASE_STYLES
+MAX_CUSTOM_INSTRUCTIONS_LEN = cfg.MAX_CUSTOM_INSTRUCTIONS_LEN
 
 
 def normalize_personalization(raw: Any) -> dict[str, str]:
     """Chuẩn hóa cấu hình cá nhân hóa (base_style, custom_instructions) về giá trị an toàn."""
     data = raw if isinstance(raw, dict) else {}
-    style = str(data.get("base_style") or "default").strip().lower()
+    style = str(data.get("base_style") or cfg.DEFAULT_BASE_STYLE).strip().lower()
     if style not in VALID_BASE_STYLES:
-        style = "default"
+        style = cfg.DEFAULT_BASE_STYLE
     instructions = str(data.get("custom_instructions") or "").strip()[:MAX_CUSTOM_INSTRUCTIONS_LEN]
     return {
         "base_style": style,

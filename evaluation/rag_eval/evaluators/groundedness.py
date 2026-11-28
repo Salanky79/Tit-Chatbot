@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
 from .common import GroundednessGrade, invoke_structured, langsmith_result, read_run_example
@@ -33,7 +34,7 @@ def compute_groundedness(claims: list[dict[str, Any]]) -> dict[str, Any]:
     An empty claim set is not scored because the ratio is undefined.
     """
     if not claims:
-        return {"status": "no_claims", "score": None, "max_score": 4, "normalized_score": None, "supported": 0, "contradicted": 0, "not_found": 0}
+        return {"status": "no_claims", "score": None, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": None, "supported": 0, "contradicted": 0, "not_found": 0}
     counts = {label: 0 for label in VALID_LABELS}
     for claim in claims:
         raw_label = str(claim.get("label") or "").strip().lower().replace("-", "_")
@@ -42,13 +43,13 @@ def compute_groundedness(claims: list[dict[str, Any]]) -> dict[str, Any]:
             raise ValueError(f"Invalid groundedness claim label: {claim.get('label')!r}")
         counts[label] += 1
     total = len(claims)
-    raw_score = 4 * counts["supported"] / total
+    raw_score = cfg.EVAL_MAX_SCORE * counts["supported"] / total
     score = round(raw_score, 2)
     return {
         "status": "scored",
         "score": score,
-        "max_score": 4,
-        "normalized_score": round(score / 4, 4),
+        "max_score": cfg.EVAL_MAX_SCORE,
+        "normalized_score": round(score / cfg.EVAL_MAX_SCORE, cfg.EVAL_SCORE_PRECISION),
         "supported": counts["supported"],
         "contradicted": counts["contradicted"],
         "not_found": counts["not_found"],
@@ -64,7 +65,7 @@ def score_groundedness(inputs: dict[str, Any], outputs: dict[str, Any], *, judge
     answer = outputs.get("answer")
     contexts = outputs.get("contexts")
     if answer is None or contexts is None:
-        return {"status": "missing_input", "score": None, "max_score": 4, "normalized_score": None, "reason": "answer or contexts field is missing", "claims": []}
+        return {"status": "missing_input", "score": None, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": None, "reason": "answer or contexts field is missing", "claims": []}
     grade = invoke_structured(
         GroundednessGrade,
         PROMPT,

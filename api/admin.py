@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import json
 import logging
 import uuid
@@ -62,8 +63,8 @@ logger = AppValueProxy("logger", logging.getLogger("app"))
 async def admin_list_users(
     request: Request,
     search: str = "",
-    page: int = 1,
-    page_size: int = 25,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.ADMIN_PAGE_SIZE,
 ):
     """Trả danh sách user đã lọc/phân trang cho bảng quản trị."""
     error = _admin_api_error(request)
@@ -156,8 +157,8 @@ async def admin_list_user_conversations(
     user_id: str,
     request: Request,
     search: str = "",
-    page: int = 1,
-    page_size: int = 20,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.CONVERSATION_PAGE_SIZE,
 ):
     """List only the selected user's conversations for the admin viewer."""
     error = _admin_api_error(request)
@@ -178,8 +179,8 @@ async def admin_get_conversation_messages(
     user_id: str,
     thread_id: str,
     request: Request,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.MESSAGE_PAGE_SIZE,
 ):
     """Return one page of messages after verifying conversation ownership."""
     error = _admin_api_error(request)
@@ -227,8 +228,8 @@ async def admin_list_documents(
     search: str = "",
     user_id: str = "",
     file_type: str = "",
-    page: int = 1,
-    page_size: int = 25,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.ADMIN_PAGE_SIZE,
 ):
     """Lọc danh sách tài liệu Chroma và chỉ trả metadata cần hiển thị."""
     error = _admin_api_error(request)
@@ -236,7 +237,7 @@ async def admin_list_documents(
         return error
 
     documents = list_admin_documents()
-    clean_search = search.strip().casefold()[:100]
+    clean_search = search.strip().casefold()[:cfg.ADMIN_SEARCH_CHARS]
     if clean_search:
         documents = [doc for doc in documents if clean_search in doc["source"].casefold()]
     clean_user = user_id.strip()
@@ -251,8 +252,8 @@ async def admin_list_documents(
     if clean_type:
         documents = [doc for doc in documents if (doc.get("file_type") or "").lower() == clean_type]
 
-    page = max(page, 1)
-    page_size = min(max(page_size, 1), 100)
+    page = max(page, cfg.FIRST_PAGE)
+    page_size = min(max(page_size, 1), cfg.MAX_PAGE_SIZE)
     total = len(documents)
     start = (page - 1) * page_size
     # Không gửi đường dẫn ổ đĩa hay chunk IDs nội bộ về trình duyệt.

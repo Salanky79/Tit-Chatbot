@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
 from bson import ObjectId
@@ -54,15 +55,14 @@ def create_user(
     email = (email or "").strip().lower()
     full_name = (full_name or "").strip()
 
-    ALLOWED_USERNAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
-    if not username or len(username) < 3:
-        raise ValueError("Tên đăng nhập phải có ít nhất 3 ký tự.")
-    if not all(char in ALLOWED_USERNAME_CHARS for char in username):
+    if not username or len(username) < cfg.MIN_USERNAME_CHARS:
+        raise ValueError(f"Tên đăng nhập phải có ít nhất {cfg.MIN_USERNAME_CHARS} ký tự.")
+    if not all(char in cfg.ALLOWED_USERNAME_CHARS for char in username):
         raise ValueError("Tên đăng nhập chỉ được chứa chữ cái, chữ số, dấu gạch dưới, gạch ngang và dấu chấm.")
     if not email or "@" not in email or "." not in email:
         raise ValueError("Định dạng email không hợp lệ.")
-    if not password or len(password) < 6:
-        raise ValueError("Mật khẩu phải có ít nhất 6 ký tự.")
+    if not password or len(password) < cfg.MIN_PASSWORD_CHARS:
+        raise ValueError(f"Mật khẩu phải có ít nhất {cfg.MIN_PASSWORD_CHARS} ký tự.")
 
     users = get_collection("users")
     if users.find_one({"username": username}):
@@ -161,12 +161,12 @@ def get_user_by_username(username: str) -> dict | None:
 # 03. Danh sách và thao tác quản trị
 # =============================================================================
 
-def list_users(*, page: int = 1, page_size: int = 25, search: str = "") -> dict[str, Any]:
+def list_users(*, page: int = cfg.FIRST_PAGE, page_size: int = cfg.ADMIN_PAGE_SIZE, search: str = "") -> dict[str, Any]:
     """Tìm và phân trang danh sách user; giới hạn page size để tránh truy vấn lớn."""
-    page = max(1, page)
-    page_size = min(max(1, page_size), 100)
+    page = max(cfg.FIRST_PAGE, page)
+    page_size = min(max(1, page_size), cfg.MAX_PAGE_SIZE)
     users = get_collection("users")
-    clean_search = (search or "").strip()[:100]
+    clean_search = (search or "").strip()[:cfg.ADMIN_SEARCH_CHARS]
     cursor = users.find({}, {"hashed_password": 0}).sort("created_at", -1)
     all_users = [_public_user(user) for user in cursor]
     if clean_search:
@@ -346,8 +346,8 @@ def update_user_profile(
             raise ValueError("Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu mới.")
         if not verify_password(current_password, user.get("hashed_password", "")):
             raise ValueError("Mật khẩu hiện tại không chính xác.")
-        if len(new_password) < 6:
-            raise ValueError("Mật khẩu mới phải có ít nhất 6 ký tự.")
+        if len(new_password) < cfg.MIN_PASSWORD_CHARS:
+            raise ValueError(f"Mật khẩu mới phải có ít nhất {cfg.MIN_PASSWORD_CHARS} ký tự.")
         set_fields["hashed_password"] = hash_password(new_password)
 
     if set_fields:

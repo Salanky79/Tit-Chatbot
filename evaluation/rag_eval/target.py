@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -231,12 +232,12 @@ def make_generator(model_name: str | None = None) -> Any:
     import os
     from langchain_groq import ChatGroq
 
-    selected = model_name or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+    selected = model_name or os.getenv("GROQ_MODEL", cfg.CHAT_MODEL)
     return ChatGroq(
         model=selected,
-        temperature=0,
+        temperature=cfg.EVAL_TEMPERATURE,
         streaming=False,
-        max_tokens=int(os.getenv("RAG_EVAL_GENERATION_MAX_TOKENS", "512")),
+        max_tokens=int(os.getenv("RAG_EVAL_GENERATION_MAX_TOKENS", str(cfg.EVAL_GENERATION_TOKENS))),
     )
 
 

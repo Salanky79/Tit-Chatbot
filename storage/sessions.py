@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from datetime import timedelta, timezone
 import secrets
 
@@ -18,9 +19,9 @@ _to_object_id = database_callable("_to_object_id", _to_object_id_impl)
 # 01. Cấp phiên đăng nhập
 # =============================================================================
 
-def create_session(user_id: str | ObjectId, duration_days: int = 7) -> str:
+def create_session(user_id: str | ObjectId, duration_days: int = cfg.SESSION_DAYS) -> str:
     """Tạo phiên đăng nhập an toàn mới lưu vào MongoDB."""
-    session_id = secrets.token_urlsafe(32)
+    session_id = secrets.token_urlsafe(cfg.SECRET_TOKEN_BYTES)
     now = _now()
     expires_at = now + timedelta(days=duration_days) # thời hạn mặc định 7 ngày
 

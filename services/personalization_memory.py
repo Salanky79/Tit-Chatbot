@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import config as cfg
+
 import json
 import os
 from typing import Any, Literal
@@ -55,16 +57,16 @@ class MemoryActionPlan(BaseModel):
 # 02. Model và chuẩn hóa dữ liệu LLM
 # =============================================================================
 
-def _make_memory_llm(max_tokens: int = 700) -> Any:
+def _make_memory_llm(max_tokens: int = cfg.MEMORY_SUMMARY_TOKENS) -> Any:
     """Khởi tạo ChatGroq client gọn nhẹ cho tác vụ tóm tắt và cập nhật bộ nhớ."""
     from langchain_groq import ChatGroq
 
     # Đọc tên model từ biến môi trường; nếu không cấu hình thì fallback sang gpt-oss-20b
-    model_name = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
+    model_name = os.getenv("GROQ_MODEL", cfg.CHAT_MODEL).strip() or cfg.CHAT_MODEL
     # Dùng temperature thấp (0.2) để AI bám sát dữ liệu thật, không bịa thông tin; tắt streaming vì chỉ cần kết quả trọn gói
     return ChatGroq(
         model=model_name,
-        temperature=0.2,
+        temperature=cfg.MEMORY_TEMPERATURE,
         streaming=False,
         max_tokens=max_tokens,
     )
@@ -128,7 +130,7 @@ def summarize_user_memories(
         for item in memories
         if str(item.get("memory") or "").strip()
     ]
-    client = llm or _make_memory_llm(max_tokens=700)
+    client = llm or _make_memory_llm(max_tokens=cfg.MEMORY_SUMMARY_TOKENS)
     messages = [
         {"role": "system", "content": _build_summary_system_prompt(language)},
         {"role": "user", "content": "Saved personal memories:\n" + "\n".join(fact_lines)},
@@ -205,7 +207,7 @@ def apply_llm_memory_instruction(
     }
 
     # Bước 3: Đóng gói yêu cầu tự nhiên của user + danh sách bộ nhớ hiện tại thành JSON gửi LLM phân tích
-    client = llm or _make_memory_llm(max_tokens=800)
+    client = llm or _make_memory_llm(max_tokens=cfg.MEMORY_UPDATE_TOKENS)
     payload = {
         "instruction": clean_instruction,
         "existing_memories": [

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from config import JOBS, CHECKPOINTS, SCOPE_FIELDS, JOB_FIELDS
+
 from datetime import datetime
 from functools import lru_cache
 
@@ -10,12 +12,6 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from storage.mongo_client import get_collection
-
-JOBS = "summary_jobs"
-CHECKPOINTS = "summary_job_checkpoints"
-SCOPE_FIELDS = ("thread_id", "user_id", "project_id")
-JOB_FIELDS = tuple(f"context.{name}" for name in SCOPE_FIELDS) + ("document_id", "target_language")
-
 
 @lru_cache(maxsize=1) # last recently used job is likely to be reused
 def ensure_summary_indexes() -> None:

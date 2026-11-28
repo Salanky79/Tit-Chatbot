@@ -1,5 +1,7 @@
 """SMTP delivery for account verification and project invitations."""
 
+import config as cfg
+
 from datetime import datetime
 from email.message import EmailMessage
 from html import escape
@@ -102,17 +104,17 @@ def _send_message(message: EmailMessage) -> None:
     sender = os.getenv("SMTP_FROM", username or "")
     if not host or not sender:
         raise RuntimeError("Email delivery is not configured. Set SMTP_HOST and SMTP_EMAIL (or SMTP_USERNAME). SMTP_FROM is optional.")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("SMTP_PORT", str(cfg.SMTP_PORT)))
+    use_ssl = os.getenv("SMTP_USE_SSL", cfg.SMTP_SSL_DEFAULT).lower() in {"1", "true", "yes"}
     message["From"] = sender
     context = ssl.create_default_context()
     if use_ssl:
-        with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as smtp:
+        with smtplib.SMTP_SSL(host, port, context=context, timeout=cfg.SMTP_TIMEOUT_SECONDS) as smtp:
             if username and password:
                 smtp.login(username, password)
             smtp.send_message(message)
     else:
-        with smtplib.SMTP(host, port, timeout=15) as smtp:
+        with smtplib.SMTP(host, port, timeout=cfg.SMTP_TIMEOUT_SECONDS) as smtp:
             smtp.ehlo()
             smtp.starttls(context=context)
             smtp.ehlo()

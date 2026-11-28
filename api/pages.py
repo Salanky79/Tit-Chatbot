@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import json
 import logging
 import uuid
@@ -17,7 +18,7 @@ from api.compat import AppValueProxy, app_callable, app_value
 from api.dependencies import get_current_user
 
 router = APIRouter()
-_default_templates = Jinja2Templates(directory="templates")
+_default_templates = Jinja2Templates(directory=cfg.TEMPLATES_DIR)
 templates = AppValueProxy("templates", _default_templates)
 get_current_user = app_callable("get_current_user", get_current_user)
 

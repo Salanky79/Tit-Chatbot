@@ -1,5 +1,7 @@
 """General-purpose agent tools."""
 
+import config as cfg
+
 import math
 
 from langchain_core.tools import tool
@@ -16,9 +18,9 @@ web_search = TavilySearch(
         "or anything that may have changed after the model's training cutoff. "
         "Always cite that the answer is based on web search results."
     ),
-    max_results=5,
-    topic="general",
-    search_depth="advanced",
+    max_results=cfg.WEB_SEARCH_RESULTS,
+    topic=cfg.WEB_SEARCH_TOPIC,
+    search_depth=cfg.WEB_SEARCH_DEPTH,
 )
 
 

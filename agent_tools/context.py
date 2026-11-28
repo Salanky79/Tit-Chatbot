@@ -1,8 +1,11 @@
 """Request-scoped context shared by all agent tools."""
 
+import config as cfg
+from config import SUMMARY_RESULT_PREFIX, SUMMARY_RESULT_PREFIX_VI, SUMMARY_ERROR_PREFIX
+
 from contextvars import ContextVar
 
-_current_thread_id: ContextVar[str] = ContextVar("current_thread_id", default="default")
+_current_thread_id: ContextVar[str] = ContextVar("current_thread_id", default=cfg.DEFAULT_THREAD_ID)
 _current_user_id: ContextVar[str] = ContextVar("current_user_id", default="")
 _current_model_name: ContextVar[str] = ContextVar("current_model_name", default="")
 _attachment_document_id: ContextVar[str] = ContextVar("attachment_document_id", default="")
@@ -12,14 +15,8 @@ _current_project_memory_mode: ContextVar[str] = ContextVar("current_project_memo
 _current_project_chat_enabled: ContextVar[bool] = ContextVar("current_project_chat_enabled", default=False)
 _current_project_instructions: ContextVar[str] = ContextVar("current_project_instructions", default="")
 _current_project_context: ContextVar[str] = ContextVar("current_project_context", default="")
-_current_personalization_style: ContextVar[str] = ContextVar("current_personalization_style", default="default")
+_current_personalization_style: ContextVar[str] = ContextVar("current_personalization_style", default=cfg.DEFAULT_BASE_STYLE)
 _current_personalization_instructions: ContextVar[str] = ContextVar("current_personalization_instructions", default="")
-
-SUMMARY_RESULT_PREFIX = "Summary of "
-SUMMARY_ERROR_PREFIX = "Không thể tóm tắt tài liệu "
-SUMMARY_RESULT_PREFIX_VI = "B\u1ea3n t\u00f3m t\u1eaft c\u1ee7a "
-
-
 
 # =============================================================================
 # 01. Thiết lập user, thread, model và file đính kèm
@@ -118,7 +115,7 @@ def get_current_project_context() -> str:
 
 def set_current_personalization(base_style: str | None = None, custom_instructions: str | None = None) -> None:
     """Đặt phong cách và hướng dẫn cá nhân cho request chat hiện tại."""
-    _current_personalization_style.set((base_style or "default").strip().lower() or "default")
+    _current_personalization_style.set((base_style or cfg.DEFAULT_BASE_STYLE).strip().lower() or "default")
     _current_personalization_instructions.set((custom_instructions or "").strip())
 
 

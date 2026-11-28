@@ -8,8 +8,10 @@ Ví dụ: Người dùng hỏi "Tuyển sinh trường TDTU", bot trả lời xo
 
 from __future__ import annotations
 
+import config as cfg
+from config import (FOLLOWUPS_ENABLED, FOLLOWUP_MODEL, FOLLOWUP_TIMEOUT_SECONDS, FOLLOWUP_MAX_USER_TOKENS, FOLLOWUP_MAX_ANSWER_TOKENS, FOLLOWUP_OUTPUT_TOKENS, FOLLOWUP_RATE_LIMIT_MAX_RETRIES, FOLLOWUP_MAX_PROMPT_CHARS, FOLLOWUP_COUNT)
+
 import logging
-import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
@@ -22,66 +24,6 @@ from services.token_limit_handler import ainvoke_with_rate_limit_retry
 
 
 logger = logging.getLogger(__name__)
-
-
-# ==============================================================================
-# HÀM HỖ TRỢ ĐỌC BIẾN MÔI TRƯỜNG (ENVIRONMENT VARIABLES) AN TOÀN
-# ==============================================================================
-
-def _int_setting(name: str, default: int, minimum: int = 1) -> int:
-    """
-    Đọc biến môi trường dạng số nguyên (integer).
-    - Nếu không tìm thấy hoặc giá trị không hợp lệ (lỗi chữ/chuỗi), trả về giá trị mặc định `default`.
-    - Đảm bảo giá trị trả về không nhỏ hơn `minimum` để tránh lỗi cấu hình (ví dụ max_tokens = 0 hoặc âm).
-    """
-    try:
-        value = int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-    return value if value >= minimum else default
-
-
-def _float_setting(name: str, default: float, minimum: float = 0.1) -> float:
-    """
-    Đọc biến môi trường dạng số thực (float), ví dụ số giây timeout (5.0s).
-    - Tương tự như _int_setting nhưng dùng cho kiểu số thập phân.
-    """
-    try:
-        value = float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-    return value if value >= minimum else default
-
-
-# ==============================================================================
-# CÁC CẤU HÌNH (CONFIGURATION) CHO TÍNH NĂNG GỢI Ý CÂU HỎI TIẾP THEO
-# ==============================================================================
-
-# Cờ bật/tắt tính năng gợi ý câu hỏi: nếu biến FOLLOWUPS_ENABLED là "0", "false", "no", "off" thì tắt
-FOLLOWUPS_ENABLED = os.getenv("FOLLOWUPS_ENABLED", "true").strip().lower() not in {
-    "0", "false", "no", "off"
-}
-
-# Tên mô hình LLM dùng để sinh câu hỏi gợi ý (mặc định dùng mô hình nhẹ/nhanh trên Groq)
-FOLLOWUP_MODEL = (os.getenv("FOLLOWUP_MODEL") or "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
-
-# Thời gian tối đa (giây) chờ API trả lời. Nếu quá thời gian này sẽ hủy để tránh làm người dùng đợi lâu
-FOLLOWUP_TIMEOUT_SECONDS = _float_setting("FOLLOWUP_TIMEOUT_SECONDS", 5.0)
-
-# Giới hạn số token tối đa của câu hỏi user được đưa vào prompt (tránh prompt quá dài tốn chi phí và chậm)
-FOLLOWUP_MAX_USER_TOKENS = _int_setting("FOLLOWUP_MAX_USER_TOKENS", 150)
-
-# Giới hạn số token tối đa của câu trả lời bot được đưa vào prompt
-FOLLOWUP_MAX_ANSWER_TOKENS = _int_setting("FOLLOWUP_MAX_ANSWER_TOKENS", 300)
-
-# Số lượng token tối đa mà mô hình được phép sinh ra (output tokens).
-# Lưu ý: Một số mô hình suy luận (reasoning model) như openai/gpt-oss-20b sẽ tạo ra khoảng 150-200 token suy nghĩ
-# trước khi sinh ra chuỗi JSON kết quả. Do đó cần đặt ít nhất 500 tokens để tránh JSON bị đứt đoạn giữa chừng.
-FOLLOWUP_OUTPUT_TOKENS = _int_setting("FOLLOWUP_OUTPUT_TOKENS", 500)
-FOLLOWUP_RATE_LIMIT_MAX_RETRIES = _int_setting("FOLLOWUP_RATE_LIMIT_MAX_RETRIES", 2, minimum=0)
-
-# Độ dài tối đa (số ký tự) cho mỗi câu hỏi gợi ý để đảm bảo ngắn gọn, vừa vặn trên giao diện UI
-FOLLOWUP_MAX_PROMPT_CHARS = _int_setting("FOLLOWUP_MAX_PROMPT_CHARS", 180)
 
 
 # ==============================================================================
@@ -128,8 +70,8 @@ def _validated_prompts(parsed: object) -> list[str]:
     else:
         return []
 
-    # Kiểm tra xem có đúng là list và có đúng 2 câu gợi ý hay không
-    if not isinstance(prompts, list) or len(prompts) != 2:
+    # Kiểm tra xem có đúng là list và có đúng số câu gợi ý theo cấu hình hay không
+    if not isinstance(prompts, list) or len(prompts) != FOLLOWUP_COUNT:
         return []
     # Đảm bảo mỗi phần tử trong list đều là chuỗi ký tự
     if any(not isinstance(prompt, str) for prompt in prompts):
@@ -184,7 +126,7 @@ async def generate_followup_questions(
         # 3. Khởi tạo client ChatGroq kết nối tới API Groq
         model = ChatGroq(
             model=selected_model,
-            temperature=0.2,               # Nhiệt độ thấp (0.2) để câu trả lời có tính ổn định, ít bị "bịa"
+            temperature=cfg.FOLLOWUP_TEMPERATURE,               # Nhiệt độ thấp (0.2) để câu trả lời có tính ổn định, ít bị "bịa"
             max_tokens=FOLLOWUP_OUTPUT_TOKENS,   # Giới hạn token sinh ra (đã tính kèm reasoning tokens nếu có)
             request_timeout=FOLLOWUP_TIMEOUT_SECONDS, # Timeout để tránh nghẽn luồng nếu mạng chậm
         )
@@ -237,7 +179,7 @@ async def generate_followup_questions(
 
         # 9. Kiểm tra và làm sạch 2 câu hỏi (đảm bảo đúng định dạng, đủ số lượng, không trùng)
         prompts = _validated_prompts(response.get("parsed"))
-        if len(prompts) != 2:
+        if len(prompts) != FOLLOWUP_COUNT:
             logger.warning("Follow-up output did not contain two valid prompts.")
         return prompts
 

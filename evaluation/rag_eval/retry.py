@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import time
 from typing import Any, Callable, TypeVar
 
@@ -43,8 +44,8 @@ def _parse_retry_hint(message: str) -> float | None:
 def retry_with_backoff(
     operation: Callable[[], T],
     *,
-    max_attempts: int = 8,
-    max_wait_seconds: float = 65.0,
+    max_attempts: int = cfg.EVAL_ATTEMPTS,
+    max_wait_seconds: float = cfg.EVAL_MAX_WAIT_SECONDS,
     sleep: Callable[[float], Any] = time.sleep,
 ) -> T:
     """Retry failures with exponential backoff or a provider-specified delay."""
@@ -58,7 +59,7 @@ def retry_with_backoff(
                 break
             hint_val = _parse_retry_hint(str(exc))
             if hint_val is not None:
-                hint = hint_val + 0.5
+                hint = hint_val + cfg.EVAL_RETRY_MARGIN_SECONDS
                 wait_seconds = max(hint, float(2 ** attempt))
             else:
                 wait_seconds = float(2 ** attempt)

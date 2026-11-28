@@ -1,5 +1,8 @@
 """Authenticated SSE notifications backed by shared MongoDB state."""
 
+import config as cfg
+from config import POLL_SECONDS, STREAM_SECONDS
+
 import asyncio
 import json
 import logging
@@ -10,11 +13,6 @@ from starlette.concurrency import run_in_threadpool
 from storage.projects import project_update_state
 
 logger = logging.getLogger(__name__)
-POLL_SECONDS = 2    # Chu kỳ kiểm tra thay đổi trong MongoDB (giây)
-STREAM_SECONDS = 300  # Ngắt stream sau 5 phút để client tự nối lại sạch
-
-
-
 # =============================================================================
 # 01. Kiểm tra phiên và phát thông báo thay đổi Project
 # =============================================================================
@@ -40,7 +38,7 @@ async def project_event_stream(request, user_id: str, current_user):
                 yield f"event: projects_changed\ndata: {json.dumps(state)}\n\n"
                 previous = state
                 heartbeat = time.monotonic()
-            elif time.monotonic() - heartbeat >= 15:
+            elif time.monotonic() - heartbeat >= cfg.PROJECT_HEARTBEAT_SECONDS:
                 # Gửi comment SSE mỗi 15s giữ kết nối không bị proxy/trình duyệt đóng
                 yield ': keep-alive\n\n'
                 heartbeat = time.monotonic()

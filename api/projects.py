@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import logging
 import os
 from pathlib import Path
@@ -280,7 +281,7 @@ async def invite_member(project_id: str, request: Request):
         _invitation_url(request, "")
         member = await run_in_threadpool(
             invite_project_member, project_id, str(user["id"]), body.get("identifier", ""),
-            body.get("role", "chat_only"), body.get("expiry_days", 7)
+            body.get("role", cfg.DEFAULT_INVITE_ROLE), body.get("expiry_days", cfg.DEFAULT_INVITATION_DAYS)
         )
         token = member.pop("invitation_token")
         invitation_url = _invitation_url(request, token)
@@ -360,7 +361,7 @@ async def download_project_file(project_id: str, document_id: str, request: Requ
     file_doc = get_project_file(project_id, document_id)
     if not file_doc:
         return _error("File not found.", 404)
-    upload_root = Path("uploads").resolve()
+    upload_root = Path(cfg.UPLOAD_DIR).resolve()
     candidate = Path(file_doc.get("path", "")).resolve()
     if not candidate.is_relative_to(upload_root) or not candidate.is_file():
         return _error("File not found.", 404)
@@ -383,7 +384,7 @@ async def delete_project_file(project_id: str, document_id: str, request: Reques
         delete_project_document(project_id, document_id)
     except (OSError, RuntimeError) as exc:
         return _error(f"Could not delete the file from disk: {exc}", 500)
-    upload_root = Path("uploads").resolve()
+    upload_root = Path(cfg.UPLOAD_DIR).resolve()
     candidate = Path(file_doc.get("path", "")).resolve()
     if candidate.is_relative_to(upload_root) and candidate.is_file():
         try:

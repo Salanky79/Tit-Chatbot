@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
 from bson import ObjectId
@@ -124,7 +125,7 @@ def get_user_memories(
     query: str = "",
     allow_full_fallback: bool = True,
     project_id: str | None = None,
-    limit: int = 5,
+    limit: int = cfg.MEMORY_TOP_K,
 ) -> dict[str, Any]:
     """Return semantic matches, or all active memories when no semantic match exists.
 
@@ -193,7 +194,7 @@ def get_user_memories(
     # semantic search: generate embedding for the query and compare with stored embeddings
     query_vec = _generate_embedding(clean_query)
     scored_docs: list[tuple[float, dict[str, Any]]] = []
-    SIMILARITY_THRESHOLD = 0.38
+    SIMILARITY_THRESHOLD = cfg.MEMORY_SIMILARITY_THRESHOLD
 
     for doc in all_docs:
         doc_vec = doc.get("embedding")

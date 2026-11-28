@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import config as cfg
+from config import DEFAULT_INPUT_TOKEN_BUDGET, REDUCE_INPUT_TOKEN_BUDGET
+
 import math
 import os
 from dataclasses import dataclass
@@ -12,22 +15,18 @@ from langchain_core.documents import Document
 from services.summary_model import summary_system_prompt
 from utils.token_utils import CHARS_PER_TOKEN, estimate_prompt_tokens, estimate_tokens
 
-DEFAULT_INPUT_TOKEN_BUDGET = 3200
-REDUCE_INPUT_TOKEN_BUDGET = 5500
-
-
 @dataclass(frozen=True)
 class SummarySettings:
     """Validate environment configuration per request, rather than at import."""
 
     input_tokens: int = DEFAULT_INPUT_TOKEN_BUDGET
     reduce_tokens: int = REDUCE_INPUT_TOKEN_BUDGET
-    workers: int = 2
-    stagger_seconds: float = 0.3
+    workers: int = cfg.SUMMARY_WORKERS
+    stagger_seconds: float = cfg.SUMMARY_STAGGER_SECONDS
 
     def __post_init__(self) -> None:
-        if self.input_tokens < 256 or self.reduce_tokens < 256:
-            raise ValueError("Summary input and reduce budgets must be at least 256 tokens.")
+        if self.input_tokens < cfg.MIN_SUMMARY_BUDGET or self.reduce_tokens < cfg.MIN_SUMMARY_BUDGET:
+            raise ValueError(f"Summary input and reduce budgets must be at least {cfg.MIN_SUMMARY_BUDGET} tokens.")
         if self.workers < 1:
             raise ValueError("SUMMARIZATION_MAX_WORKERS must be positive.")
         if not math.isfinite(self.stagger_seconds) or self.stagger_seconds < 0:
@@ -36,18 +35,18 @@ class SummarySettings:
     @classmethod
     def from_env(cls, input_tokens: int | None = None) -> SummarySettings:
         return cls(
-            input_tokens=int(os.getenv("SUMMARIZATION_MAX_INPUT_TOKENS", "3200"))
+            input_tokens=int(os.getenv("SUMMARIZATION_MAX_INPUT_TOKENS", str(DEFAULT_INPUT_TOKEN_BUDGET)))
             if input_tokens is None else input_tokens,
-            reduce_tokens=int(os.getenv("SUMMARIZATION_REDUCE_INPUT_TOKENS", "5500")),
-            workers=int(os.getenv("SUMMARIZATION_MAX_WORKERS", "2")),
-            stagger_seconds=float(os.getenv("SUMMARIZATION_SUBMIT_STAGGER_S", "0.3")),
+            reduce_tokens=int(os.getenv("SUMMARIZATION_REDUCE_INPUT_TOKENS", str(REDUCE_INPUT_TOKEN_BUDGET))),
+            workers=int(os.getenv("SUMMARIZATION_MAX_WORKERS", str(cfg.SUMMARY_WORKERS))),
+            stagger_seconds=float(os.getenv("SUMMARIZATION_SUBMIT_STAGGER_S", str(cfg.SUMMARY_STAGGER_SECONDS))),
         )
 
 
 def text_budget(limit: int, template: str, language: str, output_tokens: int) -> int:
     instruction = template.format(language=language_phrase(language), documents="")
     overhead = estimate_prompt_tokens(summary_system_prompt(language) + instruction)
-    return limit - output_tokens - overhead - 32  # message framing and safety margin
+    return limit - output_tokens - overhead - cfg.SUMMARY_FRAMING_TOKENS  # message framing and safety margin
 
 
 def language_phrase(language: str) -> str:

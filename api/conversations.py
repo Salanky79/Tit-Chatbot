@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import json
 import logging
 import uuid
@@ -92,7 +93,7 @@ async def conversations(request: Request):
 
 
 @router.get("/conversations/search")
-async def search_conversations(request: Request, q: str = "", limit: int = 25):
+async def search_conversations(request: Request, q: str = "", limit: int = cfg.SEARCH_LIMIT):
     """Tìm kiếm các cuộc trò chuyện cá nhân & Project theo tiêu đề và nội dung tin nhắn."""
     user = get_current_user(request) # kiểm tra quyền truy cập user
     user_id = user["id"] if user else None
@@ -190,7 +191,7 @@ async def rename_conversation(thread_id: str, request: Request):
     return {
         "success": True,
         "thread_id": thread_id,
-        "title": new_title.strip()[:100],
+        "title": new_title.strip()[:cfg.MAX_TITLE_CHARS],
         "message": "Đã đổi tên cuộc trò chuyện thành công."
     }
 

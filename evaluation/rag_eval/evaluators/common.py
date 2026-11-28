@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import json
 import os
 from typing import Any, Callable
@@ -17,7 +18,7 @@ from ..retry import retry_with_backoff
 # =============================================================================
 
 class ScalarGrade(BaseModel):
-    score: int = Field(ge=0, le=4)
+    score: int = Field(ge=0, le=cfg.EVAL_MAX_SCORE)
     reason: str = Field(default="")
     evidence: list[str] = Field(default_factory=list)
 
@@ -35,7 +36,7 @@ class ScalarGrade(BaseModel):
 
 class ContextGrade(BaseModel):
     context_id: str
-    score: int = Field(ge=0, le=4)
+    score: int = Field(ge=0, le=cfg.EVAL_MAX_SCORE)
     reason: str = Field(default="")
     evidence: list[str] = Field(default_factory=list)
 
@@ -108,12 +109,12 @@ def make_judge() -> Any:
         return _judge_factory()
     from langchain_groq import ChatGroq
 
-    model = os.getenv("RAG_EVAL_JUDGE_MODEL") or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+    model = os.getenv("RAG_EVAL_JUDGE_MODEL") or os.getenv("GROQ_MODEL", cfg.CHAT_MODEL)
     return ChatGroq(
         model=model,
-        temperature=0,
+        temperature=cfg.EVAL_TEMPERATURE,
         max_retries=0,
-        max_tokens=int(os.getenv("RAG_EVAL_JUDGE_MAX_TOKENS", "700")),
+        max_tokens=int(os.getenv("RAG_EVAL_JUDGE_MAX_TOKENS", str(cfg.EVAL_JUDGE_TOKENS))),
     )
 
 
@@ -128,7 +129,7 @@ def invoke_structured(
     payload: dict[str, Any],
     *,
     judge: Any | None = None,
-    max_attempts: int = 8,
+    max_attempts: int = cfg.EVAL_ATTEMPTS,
 ) -> BaseModel:
     client = judge or make_judge()
     messages = [

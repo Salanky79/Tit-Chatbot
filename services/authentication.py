@@ -8,6 +8,9 @@ Module quản lý toàn bộ vòng đời của thử thách mã xác thực OTP
 - Cơ chế kiểm soát số lần thử (brute-force defense), cooldown 60s và giới hạn gửi lại tối đa 5 lần.
 """
 
+import config as cfg
+from config import OTP_TTL, RESEND_INTERVAL, MAX_ATTEMPTS, MAX_RESENDS
+
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -18,13 +21,6 @@ from pymongo import ReturnDocument
 from storage.mongo_client import get_collection
 
 # --- CÁC HẰNG SỐ CẤU HÌNH & BẢO MẬT ---
-OTP_TTL = timedelta(minutes=5)           # Thời hạn hiệu lực của mã OTP (5 phút)
-RESEND_INTERVAL = timedelta(seconds=60)  # Thời gian chờ tối thiểu giữa 2 lần gửi lại mã (Cooldown 60 giây)
-MAX_ATTEMPTS = 5                         # Số lần nhập sai tối đa trước khi khóa thử thách (Chống Brute-Force dò mã)
-MAX_RESENDS = 5                          # Số lần tối đa được phép bấm gửi lại mã trên cùng một thử thách
-
-
-
 # =============================================================================
 # 01. Thời gian và băm secret, mã OTP
 # =============================================================================
@@ -37,7 +33,7 @@ def _now() -> datetime:
 def _challenge_key(secret: str) -> str:
     """Băm chuỗi secret của trình duyệt bằng SHA-256 để làm khóa tra cứu trong MongoDB (không lưu secret gốc).
     
-    LƯU Ý - Tại sao không dùng secrets.token_urlsafe(32) ở đây?
+    LƯU Ý - Tại sao không dùng secrets.token_urlsafe(cfg.SECRET_TOKEN_BYTES) ở đây?
     - token_urlsafe(32) là hàm SINH NGẪU NHIÊN: mỗi lần gọi sẽ ra một chuỗi mới toanh khác nhau.
     - Trong khi đó, ở đây ta cần hàm BĂM XÁC ĐỊNH (Deterministic Hash): Cùng một secret truyền vào
       bắt buộc phải sinh ra cùng một chuỗi băm để làm khóa tìm kiếm bản ghi trong MongoDB 
@@ -72,8 +68,8 @@ def _aware(value: datetime) -> datetime:
 
 def start_challenge(user: dict) -> tuple[str, str]:
     """Khởi tạo thử thách OTP mới: sinh secret (gắn cookie) + sinh mã 6 số (gửi email), lưu MongoDB (hạn 5p, cooldown 60s)."""
-    secret = secrets.token_urlsafe(32)
-    code = f"{secrets.randbelow(1_000_000):06d}" # đảm bảo sinh 6 số ngẫu nhiên 
+    secret = secrets.token_urlsafe(cfg.SECRET_TOKEN_BYTES)
+    code = str(secrets.randbelow(10 ** cfg.OTP_DIGITS)).zfill(cfg.OTP_DIGITS) # đảm bảo sinh 6 số ngẫu nhiên 
     now = _now()
     get_collection("auth_challenges").insert_one({
         "challenge_key": _challenge_key(secret),      # Khóa tra cứu đã băm SHA-256
@@ -142,7 +138,7 @@ def verify_challenge(secret: str | None, code: str) -> tuple[str, str | None]:
     if challenge.get("attempts", 0) >= MAX_ATTEMPTS:
         return "locked", None
     # Kiểm tra định dạng đầu vào: phải là chuỗi đúng 6 chữ số
-    if not isinstance(code, str) or len(code) != 6 or not code.isascii() or not code.isdigit():
+    if not isinstance(code, str) or len(code) != cfg.OTP_DIGITS or not code.isascii() or not code.isdigit():
         valid = False
     else:
         # So sánh an toàn chống Timing Attack
@@ -202,7 +198,7 @@ def resend_challenge(secret: str | None) -> tuple[str, str | None, str | None]:
         return "cooldown", None, None
 
     # Sinh mã 6 chữ số mới
-    code = f"{secrets.randbelow(1_000_000):06d}"
+    code = str(secrets.randbelow(10 ** cfg.OTP_DIGITS)).zfill(cfg.OTP_DIGITS)
     # Cập nhật nguyên tử vào chính bản ghi hiện tại
     updated = challenges.find_one_and_update(
         {

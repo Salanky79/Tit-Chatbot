@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import re
 from datetime import timedelta
 from typing import Any
@@ -63,7 +64,7 @@ def create_or_update_conversation(
     title = "New Chat"
     if first_message:
         stripped = first_message.strip()
-        title = stripped[:40] + ("..." if len(stripped) > 40 else "")
+        title = stripped[:cfg.AUTO_TITLE_CHARS] + ("..." if len(stripped) > cfg.AUTO_TITLE_CHARS else "")
 
     # Bước 3: Tách các trường cập nhật mỗi lượt ($set) và trường chỉ gán lúc tạo mới ($setOnInsert)
     set_fields: dict[str, Any] = {"updated_at": now}
@@ -79,7 +80,7 @@ def create_or_update_conversation(
     # Nếu là Temporary Chat -> đặt mốc expires_at sau 30 ngày để MongoDB TTL Index tự xóa
     if is_temporary:
         set_fields["is_temporary"] = True
-        expiry = now + timedelta(days=30)
+        expiry = now + timedelta(days=cfg.TEMPORARY_CHAT_DAYS)
         set_fields["expires_at"] = expiry
 
     oid = _to_object_id(user_id)
@@ -95,7 +96,7 @@ def create_or_update_conversation(
         # Guest chưa đăng nhập: đánh dấu is_guest và đặt TTL 24h để tự dọn rác
         set_on_insert["is_guest"] = True
         if not is_temporary:
-            set_on_insert["expires_at"] = now + timedelta(hours=24)
+            set_on_insert["expires_at"] = now + timedelta(hours=cfg.GUEST_CHAT_HOURS)
 
     # Bước 4: Upsert vào collection conversations và trả về object chuẩn hóa
     coll.update_one(
@@ -129,7 +130,7 @@ def get_conversation(thread_id: str) -> dict | None:
 
 def list_conversations(
     user_id: str | None = None,
-    limit: int = 100
+    limit: int = cfg.CONVERSATION_LIST_LIMIT
 ) -> list[Any]:
     """Lấy danh sách conversations theo user_id, ưu tiên các cuộc trò chuyện được ghim lên đầu.
 
@@ -185,8 +186,8 @@ def list_conversations(
 def list_admin_conversations(
     user_id: str,
     *,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.CONVERSATION_PAGE_SIZE,
     search: str = "",
 ) -> dict[str, Any]:
     """Tìm và phân trang hội thoại của một user để Admin xem.
@@ -195,14 +196,14 @@ def list_admin_conversations(
     không thuộc user đã chọn không xuất hiện trong kết quả.
     """
     oid = _to_object_id(user_id)
-    page = max(1, page)
-    page_size = min(max(1, page_size), 100)
+    page = max(cfg.FIRST_PAGE, page)
+    page_size = min(max(1, page_size), cfg.MAX_PAGE_SIZE)
     if oid is None:
         return {"items": [], "page": page, "page_size": page_size, "total": 0}
 
     query: dict[str, Any] = {"user_id": oid, "is_guest": {"$ne": True}}
     conversations = get_collection("conversations")
-    clean_search = (search or "").strip()[:100]
+    clean_search = (search or "").strip()[:cfg.ADMIN_SEARCH_CHARS]
 
     total = conversations.count_documents(query)
     cursor = (
@@ -274,7 +275,7 @@ def update_conversation_title(
         return False
 
     # Chuẩn hóa độ dài tiêu đề tối đa 100 ký tự để hiển thị gọn trên sidebar
-    clean_title = new_title.strip()[:100]
+    clean_title = new_title.strip()[:cfg.MAX_TITLE_CHARS]
     coll = get_collection("conversations")
     query: dict[str, Any] = {"thread_id": thread_id}
     if user_id is not None:
@@ -470,7 +471,7 @@ def save_chat_message(
     return _conv_to_obj(doc)
 
 
-def get_chat_history(thread_id: str, limit: int = 200) -> list[Any]:
+def get_chat_history(thread_id: str, limit: int = cfg.CHAT_HISTORY_LIMIT) -> list[Any]:
     """Lấy lịch sử chat của một thread, sắp xếp cũ nhất trước để dựng lại khung hội thoại."""
     coll = get_collection("chat_messages")
     cursor = (
@@ -490,8 +491,8 @@ def get_admin_conversation_messages(
     user_id: str,
     thread_id: str,
     *,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = cfg.FIRST_PAGE,
+    page_size: int = cfg.MESSAGE_PAGE_SIZE,
 ) -> dict[str, Any] | None:
     """Lấy một trang tin nhắn sau khi xác nhận hội thoại thuộc về user đã chọn.
 
@@ -526,8 +527,8 @@ def get_admin_conversation_messages(
     if isinstance(conversation.get("project_id"), ObjectId):
         conversation["project_id"] = str(conversation["project_id"])
 
-    page = max(1, page)
-    page_size = min(max(1, page_size), 100)
+    page = max(cfg.FIRST_PAGE, page)
+    page_size = min(max(1, page_size), cfg.MAX_PAGE_SIZE)
     message_query = (
         {"thread_id": thread_id}
         if is_project_conv
@@ -558,7 +559,7 @@ def get_admin_conversation_messages(
 # 07. Định dạng kết quả và tìm kiếm chat
 # =============================================================================
 
-def _build_search_snippet(text: str, query: str, max_len: int = 120) -> str:
+def _build_search_snippet(text: str, query: str, max_len: int = cfg.SEARCH_SNIPPET_CHARS) -> str:
     """Tạo đoạn trích ngắn (~120 ký tự) cắt quanh vị trí từ khóa xuất hiện trong nội dung tin nhắn."""
     # Gộp nhiều khoảng trắng / xuống dòng thành 1 dấu cách để đoạn trích hiển thị trên 1 dòng gọn gàng
     clean_text = " ".join((text or "").split())
@@ -571,7 +572,7 @@ def _build_search_snippet(text: str, query: str, max_len: int = 120) -> str:
     idx = clean_text.casefold().find(query.casefold())
     if idx < 0:
         return clean_text[: max_len - 1] + "…"
-    half = max(20, (max_len - len(query)) // 2)
+    half = max(cfg.SEARCH_SNIPPET_MARGIN, (max_len - len(query)) // 2)
     start = max(0, idx - half)
     end = min(len(clean_text), idx + len(query) + half)
     prefix = "…" if start > 0 else ""
@@ -608,7 +609,7 @@ def _format_search_item(
 def search_user_conversations(
     user_id: str | None,
     query: str = "",
-    limit: int = 25,
+    limit: int = cfg.SEARCH_LIMIT,
 ) -> list[dict[str, Any]]:
     """Tìm kiếm các cuộc trò chuyện cá nhân và Project của user theo tiêu đề lẫn nội dung tin nhắn.
 
@@ -620,8 +621,8 @@ def search_user_conversations(
     if not oid:
         return []
 
-    safe_limit = min(max(1, int(limit or 25)), 50)
-    clean_query = (query or "").strip()[:120]
+    safe_limit = min(max(1, int(limit or cfg.SEARCH_LIMIT)), cfg.MAX_SEARCH_LIMIT)
+    clean_query = (query or "").strip()[:cfg.SEARCH_QUERY_CHARS]
 
     # Bước 1: Lấy danh sách Project mà user là owner hoặc thành viên đã chấp nhận (accepted)
     # để mở rộng phạm vi tìm kiếm sang cả chat nhóm trong các Project đó.
@@ -663,7 +664,7 @@ def search_user_conversations(
             {"_id": 0, "thread_id": 1, "title": 1, "project_id": 1, "updated_at": 1, "created_at": 1, "is_pinned": 1},
         )
         .sort("updated_at", -1)
-        .limit(250)
+        .limit(cfg.SEARCH_CANDIDATES)
     )
     if not conv_docs:
         return []
@@ -711,7 +712,7 @@ def search_user_conversations(
                 {"_id": 0, "thread_id": 1, "role": 1, "content": 1, "created_at": 1},
             )
             .sort("created_at", -1)
-            .limit(safe_limit * 4)
+            .limit(safe_limit * cfg.SEARCH_OVERFETCH)
         )
         for msg in msg_cursor:
             tid = str(msg.get("thread_id") or "")

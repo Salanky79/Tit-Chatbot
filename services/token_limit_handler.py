@@ -8,11 +8,13 @@ Xử lý tập trung các tình huống khi LLM chạm ngưỡng giới hạn to
 
 from __future__ import annotations
 
+import config as cfg
+from config import (MAX_RATE_LIMIT_WAIT_SECONDS, RATE_LIMIT_BACKOFF_BASE_SECONDS, RATE_LIMIT_BACKOFF_JITTER_SECONDS)
+
 import asyncio
 import email.utils
 import logging
 import math
-import os
 import random
 import time
 from collections.abc import Awaitable, Callable, Iterator, Mapping
@@ -24,24 +26,6 @@ from services.language import is_vietnamese
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
-
-
-
-# =============================================================================
-# 01. Cấu hình retry và giới hạn thời gian chờ
-# =============================================================================
-
-def _float_setting(name: str, default: float, minimum: float = 0.0) -> float:
-    try:
-        value = float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-    return value if math.isfinite(value) and value >= minimum else default
-
-
-MAX_RATE_LIMIT_WAIT_SECONDS = _float_setting("MAX_RATE_LIMIT_WAIT_SECONDS", 60.0, 1.0)
-RATE_LIMIT_BACKOFF_BASE_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_BASE_SECONDS", 1.0, 0.1)
-RATE_LIMIT_BACKOFF_JITTER_SECONDS = _float_setting("RATE_LIMIT_BACKOFF_JITTER_SECONDS", 0.5, 0.0)
 
 
 
@@ -250,7 +234,7 @@ def decide_rate_limit_retry(
 
     if delay is None:
         exponent = max(0, attempt - 1)
-        wait_seconds = min(RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** min(exponent, 20)), max_wait_seconds)
+        wait_seconds = min(RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** min(exponent, cfg.MAX_BACKOFF_EXPONENT)), max_wait_seconds)
         wait_seconds = min(
             max_wait_seconds,
             wait_seconds + random.uniform(0.0, RATE_LIMIT_BACKOFF_JITTER_SECONDS),
@@ -260,7 +244,7 @@ def decide_rate_limit_retry(
         wait_seconds, source = delay
 
     # Avoid a hot retry loop if a provider sends a zero-second hint.
-    wait_seconds = max(0.25, wait_seconds)
+    wait_seconds = max(cfg.MIN_RETRY_WAIT_SECONDS, wait_seconds)
     if max_retries is not None and wait_seconds > max_wait_seconds:
         return RetryDecision(
             "exceeded_max_wait", wait_seconds,

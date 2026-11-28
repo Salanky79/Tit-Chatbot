@@ -1,3 +1,6 @@
+
+import config as cfg
+from config import (SUMMARY_DIRECT_RETURN, SUMMARY_TOOL_NAME, DEFAULT_MODEL, CHAT_RATE_LIMIT_MAX_RETRIES, ALLOWED_MODELS)
 import os
 from collections.abc import Iterable
 from typing import Annotated, Any
@@ -85,18 +88,11 @@ def delete_user_checkpoints(thread_ids: Iterable[str]) -> int:
 
     checkpointer = MongoDBSaver(
         client=get_client(),
-        db_name=os.getenv("MONGODB_CHECKPOINT_DB", "tit_chatbot_checkpoints"),
+        db_name=os.getenv("MONGODB_CHECKPOINT_DB", cfg.CHECKPOINT_DATABASE),
     )
     for thread_id in unique_thread_ids:
         checkpointer.delete_thread(thread_id)
     return len(unique_thread_ids)
-
-
-# Trả thẳng bản tóm tắt tài liệu cho người dùng, bỏ lượt gọi LLM thứ 2 (vốn chỉ để chép lại
-# đúng bản tóm tắt đó: tốn ~5k token TPM + vài giây). Đặt SUMMARY_DIRECT_RETURN=0 để tắt.
-SUMMARY_DIRECT_RETURN = os.getenv("SUMMARY_DIRECT_RETURN", "1").lower() not in ("0", "false", "no")
-SUMMARY_TOOL_NAME = "summarize_uploaded_document"
-
 
 
 # =============================================================================
@@ -145,24 +141,6 @@ def emit_summary_node(state: AgentState) -> dict[str, list[AIMessage]]:
     return {"messages": [AIMessage(content="\n\n".join(str(message.content) for message in results))]}
 
 
-# Update default and allowed models to use Groq models
-DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-try:
-    CHAT_RATE_LIMIT_MAX_RETRIES = max(0, int(os.getenv("CHAT_RATE_LIMIT_MAX_RETRIES", "3")))
-except ValueError:
-    CHAT_RATE_LIMIT_MAX_RETRIES = 3
-
-ALLOWED_MODELS = {
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-120b",
-}
-
-
-
-
-
-
 # =============================================================================
 # 04. Lựa chọn và cấu hình model
 # =============================================================================
@@ -200,7 +178,7 @@ def _build_reasoning_kwargs(model_name: str) -> dict[str, Any]:
             kwargs["reasoning_effort"] = effort
     elif model_name.startswith("qwen/"):
         # Nhóm Qwen tách reasoning sang additional_kwargs.reasoning_content khi đặt parsed.
-        kwargs["reasoning_format"] = os.getenv("GROQ_REASONING_FORMAT", "parsed").strip() or "parsed"
+        kwargs["reasoning_format"] = os.getenv("GROQ_REASONING_FORMAT", cfg.DEFAULT_REASONING_FORMAT).strip() or cfg.DEFAULT_REASONING_FORMAT
     return kwargs
 
 
@@ -230,7 +208,7 @@ def build_agent(model_name: str) -> Any:
 
     llm = ChatGroq(
         model=selected_model,
-        temperature=0.3,    # Giảm tính sáng tạo ngẫu nhiên, ưu tiên câu trả lời chính xác, bám sát sự thật
+        temperature=cfg.CHAT_TEMPERATURE,    # Giảm tính sáng tạo ngẫu nhiên, ưu tiên câu trả lời chính xác, bám sát sự thật
         streaming=True,     # Hỗ trợ stream phản hồi theo thời gian thực về giao diện
         **_build_reasoning_kwargs(selected_model),
     )
@@ -324,7 +302,7 @@ def build_agent(model_name: str) -> Any:
     mongo_client = get_client()
 
     # Tên database riêng cho LangGraph checkpoints (tách biệt với data chính)
-    checkpoint_db_name = os.getenv("MONGODB_CHECKPOINT_DB", "tit_chatbot_checkpoints")
+    checkpoint_db_name = os.getenv("MONGODB_CHECKPOINT_DB", cfg.CHECKPOINT_DATABASE)
 
     # Tạo checkpointer dùng MongoDB để lưu và khôi phục trạng thái cuộc trò chuyện theo session
     checkpointer = MongoDBSaver(

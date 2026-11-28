@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import logging
 
 from fastapi import APIRouter, Request
@@ -63,7 +64,7 @@ async def get_personalization(request: Request):
     mem_data = get_user_memories(user_id=str(user["id"]), query="", allow_full_fallback=True)
     return {
         "success": True,
-        "personalization": user.get("personalization", {"base_style": "default", "custom_instructions": ""}),
+        "personalization": user.get("personalization", {"base_style": cfg.DEFAULT_BASE_STYLE, "custom_instructions": ""}),
         "memories": mem_data.get("memories", []),
     }
 

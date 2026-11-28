@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import config as cfg
+
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -101,7 +103,7 @@ def _execute_map_reduce(documents: Sequence[Document], llm: Any, settings: Summa
     try:
         text = "\n\n".join(texts)
         single_budget = text_budget(settings.input_tokens, SINGLE_SUMMARY_PROMPT, target_language, FINAL_SUMMARY_OUTPUT_TOKENS)
-        if estimate_tokens(text) <= single_budget:
+        if estimate_tokens(text) <= single_budget: # chạy single prompt nếu đủ budget, tránh mất thời gian map-reduce
             return finish(text, SINGLE_SUMMARY_PROMPT, stage)
 
         stage = "map"
@@ -110,15 +112,15 @@ def _execute_map_reduce(documents: Sequence[Document], llm: Any, settings: Summa
         if final_budget < 1:
             raise ValueError("Reduce budget cannot accommodate the prompt and reserved output.")
         map_budget = text_budget(settings.input_tokens, MAP_GROUP_PROMPT, target_language, MAP_SUMMARY_OUTPUT_TOKENS)
-        groups = groups_by_budget(texts, map_budget)
+        groups = groups_by_budget(texts, map_budget) #logic trong planning => chia văn bản thành từng nhóm
         map_count = len(groups)
-        summaries = run_groups(groups, MAP_GROUP_PROMPT, stage)
+        summaries = run_groups(groups, MAP_GROUP_PROMPT, stage) # gọi llm chạy
         reduce_budget = text_budget(settings.reduce_tokens, REDUCE_PROMPT, target_language, MAP_SUMMARY_OUTPUT_TOKENS)
         level = 1
         while True:
             text = "\n\n".join(summaries)
             if estimate_tokens(text) <= final_budget:
-                stage = "final"
+                stage = "final" # kết thúc map-reduce, chạy final prompt
                 return finish(text, FINAL_REDUCE_PROMPT, stage)
             stage = f"reduce:{level}"
             groups = groups_by_budget(summaries, reduce_budget)
@@ -143,7 +145,7 @@ def _execute_map_reduce(documents: Sequence[Document], llm: Any, settings: Summa
 
 def summarize_documents(
     documents: Sequence[Document] | Callable[[], Sequence[Document]], llm: Any | None = None, *,
-    input_token_budget: int | None = None, target_language: str = "auto",
+    input_token_budget: int | None = None, target_language: str = cfg.SUMMARY_LANGUAGE,
     job_context: dict[str, str] | None = None,
 ) -> SummaryResult:
     language = normalize_summary_language(target_language)

@@ -6,6 +6,7 @@ provided. Unit/integration tests should use fake stores and clients.
 
 from __future__ import annotations
 
+import config as cfg
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -173,7 +174,7 @@ def run_local(
     metadata = {
         "run_id": resolved_run_id,
         "dataset_name": DATASET_NAME,
-        "dataset_version": "v1",
+        "dataset_version": cfg.DATASET_VERSION,
         "case_count": 0,
         "status": "initializing",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -247,7 +248,7 @@ def run_langsmith(*, sync_first: bool = False, run_id: str | None = None) -> Any
         evaluators=RAG_EVALUATORS,
         max_concurrency=1,
         experiment_prefix=f"tit-rag-{resolved_run_id}",
-        metadata={"dataset_version": "v1", "run_id": resolved_run_id},
+        metadata={"dataset_version": cfg.DATASET_VERSION, "run_id": resolved_run_id},
     )
 
 

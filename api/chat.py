@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import config as cfg
 import contextvars
 import json
 import logging
@@ -443,8 +444,8 @@ async def chat_stream(request: Request):
     attachment_document_id = data.get("attachment_document_id") or ""
     if not isinstance(attachment_source, str) or not isinstance(attachment_document_id, str):
         return JSONResponse({"error": "Invalid attachment source."}, status_code=400)
-    thread_id = data.get("thread_id", "default")
-    selected_model = normalize_model_name(data.get("model", "openai/gpt-oss-20b"))
+    thread_id = data.get("thread_id", cfg.DEFAULT_THREAD_ID)
+    selected_model = normalize_model_name(data.get("model", cfg.CHAT_MODEL))
 
     if not user_message.strip():
         return JSONResponse(
@@ -483,7 +484,7 @@ async def chat_stream(request: Request):
             return JSONResponse({"error": "Project not found or access denied."}, status_code=404)
         if conv and not conv.get("project_id"):
             return JSONResponse({"error": "This conversation is not part of that project."}, status_code=403)
-        project_memory_mode = project.get("memory_mode", "project_only")
+        project_memory_mode = project.get("memory_mode", cfg.DEFAULT_MEMORY_MODE)
         project_instructions = project.get("instructions", "")
         project_context = build_project_context(project_id, thread_id, user_message, project_memory_mode)
 
@@ -556,7 +557,7 @@ async def chat_stream(request: Request):
 class FollowupRequest(BaseModel):
     user_message: str = ""
     assistant_answer: str = ""
-    model: str = "openai/gpt-oss-20b"
+    model: str = cfg.CHAT_MODEL
 
 # Native Async follow-up generation endpoint: không chặn luồng chính, trả về gợi ý tiếp theo (Follow-up Suggestions) cho người dùng.
 @router.post("/chat/followups")
@@ -573,7 +574,7 @@ async def chat_followups(payload: FollowupRequest):
     # payload là một đối tượng FollowupRequest được FastAPI tự động parse từ JSON body của request.
     user_message = (payload.user_message or "").strip()
     assistant_answer = (payload.assistant_answer or "").strip()
-    selected_model = payload.model or "openai/gpt-oss-20b"
+    selected_model = payload.model or cfg.CHAT_MODEL
 
     # Kiểm tra ngữ cảnh: nếu thiếu câu hỏi hoặc câu trả lời thì không sinh gợi ý
     if not user_message or not assistant_answer:
@@ -587,7 +588,7 @@ async def chat_followups(payload: FollowupRequest):
         )
         return {
             "success": True,
-            "suggestions": questions if len(questions) == 2 else []
+            "suggestions": questions if len(questions) == cfg.FOLLOWUP_COUNT else []
         }
     except Exception as exc:
         logger.warning(f"Parallel follow-up generation failed: {exc}")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import config as cfg
+
 import os
 from typing import Any, Sequence
 
@@ -9,7 +11,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 
 # Giữ lại số lượt trò chuyện gần nhất (mặc định 10 lượt, thoải mái trong context window lớn của LLM)
-DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "10"))
+DEFAULT_MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", str(cfg.DEFAULT_HISTORY_TURNS)))
 
 
 
@@ -72,9 +74,9 @@ def prune_old_tool_results(messages: Sequence[BaseMessage]) -> list[BaseMessage]
 def get_model_token_budget(model_name: str | None = None) -> dict[str, int]:
     """Hàm tương thích cho các module khác nếu có gọi."""
     return {
-        "max_context_tokens": 128000,
-        "max_tool_result_tokens": 8000,
-        "expected_output_tokens": 2048,
+        "max_context_tokens": cfg.CONTEXT_TOKENS,
+        "max_tool_result_tokens": cfg.TOOL_RESULT_TOKENS,
+        "expected_output_tokens": cfg.EXPECTED_REPLY_TOKENS,
     }
 
 

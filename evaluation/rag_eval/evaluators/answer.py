@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
 from .common import ScalarGrade, invoke_structured, langsmith_result, read_run_example
@@ -20,14 +21,14 @@ PROMPT = """Grade answer relevance only: does the answer directly address the us
 def score_answer_relevance(inputs: dict[str, Any], outputs: dict[str, Any], *, judge: Any | None = None) -> dict[str, Any]:
     answer = outputs.get("answer")
     if answer is None:
-        return {"status": "missing_input", "score": None, "max_score": 4, "normalized_score": None, "reason": "answer field is missing"}
+        return {"status": "missing_input", "score": None, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": None, "reason": "answer field is missing"}
     grade = invoke_structured(
         ScalarGrade,
         PROMPT,
         {"question": inputs.get("question", ""), "answer": answer},
         judge=judge,
     )
-    return {"status": "scored", "score": grade.score, "max_score": 4, "normalized_score": grade.score / 4, "reason": grade.reason, "evidence": grade.evidence}
+    return {"status": "scored", "score": grade.score, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": grade.score / cfg.EVAL_MAX_SCORE, "reason": grade.reason, "evidence": grade.evidence}
 
 
 

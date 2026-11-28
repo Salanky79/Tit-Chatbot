@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 import logging
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,7 @@ start_challenge = app_callable("start_challenge", start_challenge)
 allow_immediate_resend = app_callable("allow_immediate_resend", allow_immediate_resend)
 send_verification_code = app_callable("send_verification_code", send_verification_code)
 
-AUTH_CHALLENGE_COOKIE = "tit_auth_challenge"
+AUTH_CHALLENGE_COOKIE = cfg.AUTH_CHALLENGE_COOKIE
 
 
 # =============================================================================
@@ -109,7 +110,7 @@ def _serialize_conversation(conversation: dict[str, Any]) -> dict[str, Any]:
 
 def _delete_user_avatars(user_id: str) -> None:
     """Remove locally stored avatar files whose names are owned by this user."""
-    avatar_root = Path("uploads/avatars").resolve()
+    avatar_root = Path(cfg.AVATAR_DIR).resolve()
     for avatar_path in avatar_root.glob(f"{user_id}_*"):
         candidate = avatar_path.resolve()
         if candidate.is_relative_to(avatar_root) and candidate.is_file():
@@ -128,7 +129,7 @@ def _session_id_from_request(
     request: Request, *, include_query: bool = False
 ) -> str | None:
     """Read the session token from the request's supported authentication sources."""
-    session_id = request.cookies.get("tit_session")
+    session_id = request.cookies.get(cfg.SESSION_COOKIE)
     if not session_id:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -211,7 +212,7 @@ def _set_challenge_cookie(response: JSONResponse, secret: str, request: Request)
     response.set_cookie(
         key=AUTH_CHALLENGE_COOKIE, value=secret, httponly=True,
         secure=request.url.scheme == "https", samesite="lax",
-        max_age=15 * 60, path="/api/auth",
+        max_age=cfg.CHALLENGE_COOKIE_SECONDS, path="/api/auth",
     )
 
 

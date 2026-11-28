@@ -1,4 +1,5 @@
 # Bootstrap: nạp môi trường và chứng chỉ trước các module ứng dụng.
+import config as cfg
 from dotenv import load_dotenv
 import os
 import certifi
@@ -99,8 +100,8 @@ from api.personalization import router as _personalization_router
 logger = logging.getLogger(__name__)
 app = FastAPI()
 templates = _default_templates
-Path("uploads").mkdir(exist_ok=True)
-Path("uploads/avatars").mkdir(exist_ok=True, parents=True)
+Path(cfg.UPLOAD_DIR).mkdir(exist_ok=True)
+Path(cfg.AVATAR_DIR).mkdir(exist_ok=True, parents=True)
 Path("data").mkdir(exist_ok=True)
 
 
@@ -124,7 +125,7 @@ def startup_event() -> None:
 # =============================================================================
 app.mount(
     "/static",
-    StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+    StaticFiles(directory=Path(__file__).resolve().parent / cfg.STATIC_DIR),
     name="static",
 )
 app.include_router(_auth_router, prefix="/api")
@@ -141,4 +142,4 @@ app.add_api_route("/uploads/avatars/{filename}", get_avatar_file, methods=["GET"
 
 # Điểm chạy trực tiếp cho môi trường phát triển.
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("app:app", host=cfg.SERVER_HOST, port=cfg.SERVER_PORT, reload=True)

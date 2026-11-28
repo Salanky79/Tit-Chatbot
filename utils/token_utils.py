@@ -2,31 +2,14 @@
 
 from __future__ import annotations
 
+import config as cfg
+from config import CHARS_PER_TOKEN, PROMPT_CHARS_PER_TOKEN
+
 import json
 import math
-import os
 from typing import Any, Sequence
 
 from langchain_core.messages import BaseMessage, ToolMessage
-
-
-
-# =============================================================================
-# 01. Cấu hình ước lượng token
-# =============================================================================
-
-def _float_setting(name: str, default: float, minimum: float) -> float:
-    try:
-        value = float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-    return value if value >= minimum else default
-
-
-# This is a sizing heuristic, not a tokenizer. Keep a safety margin in the
-# configured request budget rather than treating the estimate as exact.
-CHARS_PER_TOKEN = _float_setting("TOKEN_ESTIMATE_CHARS_PER_TOKEN", 2.5, 0.5)
-PROMPT_CHARS_PER_TOKEN = _float_setting("TOKEN_ESTIMATE_PROMPT_CHARS_PER_TOKEN", 4.0, 0.5)
 
 
 
@@ -49,7 +32,7 @@ def estimate_prompt_tokens(text: str | None) -> int:
 
 def estimate_message_tokens(message: BaseMessage) -> int:
     """Estimate message content, tool-call arguments, and message overhead."""
-    total = 4
+    total = cfg.MESSAGE_OVERHEAD_TOKENS
     content = getattr(message, "content", "")
 
     if isinstance(content, str):
@@ -72,7 +55,7 @@ def estimate_message_tokens(message: BaseMessage) -> int:
         total += estimate_tokens(serialized)
 
     if isinstance(message, ToolMessage):
-        total += 2
+        total += cfg.TOOL_MESSAGE_OVERHEAD_TOKENS
     return total
 
 
@@ -110,7 +93,7 @@ def estimate_tool_schemas_tokens(tool_list: Sequence[Any] | None) -> int:
     for tool in tool_list:
         schema = _tool_schema(tool)
         serialized = json.dumps(schema, ensure_ascii=False, default=str)
-        total += estimate_prompt_tokens(serialized) + 12
+        total += estimate_prompt_tokens(serialized) + cfg.TOOL_SCHEMA_OVERHEAD_TOKENS
     return total
 
 
@@ -119,7 +102,7 @@ def estimate_tool_schemas_tokens(tool_list: Sequence[Any] | None) -> int:
 # 04. Cắt văn bản theo ngân sách token
 # =============================================================================
 
-def truncate_text_to_tokens(text: str, max_tokens: int, marker: str = "\n[…đã rút gọn…]\n") -> str:
+def truncate_text_to_tokens(text: str, max_tokens: int, marker: str = cfg.TRUNCATION_MARKER) -> str:
     """Keep the beginning and ending of text when an approximate cap is needed."""
     if max_tokens <= 0:
         return ""
@@ -129,7 +112,7 @@ def truncate_text_to_tokens(text: str, max_tokens: int, marker: str = "\n[…đ�
 
     marker = marker[:max_chars]
     remaining = max(0, max_chars - len(marker))
-    head_len = int(remaining * 0.7)
+    head_len = int(remaining * cfg.TRUNCATION_HEAD_RATIO)
     tail_len = remaining - head_len
     if tail_len == 0:
         return text[:head_len]

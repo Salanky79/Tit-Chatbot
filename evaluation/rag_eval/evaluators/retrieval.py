@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import config as cfg
 from typing import Any
 
 from .common import RetrievalGrade, invoke_structured, langsmith_result, read_run_example
@@ -23,9 +24,9 @@ def score_retrieval(inputs: dict[str, Any], outputs: dict[str, Any], *, judge: A
     question = str(inputs.get("question") or "")
     contexts = outputs.get("contexts")
     if contexts is None:
-        return {"status": "missing_input", "score": None, "max_score": 4, "normalized_score": None, "reason": "contexts field is missing", "context_scores": []}
+        return {"status": "missing_input", "score": None, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": None, "reason": "contexts field is missing", "context_scores": []}
     if not contexts:
-        return {"status": "scored", "score": 0.0, "max_score": 4, "normalized_score": 0.0, "reason": "No contexts were retrieved.", "context_scores": []}
+        return {"status": "scored", "score": 0.0, "max_score": cfg.EVAL_MAX_SCORE, "normalized_score": 0.0, "reason": "No contexts were retrieved.", "context_scores": []}
     payload_contexts = [
         {"context_id": str(c.get("context_id") or f"ctx_{i}"), "text": str(c.get("text", ""))}
         for i, c in enumerate(contexts, start=1)
@@ -76,11 +77,11 @@ def score_retrieval(inputs: dict[str, Any], outputs: dict[str, Any], *, judge: A
         reason = f"Judge failed to grade any of the {len(expected)} retrieved contexts."
 
     score_val = round(mean, 2) if valid_scores else None
-    norm_val = round(mean / 4, 4) if valid_scores else None
+    norm_val = round(mean / cfg.EVAL_MAX_SCORE, cfg.EVAL_SCORE_PRECISION) if valid_scores else None
     return {
         "status": status,
         "score": score_val,
-        "max_score": 4,
+        "max_score": cfg.EVAL_MAX_SCORE,
         "normalized_score": norm_val,
         "reason": reason,
         "context_scores": context_scores,
