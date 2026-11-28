@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from bson import ObjectId
+from services.summary_jobs import delete_summary_jobs
 from storage.mongo_client import get_collection as _mongo_get_collection
 from storage._helpers import (
     _conv_to_obj as _conv_to_obj_impl,
@@ -77,10 +78,8 @@ def create_or_update_conversation(
 
     # Nếu là Temporary Chat -> đặt mốc expires_at sau 30 ngày để MongoDB TTL Index tự xóa
     if is_temporary:
-        set_on_insert["is_temporary"] = True
         set_fields["is_temporary"] = True
         expiry = now + timedelta(days=30)
-        set_on_insert["expires_at"] = expiry
         set_fields["expires_at"] = expiry
 
     oid = _to_object_id(user_id)
@@ -311,14 +310,7 @@ def delete_conversation(thread_id: str, user_id: str | None = None) -> bool:
         # 1. Xóa toàn bộ tin nhắn trong chat_messages
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
         # 2. Xóa các tác vụ tóm tắt tài liệu (summary_jobs) và checkpoint Map-Reduce của thread
-        job_filter: dict[str, Any] = {"context.thread_id": thread_id}
-        if user_id is not None:
-            job_filter["context.user_id"] = str(user_id)
-        summary_jobs = get_collection("summary_jobs")
-        job_ids = [job["_id"] for job in summary_jobs.find(job_filter, {"_id": 1})]
-        if job_ids:
-            get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
-        summary_jobs.delete_many(job_filter)
+        delete_summary_jobs({"context.thread_id": thread_id})
 
         # 3. Chỉ xóa file upload/vector ChromaDB khi là chat cá nhân (file trong Project dùng chung nhiều chat)
         if not (existing_conv and existing_conv.get("project_id")):
@@ -397,10 +389,7 @@ def assign_conversation_to_project(
         {"thread_id": thread_id, "role": "user", "sender_id": {"$exists": False}},
         {"$set": {"sender_id": user_oid}},
     )
-    get_collection("summary_jobs").update_many(
-        {"context.thread_id": thread_id},
-        {"$set": {"context.project_id": str(project_oid)}},
-    )
+    delete_summary_jobs({"context.thread_id": thread_id, "context.project_id": None})
     get_collection("projects").update_one(
         {"_id": project_oid},
         {"$set": {"updated_at": now}},

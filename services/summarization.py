@@ -1,295 +1,167 @@
-"""Map-reduce summarization for complete uploaded documents."""
+"""Summarize one authorized upload, resuming only missing groups."""
 
 from __future__ import annotations
 
-import logging
-import hashlib
-import math
-import os
 import time
+from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextvars import copy_context
 from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Sequence
+from typing import Any, Literal
 
 from langchain_core.documents import Document
 from langchain_groq import ChatGroq
 
-from prompts.summarization import (
-    CUSTOM_LANGUAGE_RULE,
-    ORIGINAL_LANGUAGE_RULE,
-    SUMMARY_SYSTEM_PROMPT,
-    VIETNAMESE_LANGUAGE_RULE,
-    FINAL_REDUCE_PROMPT,
-    MAP_GROUP_PROMPT,
-    REDUCE_PROMPT,
-    SINGLE_SUMMARY_PROMPT,
-)
-from utils.token_utils import CHARS_PER_TOKEN, estimate_tokens
-from services.token_limit_handler import (
-    is_daily_token_limit,
-    assemble_partial_summary,
-    DailyTokenLimitInterrupted,
-)
+from prompts.summarization import FINAL_REDUCE_PROMPT, MAP_GROUP_PROMPT, REDUCE_PROMPT, SINGLE_SUMMARY_PROMPT
+from services.language import normalize_summary_language
 from services.summary_jobs import SummaryJobStore
-from services.summary_model import (
-    _invoke, _build_groq_llm, MAP_SUMMARY_OUTPUT_TOKENS, FINAL_SUMMARY_OUTPUT_TOKENS,
+from services.summary_model import FINAL_SUMMARY_OUTPUT_TOKENS, MAP_SUMMARY_OUTPUT_TOKENS, _build_groq_llm, _invoke
+from services.summary_planning import (
+    SummarySettings, groups_by_budget, language_phrase, page_texts, text_budget,
 )
-from services.summary_result import SummaryResult, normalize_language
-from contextvars import copy_context
+from services.token_limit_handler import DailyTokenLimitInterrupted, assemble_partial_summary, is_daily_token_limit
+from utils.token_utils import estimate_tokens
 
-logger = logging.getLogger(__name__)
-
-
-DEFAULT_INPUT_TOKEN_BUDGET = 3200
-REDUCE_INPUT_TOKEN_BUDGET = 5500
-SUMMARY_OUTPUT_TOKENS = FINAL_SUMMARY_OUTPUT_TOKENS  # tương thích ngược
-
-
-# =============================================================================
-# 01. Cấu hình pipeline tóm tắt
-# =============================================================================
 
 @dataclass(frozen=True)
-class SummarySettings:
-    """Validate environment configuration per request, rather than at import."""
+class SummaryResult:
+    text: str
+    status: Literal["completed", "partial", "error", "clarification"] = "completed"
 
-    input_tokens: int = DEFAULT_INPUT_TOKEN_BUDGET
-    reduce_tokens: int = REDUCE_INPUT_TOKEN_BUDGET
-    workers: int = 2
-    stagger_seconds: float = 0.3
-
-    def __post_init__(self) -> None:
-        if self.input_tokens < 256 or self.reduce_tokens < 256:
-            raise ValueError("Summary input and reduce budgets must be at least 256 tokens.")
-        if self.workers < 1:
-            raise ValueError("SUMMARIZATION_MAX_WORKERS must be positive.")
-        if not math.isfinite(self.stagger_seconds) or self.stagger_seconds < 0:
-            raise ValueError("Summary stagger must be finite and non-negative.")
-
-    @classmethod
-    def from_env(cls, input_tokens: int | None = None) -> SummarySettings:
-        return cls(
-            input_tokens=int(os.getenv("SUMMARIZATION_MAX_INPUT_TOKENS", "3200"))
-            if input_tokens is None else input_tokens,
-            reduce_tokens=int(os.getenv("SUMMARIZATION_REDUCE_INPUT_TOKENS", "5500")),
-            workers=int(os.getenv("SUMMARIZATION_MAX_WORKERS", "2")),
-            stagger_seconds=float(os.getenv("SUMMARIZATION_SUBMIT_STAGGER_S", "0.3")),
-        )
-
-    @property
-    def chunk_tokens(self) -> int:
-        return max(256, self.input_tokens - 150 - MAP_SUMMARY_OUTPUT_TOKENS)
-
-
-
-# =============================================================================
-# 02. Cô lập context và định dạng tài liệu
-# =============================================================================
-
-def validate_and_isolate_summarization_context(
-    documents: Sequence[Document],
-) -> list[Document]:
-    """Pass only readable document text and necessary source metadata to summarization."""
-    if not documents:
-        raise ValueError("The selected document has no content to summarize.")
-
-    isolated: list[Document] = []
-    for document in documents:
-        content = getattr(document, "page_content", "")
-        if not isinstance(content, str) or not content.strip():
-            continue
-        raw_metadata = getattr(document, "metadata", {}) or {}
-        metadata = {
-            "source": raw_metadata.get("source", "document"),
-            "page": raw_metadata.get("page"),
-            "chunk_index": raw_metadata.get("chunk_index"),
-            "start_index": raw_metadata.get("start_index"),
-        }
-        isolated.append(Document(page_content=content.strip(), metadata=metadata))
-
-    if not isolated:
-        raise ValueError("The selected document has no readable content to summarize.")
-    return isolated
-
-
-def _format_document(doc: Document) -> str:
-    page = doc.metadata.get("page")
-    label = f"[Page {page}]\n" if page is not None else ""
-    return f"{label}{doc.page_content.strip()}"
-
-
-
-# =============================================================================
-# 03. Chia nhóm theo token và thực thi song song
-# =============================================================================
-
-def _groups_by_budget(items: Sequence[str], budget: int) -> list[list[str]]:
-    """Pack text without losing characters or exceeding the estimated text budget."""
-    if budget < 1:
-        raise ValueError("Text budget must be positive.")
-    part_size = max(1, int(budget * CHARS_PER_TOKEN))
-    groups: list[list[str]] = []
-    current: list[str] = []
-    for item in items:
-        for offset in range(0, len(item), part_size):
-            part = item[offset:offset + part_size]
-            if current and estimate_tokens("\n\n".join([*current, part])) > budget:
-                groups.append(current)
-                current = []
-            current.append(part)
-    if current:
-        groups.append(current)
-    return groups
+    def artifact(self) -> dict[str, str]:
+        return {"kind": "document_summary", "status": self.status}
 
 
 def _invoke_groups_parallel(
     prompts: list[str], stage: str, llm: Any, target_language: str,
     *, settings: SummarySettings, job_store: SummaryJobStore | None = None,
 ) -> list[str]:
-    """Run missing groups, persist successes, then report failures in input order."""
-    saved = job_store.get_results(stage) if job_store else {}
-    results = [saved.get(index) for index in range(len(prompts))]
-    pending = [index for index, value in enumerate(results) if not value]
-    errors: dict[int, Exception] = {}
+    results = job_store.get_results(stage) if job_store else {}
+    missing = (i for i in range(len(prompts)) if i not in results)
+    index = next(missing, None)
+    errors = []
+    next_submit = 0.0
+    with ThreadPoolExecutor(max_workers=settings.workers) as pool:
+        running = {}
+        while running or (index is not None and not errors):
+            can_submit = index is not None and not errors and len(running) < settings.workers
+            delay = max(0.0, next_submit - time.monotonic()) if can_submit else None
+            if can_submit and delay == 0:
+                future = pool.submit(copy_context().run, _invoke, llm, prompts[index],
+                                     stage, index + 1, target_language=target_language)
+                running[future] = index
+                next_submit = time.monotonic() + settings.stagger_seconds
+                index = next(missing, None)
+                continue
+            if not running:
+                time.sleep(delay)
+                continue
+            done, _ = wait(running, timeout=delay, return_when=FIRST_COMPLETED)
+            for future in done:
+                group = running.pop(future)
+                try:
+                    text = future.result()
+                    results[group] = job_store.save_result(stage, group, text) if job_store else text
+                except Exception as exc:
+                    errors.append(exc)
 
-    def collect(index: int, invoke) -> None:
-        try:
-            content = invoke()
-            if job_store:
-                job_store.save_result(stage, index, content)
-            results[index] = content
-        except Exception as exc:
-            errors[index] = exc
-
-    if len(pending) == 1:
-        index = pending[0]
-        collect(index, lambda: _invoke(llm, prompts[index], stage, index + 1, target_language=target_language))
-    elif pending:
-        with ThreadPoolExecutor(max_workers=settings.workers) as executor:
-            futures = {}
-            for position, index in enumerate(pending):
-                if position and settings.stagger_seconds:
-                    time.sleep(settings.stagger_seconds)
-                future = executor.submit(
-                    copy_context().run, _invoke, llm, prompts[index], stage, index + 1,
-                    target_language=target_language,
-                )
-                futures[future] = index
-            for future in as_completed(futures):
-                collect(futures[future], future.result)
-
-    for index in sorted(errors):
-        if not is_daily_token_limit(errors[index]):
-            raise errors[index]
+    for error in errors:
+        if not is_daily_token_limit(error):
+            raise error
     if errors:
-        completed = [(index + 1, value) for index, value in enumerate(results) if value]
-        raise DailyTokenLimitInterrupted(completed, len(prompts), errors[min(errors)])
-    return [value for value in results if value is not None]
+        completed = [(i + 1, results[i]) for i in sorted(results)]
+        raise DailyTokenLimitInterrupted(completed, len(prompts), errors[0])
+    return [results[i] for i in range(len(prompts))]
 
 
-
-# =============================================================================
-# 04. Pipeline map/reduce và checkpoint
-# =============================================================================
-
-def _execute_map_reduce(
-    documents: list[Document], llm: Any, settings: SummarySettings,
-    target_language: str, job_store: SummaryJobStore | None,
-) -> SummaryResult:
-    language_phrase = "" if target_language == "auto" else f" in {target_language}"
-    source = documents[0].metadata.get("source") or "document"
-    map_groups = _groups_by_budget([_format_document(doc) for doc in documents], settings.chunk_tokens)
-    model_name = getattr(llm, "model_name", None) or getattr(llm, "model", None)
+def _model_with_limit(llm: Any, limit: int) -> Any:
     if isinstance(llm, ChatGroq):
-        map_llm = _build_groq_llm(model_name, max_tokens=MAP_SUMMARY_OUTPUT_TOKENS)
-        final_llm = _build_groq_llm(model_name, max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
-    else:
-        map_llm = llm.bind(max_tokens=MAP_SUMMARY_OUTPUT_TOKENS) if hasattr(llm, "bind") else llm
-        final_llm = llm.bind(max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS) if hasattr(llm, "bind") else llm
+        return _build_groq_llm(llm.model_name, max_tokens=limit)
+    return llm.bind(max_tokens=limit) if hasattr(llm, "bind") else llm
 
-    def run(groups: list[list[str]], stage: str, prompt: str, model: Any) -> list[str]:
-        prompts = [prompt.format(language=language_phrase, documents="\n\n".join(group)) for group in groups]
-        return _invoke_groups_parallel(
-            prompts, stage, model, target_language, settings=settings, job_store=job_store,
-        )
 
-    # If reduce stops, display the last fully completed level as a partial draft.
-    summaries: list[str] = []
+def _execute_map_reduce(documents: Sequence[Document], llm: Any, settings: SummarySettings,
+                        target_language: str, job_store: SummaryJobStore | None) -> SummaryResult:
+    texts = page_texts(documents)
+    language = language_phrase(target_language)
+    final_model = _model_with_limit(llm, FINAL_SUMMARY_OUTPUT_TOKENS)
+
+    def finish(text, template, stage):
+        prompt = template.format(language=language, documents=text)
+        return SummaryResult(_invoke(final_model, prompt, stage, 1, target_language=target_language))
+
+    def run_groups(groups, template, stage):
+        prompts = [template.format(language=language, documents="\n\n".join(group)) for group in groups]
+        return _invoke_groups_parallel(prompts, stage, map_model, target_language,
+                                       settings=settings, job_store=job_store)
+
+    stage = "single"
+    summaries = []
+    map_count = 0
     try:
-        if len(map_groups) == 1:
-            return SummaryResult(run(map_groups, "single", SINGLE_SUMMARY_PROMPT, final_llm)[0])
-        summaries = run(map_groups, "map", MAP_GROUP_PROMPT, map_llm)
+        text = "\n\n".join(texts)
+        single_budget = text_budget(settings.input_tokens, SINGLE_SUMMARY_PROMPT, target_language, FINAL_SUMMARY_OUTPUT_TOKENS)
+        if estimate_tokens(text) <= single_budget:
+            return finish(text, SINGLE_SUMMARY_PROMPT, stage)
+
+        stage = "map"
+        map_model = _model_with_limit(llm, MAP_SUMMARY_OUTPUT_TOKENS)
+        final_budget = text_budget(settings.reduce_tokens, FINAL_REDUCE_PROMPT, target_language, FINAL_SUMMARY_OUTPUT_TOKENS)
+        if final_budget < 1:
+            raise ValueError("Reduce budget cannot accommodate the prompt and reserved output.")
+        map_budget = text_budget(settings.input_tokens, MAP_GROUP_PROMPT, target_language, MAP_SUMMARY_OUTPUT_TOKENS)
+        groups = groups_by_budget(texts, map_budget)
+        map_count = len(groups)
+        summaries = run_groups(groups, MAP_GROUP_PROMPT, stage)
+        reduce_budget = text_budget(settings.reduce_tokens, REDUCE_PROMPT, target_language, MAP_SUMMARY_OUTPUT_TOKENS)
         level = 1
-        while len(summaries) > 1:
-            groups = _groups_by_budget(summaries, settings.reduce_tokens)
+        while True:
+            text = "\n\n".join(summaries)
+            if estimate_tokens(text) <= final_budget:
+                stage = "final"
+                return finish(text, FINAL_REDUCE_PROMPT, stage)
+            stage = f"reduce:{level}"
+            groups = groups_by_budget(summaries, reduce_budget)
             if len(groups) >= len(summaries):
-                raise ValueError("Reduce budget cannot combine summaries safely; increase SUMMARIZATION_REDUCE_INPUT_TOKENS.")
-            final = len(groups) == 1
-            summaries = run(
-                groups, f"reduce:{level}", FINAL_REDUCE_PROMPT if final else REDUCE_PROMPT,
-                final_llm if final else map_llm,
-            )
+                raise ValueError("Reduce budget cannot combine summaries safely.")
+            summaries = run_groups(groups, REDUCE_PROMPT, stage)
             level += 1
-        return SummaryResult(summaries[0])
-    except DailyTokenLimitInterrupted as exc:
-        completed = list(enumerate(summaries, 1)) if summaries else exc.completed_groups
-        total = len(summaries) if summaries else exc.total_groups
-        return SummaryResult(
-            assemble_partial_summary(completed, total, filename=source, language=target_language),
-            status="partial",
-        )
+    except Exception as exc:
+        if not isinstance(exc, DailyTokenLimitInterrupted) and not is_daily_token_limit(exc):
+            raise
+        if summaries:
+            draft = list(enumerate(summaries, 1))
+            total = len(summaries)
+        elif isinstance(exc, DailyTokenLimitInterrupted):
+            draft, total = exc.completed_groups, exc.total_groups
+        else:
+            draft, total = [], 1
+        text = assemble_partial_summary(draft, total, documents[0].metadata.get("source") or "document",
+                                        target_language, stage=stage, map_count=map_count)
+        return SummaryResult(text, status="partial")
 
-
-
-# =============================================================================
-# 05. Điểm vào: cache, resume và kết quả tóm tắt
-# =============================================================================
 
 def summarize_documents(
-    documents: Sequence[Document], llm: Any | None = None, *,
+    documents: Sequence[Document] | Callable[[], Sequence[Document]], llm: Any | None = None, *,
     input_token_budget: int | None = None, target_language: str = "auto",
     job_context: dict[str, str] | None = None,
 ) -> SummaryResult:
-    """Summarize one document; expose completion status independently of prose."""
-    clean = validate_and_isolate_summarization_context(documents)
-    language = normalize_language(target_language)
-    settings = SummarySettings.from_env(input_token_budget)
-    store = SummaryJobStore.for_document(
-        clean, job_context, target_language=language, input_token_budget=settings.chunk_tokens,
-        pipeline_config={
-            "reduce_tokens": settings.reduce_tokens,
-            "map_output_tokens": MAP_SUMMARY_OUTPUT_TOKENS,
-            "final_output_tokens": FINAL_SUMMARY_OUTPUT_TOKENS,
-            "prompts": hashlib.sha256("".join((
-                SINGLE_SUMMARY_PROMPT, MAP_GROUP_PROMPT, REDUCE_PROMPT, FINAL_REDUCE_PROMPT,
-                SUMMARY_SYSTEM_PROMPT, ORIGINAL_LANGUAGE_RULE, VIETNAMESE_LANGUAGE_RULE,
-                CUSTOM_LANGUAGE_RULE,
-            )).encode()).hexdigest(),
-            "chars_per_token": CHARS_PER_TOKEN,
-        },
-    ) if job_context else None
-    if store:
-        cached = store.get_final()
-        if cached is not None:
-            return SummaryResult(cached)
+    language = normalize_summary_language(target_language)
+    store = None
+    if job_context:
+        store = SummaryJobStore.open(job_context, language)
+        if store.final_summary:
+            return SummaryResult(store.final_summary)
 
-    try:
-        if store:
-            store.start()
-        if llm is None:
-            model = (job_context or {}).get("model") or os.getenv("SUMMARIZATION_MODEL")
-            llm = _build_groq_llm(model, max_tokens=FINAL_SUMMARY_OUTPUT_TOKENS)
-        result = _execute_map_reduce(clean, llm, settings, language, store)
-        if store:
-            if result.status == "partial":
-                store.pause("Daily model quota reached; summary can be resumed.")
-            else:
-                store.complete(result.text)
+    settings = SummarySettings.from_env(input_token_budget)
+    chunks = documents() if callable(documents) else documents
+    if llm is None:
+        llm = _build_groq_llm((job_context or {}).get("model"))
+    result = _execute_map_reduce(chunks, llm, settings, language, store)
+    if not store:
         return result
-    except Exception as exc:
-        if store:
-            try:
-                store.pause(str(exc))
-            except Exception:
-                logger.exception("Could not persist summary failure for job %s", store.job_id)
-        raise
+    if result.status == "completed":
+        return SummaryResult(store.complete(result.text))
+    # A concurrent request may have finished while this one was waiting for quota.
+    final = store.read_final()
+    return SummaryResult(final) if final else result

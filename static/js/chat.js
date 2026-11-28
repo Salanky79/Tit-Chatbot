@@ -2121,6 +2121,7 @@
                     message: submittedMessage,
                     thread_id: targetThreadId,
                     attachment_source: uploadResult?.source || null,
+                    attachment_document_id: uploadResult?.document_id || null,
                     model: selectedModel,
                     is_temporary: isTemporaryChat,
                     project_id: activeProjectId || null

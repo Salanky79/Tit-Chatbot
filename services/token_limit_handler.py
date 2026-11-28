@@ -440,55 +440,26 @@ def handle_partial_stream(
 
 # Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
 def assemble_partial_summary(
-    completed_groups: Sequence[tuple[int, str]],
-    total_groups: int,
-    filename: str = "",
-    language: str | None = None,
+    completed_groups: Sequence[tuple[int, str]], total_groups: int, filename: str = "",
+    language: str | None = None, *, stage: str = "map", map_count: int = 0,
 ) -> str:
-    """Ghép các phần tóm tắt đã hoàn thành thành một bản tóm tắt bán phần (Partial Draft) hoàn chỉnh.
-
-    Bắt đầu bằng tiền tố hợp lệ để agent.py trả thẳng kết quả cho người dùng qua emit_summary.
-    """
-    is_vi = is_vietnamese(language)
-    safe_filename = filename.strip() or "tài liệu"
-
-    # Sắp xếp theo đúng thứ tự nhóm ban đầu (1-based index)
-    sorted_groups = sorted(completed_groups, key=lambda item: item[0])
-    completed_count = len(sorted_groups)
-
-    if is_vi:
-        prefix = f'Bản tóm tắt của tài liệu "{safe_filename}" (Một phần đã hoàn thành: {completed_count}/{total_groups} phần nội dung):\n\n'
-        body_parts = []
-        for idx, summary_text in sorted_groups:
-            body_parts.append(f"### [Phần {idx}/{total_groups}]\n{summary_text.strip()}")
-
-        body = "\n\n".join(body_parts)
-        footer = (
-            f"\n\n---\n"
-            f"*⚠️ **Lưu ý:** Quá trình tóm tắt tài liệu tạm dừng do mô hình đã đạt giới hạn hạn mức token trong ngày "
-            f"(TPD limit) của Groq API. Trên đây là bản tóm tắt đầy đủ của {completed_count}/{total_groups} phần "
-            f"tài liệu đã hoàn thành. Các phần còn lại chưa thể xử lý. "
-            f"Bạn có thể chọn mô hình khác ở góc dưới để tiếp tục.*"
-        )
-        return f"{prefix}{body}{footer}"
-
-    # Tiếng Anh và quốc tế
-    prefix = f'Summary of "{safe_filename}" (Partial draft: {completed_count}/{total_groups} sections completed):\n\n'
-    body_parts = []
-    for idx, summary_text in sorted_groups:
-        body_parts.append(f"### [Section {idx}/{total_groups}]\n{summary_text.strip()}")
-
-    body = "\n\n".join(body_parts)
-    footer = (
-        f"\n\n---\n"
-        f"*⚠️ **Notice:** Document summarization paused because the model reached its daily token limit (TPD limit) on Groq API. "
-        f"The sections above represent the {completed_count}/{total_groups} sections successfully completed. "
-        f"You can switch to another model from the bottom selector to continue.*"
-    )
-    return f"{prefix}{body}{footer}"
+    """Describe source coverage separately from the pending synthesis."""
+    vi = language == "Vietnamese" or is_vietnamese(None if language == "auto" else language)
+    if stage.startswith("reduce:") or stage == "final":
+        progress = (f"Đã đọc {map_count}/{map_count} nhóm, còn bước tổng hợp"
+                    if vi else f"Read {map_count}/{map_count} groups, synthesis pending")
+    else:
+        done = len(completed_groups)
+        progress = f"Đã xử lý {done}/{total_groups} nhóm" if vi else f"Processed {done}/{total_groups} groups"
+    title = "Bản tóm tắt của" if vi else "Summary of"
+    parts = [f'{title} "{filename}" ({progress})']
+    section = "Phần" if vi else "Section"
+    parts.extend(f"### {section} {i}/{total_groups}\n{text}" for i, text in sorted(completed_groups))
+    parts.append("Đã hết hạn mức token trong ngày. Bạn có thể đổi model rồi yêu cầu tiếp tục."
+                 if vi else "Daily token quota reached. Switch models or resume when quota is available.")
+    return "\n\n".join(parts)
 
 
-# Tạo câu trả lời cứu trợ thân thiện khi các tool (Vision, RAG Search) gặp giới hạn ngày.
 def format_tool_limit_notice(
     tool_name: str,
     partial_info: str = "",

@@ -39,29 +39,39 @@ class UploadResolutionTests(unittest.TestCase):
 
     def test_summary_reads_exact_current_upload(self):
         with (
-            patch.object(documents, "list_document_sources", return_value=[self.old, self.new]),
-            patch.object(documents, "get_current_attachment_source", return_value=self.new),
+            patch.object(documents, "list_text_uploads", return_value={"old": self.old, "new": self.new}),
+            patch.object(documents, "get_attachment_document_id", return_value="new"),
             patch.object(documents, "get_document_chunks", return_value=[Document(page_content="current")]) as chunks,
-            patch.object(documents, "summarize_documents", return_value=documents.SummaryResult("summary")),
+            patch.object(documents, "summarize_documents", side_effect=lambda load, **kw: documents.SummaryResult(load()[0].page_content)),
         ):
             result = documents._summarize_upload("ocr_test_scanned.pdf", "auto")
         self.assertEqual(result.status, "completed")
         self.assertEqual(chunks.call_args.args[0], self.new)
+        self.assertEqual(chunks.call_args.kwargs["document_id"], "new")
+
+    def test_missing_attachment_id_does_not_select_another_available_file(self):
+        with (
+            patch.object(documents, "list_text_uploads", return_value={"old": self.old}),
+            patch.object(documents, "get_attachment_document_id", return_value="missing"),
+            patch.object(documents, "summarize_documents") as summarize,
+        ):
+            self.assertEqual(documents._summarize_upload("", "auto").status, "clarification")
+            summarize.assert_not_called()
 
     def test_sources_found_in_thread_do_not_query_account(self):
         store = Mock()
-        store._collection.get.return_value = {"metadatas": [{"source": self.new}]}
+        store._collection.get.return_value = {"metadatas": [{"source": self.new, "document_id": "new"}]}
         with patch.object(rag, "get_vectorstore", return_value=store):
             self.assertEqual(rag.list_document_sources("current", "user"), [self.new])
         self.assertEqual(store._collection.get.call_count, 1)
         self.assertEqual(store._collection.get.call_args.kwargs["where"], {
-            "$and": [{"thread_id": "current"}, {"user_id": "user"}],
+            "$and": [{"thread_id": "current"}, {"scope": "personal"}, {"user_id": "user"}, {"file_type": {"$ne": "image"}}],
         })
 
     def test_empty_thread_still_falls_back_to_user_sources(self):
         store = Mock()
         store._collection.get.side_effect = [
-            {"metadatas": []}, {"metadatas": [{"source": self.old}]},
+            {"metadatas": []}, {"metadatas": [{"source": self.old, "document_id": "old"}]},
         ]
         with patch.object(rag, "get_vectorstore", return_value=store):
             self.assertEqual(rag.list_document_sources("empty-thread", "user"), [self.old])

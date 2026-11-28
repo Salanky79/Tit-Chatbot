@@ -164,6 +164,7 @@ async def upload_document(
         return JSONResponse({
             "success": True,
             "source": result["filename"],
+            "document_id": file_id,
             "message": f"Uploaded {result['filename']} and created {result['chunks']} chunks."
         })
 

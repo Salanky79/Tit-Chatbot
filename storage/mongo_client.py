@@ -160,15 +160,8 @@ def ensure_indexes() -> None:
         conv.create_index([("project_id", ASCENDING), ("updated_at", DESCENDING)], background=True)
         msgs.create_index([("project_id", ASCENDING), ("created_at", ASCENDING)], background=True)
 
-        # Resumable document summary checkpoints
-        summary_jobs = get_collection("summary_jobs")
-        summary_jobs.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
-        checkpoints = get_collection("summary_job_checkpoints")
-        checkpoints.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0, background=True)
-        checkpoints.create_index(
-            [("job_id", ASCENDING), ("stage", ASCENDING)],
-            background=True,
-        )
+        from services.summary_jobs import ensure_summary_indexes
+        ensure_summary_indexes()
 
         # long_term_memory indexes both personal and project-scoped memory records.
         mem = get_collection("long_term_memory")

@@ -12,7 +12,7 @@ from prompts.summarization import (
     CUSTOM_LANGUAGE_RULE, ORIGINAL_LANGUAGE_RULE, SUMMARY_SYSTEM_PROMPT,
     VIETNAMESE_LANGUAGE_RULE,
 )
-from services.summary_result import normalize_language
+from services.language import normalize_summary_language
 from services.token_limit_handler import is_daily_token_limit, invoke_with_rate_limit_retry
 from utils.usage_logging import log_token_usage
 
@@ -38,6 +38,17 @@ def _content_text(response) -> str:
     return ""
 
 
+def summary_system_prompt(target_language: str) -> str:
+    target_language = normalize_summary_language(target_language)
+    if target_language == "Vietnamese":
+        lang_rule = VIETNAMESE_LANGUAGE_RULE
+    elif target_language == "auto":
+        lang_rule = ORIGINAL_LANGUAGE_RULE
+    else:
+        lang_rule = CUSTOM_LANGUAGE_RULE.format(language=target_language)
+    return SUMMARY_SYSTEM_PROMPT + lang_rule
+
+
 def _invoke(
     llm: Any,
     prompt: str,
@@ -51,16 +62,8 @@ def _invoke(
     Retry rate limit theo chính sách hiện có; nếu model lỗi hoặc hết quota ngày,
     lần lượt thử các model dự phòng đã cấu hình.
     """
-    target_language = normalize_language(target_language)
-    if target_language == "Vietnamese":
-        lang_rule = VIETNAMESE_LANGUAGE_RULE
-    elif target_language == "auto":
-        lang_rule = ORIGINAL_LANGUAGE_RULE
-    else:
-        lang_rule = CUSTOM_LANGUAGE_RULE.format(language=target_language)
-
     messages = [
-        SystemMessage(content=SUMMARY_SYSTEM_PROMPT + lang_rule),
+        SystemMessage(content=summary_system_prompt(target_language)),
         HumanMessage(content=prompt),
     ]
     operation = f"Summarization ({stage}, group {group_number})"

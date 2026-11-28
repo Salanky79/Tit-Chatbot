@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 
+from services.summary_jobs import delete_summary_jobs
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -282,6 +283,7 @@ def add_document_to_rag(
             "document_id": document_id or Path(file_path).stem,
             "file_path": str(Path(file_path).resolve()),
             "uploaded_at": uploaded_at,
+            "scope": "project" if project_id else "personal",
         })
         if project_id:
             doc.metadata["project_id"] = str(project_id)
@@ -400,60 +402,39 @@ def retrieve_from_rag(
     return "\n\n".join(results)
 
 
-def get_document_chunks(
-    source: str,
-    thread_id: str,
-    user_id: str | None = None,
-    project_id: str | None = None,
-    current_chat_only: bool = False,
-) -> list[Document]:
-    """Lấy toàn bộ chunks của file trong đúng thread hoặc Project scope."""
-    """Return every stored chunk for one uploaded file.
-
-    Cơ chế Hybrid:
-    - Tìm file trong thread hiện tại trước.
-    - Nếu không thấy và có user_id, fallback tìm trong toàn bộ file của user đó.
-    """
-    source = (source or "").strip()
-    thread_id = (thread_id or "").strip()
-    if not source:
-        raise ValueError("A file name is required to summarize a document.")
-    if not thread_id:
-        raise ValueError("A conversation ID is required to find the document.")
-
-    # 1. Tìm trong thread hiện tại
+def _document_rows(thread_id, user_id, project_id, current_chat_only, *, filters=(), include):
+    """Resolve the same authorized scope for both listing and reading text uploads."""
     if project_id:
-        conditions = [{"project_id": str(project_id)}, {"source": source}]
+        scope = [{"project_id": str(project_id)}]
         if current_chat_only:
-            conditions.append({"thread_id": thread_id})
+            scope.append({"thread_id": thread_id})
     else:
-        conditions = [{"thread_id": thread_id}, {"source": source}]
+        scope = [{"thread_id": thread_id}, {"scope": "personal"}]
         if user_id:
-            conditions.append({"user_id": str(user_id)})
+            scope.append({"user_id": str(user_id)})
 
-    where_filter = {"$and": conditions} if len(conditions) > 1 else conditions[0]
+    def read(conditions):
+        clauses = [*conditions, *filters, {"file_type": {"$ne": "image"}}]
+        return get_vectorstore()._collection.get(where={"$and": clauses}, include=include)
 
-    result = get_vectorstore()._collection.get(
-        where=where_filter,
-        include=["documents", "metadatas"],
-    )
+    rows = read(scope)
+    if not rows.get("metadatas") and user_id and not project_id:
+        rows = read([{"user_id": str(user_id)}, {"scope": "personal"}])
+    return rows
+
+
+def get_document_chunks(
+    source: str, thread_id: str, user_id: str | None = None, project_id: str | None = None,
+    current_chat_only: bool = False, *, document_id: str | None = None,
+) -> list[Document]:
+    """Read every text chunk of one authorized upload in document order."""
+    filters = [{"source": source}]
+    if document_id:
+        filters.append({"document_id": document_id})
+    result = _document_rows(thread_id, user_id, project_id, current_chat_only,
+                            filters=filters, include=["documents", "metadatas"])
     contents = result.get("documents") or []
     metadatas = result.get("metadatas") or []
-
-    # 2. Fallback: Nếu không tìm thấy trong thread hiện tại và user đã đăng nhập, tìm trong file của user
-    if not contents and user_id and not project_id:
-        where_filter = {"$and": [
-            {"user_id": str(user_id)},
-            {"source": source},
-            {"scope": {"$nin": ["project"]}},
-        ]}
-        result = get_vectorstore()._collection.get(
-            where=where_filter,
-            include=["documents", "metadatas"],
-        )
-        contents = result.get("documents") or []
-        metadatas = result.get("metadatas") or []
-
     docs = [
         Document(page_content=content, metadata=metadata or {})
         for content, metadata in zip(contents, metadatas)
@@ -488,53 +469,21 @@ def _sort_number(value: Any) -> int:
         return 0
 
 
-def list_document_sources(
-    thread_id: str,
-    user_id: str | None = None,
-    project_id: str | None = None,
+def list_text_uploads(
+    thread_id: str, user_id: str | None = None, project_id: str | None = None,
     current_chat_only: bool = False,
-) -> list[str]:
-    """Liệt kê file nguồn theo thread hoặc theo Project."""
-    """List distinct filenames uploaded in a conversation, falling back to all user documents."""
-    if project_id and current_chat_only:
-        where_filter = {"$and": [{"project_id": str(project_id)}, {"thread_id": thread_id}]}
-    elif project_id:
-        where_filter = {"project_id": str(project_id)}
-    else:
-        where_filter = {"thread_id": thread_id}
-    if user_id and not project_id:
-        where_filter = {"$and": [{"thread_id": thread_id}, {"user_id": str(user_id)}]}
-
-    result = get_vectorstore()._collection.get(
-        where=where_filter, include=["metadatas"]
-    )
-    sources = sorted({
-        metadata.get("source")
-        for metadata in (result.get("metadatas") or [])
-        if metadata and metadata.get("source")
-    }, key=str.casefold)
-
-    # Fallback: Nếu thread hiện tại chưa có file nào nhưng có user_id, lấy danh sách file user từng upload
-    if not sources and user_id and not project_id:
-        result = get_vectorstore()._collection.get(
-            where={"$and": [
-                {"user_id": str(user_id)},
-                {"scope": {"$nin": ["project"]}},
-            ]}, include=["metadatas"]
-        )
-        sources = sorted({
-            metadata.get("source")
-            for metadata in (result.get("metadatas") or [])
-            if metadata and metadata.get("source")
-        }, key=str.casefold)
-
-    return sources
+) -> dict[str, str]:
+    """Return document ID to source name within the current access scope."""
+    rows = _document_rows(thread_id, user_id, project_id, current_chat_only, include=["metadatas"])
+    return {meta["document_id"]: meta["source"] for meta in rows.get("metadatas") or []
+            if meta and meta.get("document_id") and meta.get("source")}
 
 
+def list_document_sources(thread_id: str, user_id: str | None = None, project_id: str | None = None,
+                          current_chat_only: bool = False) -> list[str]:
+    uploads = list_text_uploads(thread_id, user_id, project_id, current_chat_only)
+    return sorted(set(uploads.values()), key=str.casefold)
 
-# =============================================================================
-# 06. Lập chỉ mục ảnh
-# =============================================================================
 
 def add_image_to_rag(
     file_path: str,
@@ -705,6 +654,8 @@ def delete_thread_documents(thread_id: str) -> dict[str, int]:
 
     chunk_count = len(result.get("ids") or [])
     if chunk_count:
+        document_ids = {meta["document_id"] for meta in metadatas if meta and meta.get("document_id")}
+        delete_summary_jobs({"document_id": {"$in": list(document_ids)}})
         collection.delete(where=thread_filter)
 
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
@@ -726,6 +677,7 @@ def delete_project_document(project_id: str, document_id: str) -> dict[str, int]
     if failed_paths:
         raise RuntimeError("Could not delete project file from disk; Chroma chunks were kept.")
     chunk_count = len(result.get("ids") or [])
+    delete_summary_jobs({"document_id": document_id, "context.project_id": str(project_id)})
     if chunk_count:
         collection.delete(where=where_filter)
     return {"chunks_deleted": chunk_count, "files_deleted": deleted_files}
@@ -813,6 +765,7 @@ def delete_admin_document(document_key: str) -> bool:
                     )
 
     # Xóa tất cả chunks theo metadata ngay trong Chroma, không tải danh sách IDs về app.
+    delete_summary_jobs({"document_id": document_key})
     collection.delete(where=where_filter)
     # Đồng bộ xóa metadata trong project_files nếu tài liệu này thuộc một Project.
     try:
@@ -881,6 +834,7 @@ def migrate_thread_documents_to_project(
 
     if updated_ids:
         collection.update(ids=updated_ids, metadatas=updated_metadatas)
+        delete_summary_jobs({"document_id": {"$in": list(files_by_doc_id)}, "context.project_id": None})
 
     return list(files_by_doc_id.values())
 

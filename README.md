@@ -240,7 +240,7 @@ Khi người dùng yêu cầu tóm tắt toàn bộ file (ví dụ sách, tiểu
    - **Pha Map-Reduce Đệ quy & Rate Limit Resilience:** Với tài liệu dài vượt ngân sách, hệ thống chia thành các nhóm map và tóm tắt đệ quy:
      * **Chạm ngưỡng 8.000 TPM:** Tự động trích xuất thời gian chờ qua regex (`_parse_wait_time`), ngủ `time.sleep(wait_seconds)` và retry tự động cho đến khi hoàn thành ("chạy khi nào xong thì thôi").
      * **Hết quota của model:** Thử các model dự phòng theo `SUMMARIZATION_FALLBACK_MODELS`; nếu tất cả đều không khả dụng, lưu job ở trạng thái tạm dừng để tiếp tục sau.
-   - **Checkpoint & Resume:** Lưu kết quả từng nhóm Map/Reduce trong MongoDB. Khi người dùng tiếp tục cùng tài liệu, hệ thống chỉ chạy các nhóm chưa có kết quả. Khóa job dựa trên nội dung, ngôn ngữ và cấu hình pipeline, không phụ thuộc model.
+   - **Checkpoint & Resume:** Lưu kết quả từng nhóm Map/Reduce trong MongoDB. Khi người dùng tiếp tục cùng tài liệu, hệ thống chỉ chạy các nhóm chưa có kết quả. Job được nhận diện qua phạm vi hội thoại, ID của lần upload và ngôn ngữ đầu ra. Đổi model vẫn tiếp tục được job. [Thiết kế, schema và ví dụ resume](research/map_reduce.md)
    - **Model failover:** Ưu tiên model đang chọn trong chat, sau đó lần lượt thử model dự phòng đã cấu hình. Các kết quả đã lưu vẫn được dùng khi đổi model.
    - **Ghi nhận Token Sử dụng:** Mọi lượt gọi Map và Reduce đều ghi log token qua `log_token_usage`.
 4. **Trả thẳng kết quả tại Đồ thị (`emit_summary_node`):** Sau khi `summarize_uploaded_document` trả về kết quả có tiền tố `Summary of `, `route_after_tools` chuyển thẳng sang `emit_summary_node` và kết thúc graph (`END`), hoàn toàn bỏ qua lượt gọi LLM thứ 2. Tiết kiệm ~20 giây và ~5.000 tokens TPM của mô hình 120B!
@@ -314,7 +314,7 @@ flowchart LR
     Nếu tin nhắn trước đó của AI đã là một bản tóm tắt tài liệu (`Summary of ...` hoặc `Tóm tắt`) và lượt này người dùng yêu cầu: *"hãy tóm tắt bằng tiếng việt"*, *"dịch sang tiếng việt"*, *"bản tiếng việt"*, *"translate to english"*:
     - Hệ thống tự động phát hiện `has_recent_summary = True` và **trả về `False` trong `is_isolated_document_task`** (không cô lập như một tác vụ file mới).
     - Toàn bộ bản tóm tắt ở lượt trước được giữ nguyên trong bộ nhớ hoạt động, cho phép LLM dịch trực tiếp từ lịch sử hội thoại chỉ mất ~1.5 giây mà không cần gọi lại Map-Reduce.
-  - **Cách ly tài liệu trong Pipeline Map-Reduce (`validate_and_isolate_summarization_context`):**
+  - **Cách ly tài liệu trong Pipeline Map-Reduce (`page_texts`):**
     Khi chạy tóm tắt tài liệu dài, chỉ đưa các chunk văn bản sạch và metadata trang vào các vòng Map-Reduce; tuyệt đối không đưa lịch sử chat.
   - **Phân định ranh giới Tool chặt chẽ (`tools.py`):**
     Chỉ dẫn rõ ràng giữa `summarize_uploaded_document` (ưu tiên tuyệt đối khi người dùng yêu cầu tóm tắt toàn bộ file) và `search_uploaded_documents` (chỉ dùng cho tra cứu đoạn trích cụ thể), tránh việc agent gọi nhầm tìm kiếm RAG rời rạc khi cần tóm tắt file.
@@ -359,13 +359,15 @@ Nhằm kiểm soát chi phí, chẩn đoán sớm nguy cơ chạm trần Rate Li
    ```
 4. **Phạm vi Đo lường Toàn diện:**
    - **Agent Lập luận & Trả lời:** `chatbot_node` trong `agent.py` (`"Tool Call Request"` và `"Chatbot Answer"`).
-   - **Tóm tắt Map-Reduce:** `_invoke` trong `summarization.py` cho từng nhóm Map và từng cấp độ Reduce.
+   - **Tóm tắt Map-Reduce:** `_invoke` trong `services/summary_model.py` cho từng nhóm Map và từng cấp độ Reduce.
    - **Gợi ý Tiếp nối:** `generate_followup_questions` trong `followups.py`.
    - **Thị giác Máy tính:** `analyze_image` trong `image_analysis.py`.
 
 ---
 
 ## 4. Kiến trúc Tóm tắt Tài liệu Thích ứng & Tối ưu Hiệu năng (Adaptive & Parallel Summarization)
+
+> Phần 4 ghi lại các thử nghiệm và số đo của phiên bản trước. Luồng xử lý, ngân sách và schema đang dùng được mô tả trong [thiết kế map–reduce](research/map_reduce.md).
 
 Một trong những bài toán hóc búa nhất của các hệ sinh thái Agentic AI khi làm việc với tài liệu người dùng (PDF, DOCX, sách, tiểu luận) là **độ trễ (latency)** và **hạn chế ngặt nghèo về TPM (Tokens Per Minute)** của các nhà cung cấp LLM.
 
@@ -635,16 +637,8 @@ Hệ thống đã được tái cấu trúc theo mô hình **Lazy Singleton (PEP
 - Các hàm tra cứu với User Isolation filter: `retrieve_from_rag`, `get_document_chunks`, `list_document_sources`, `add_image_to_rag`, `list_uploaded_images`.
 
 ### 6.6. Tóm tắt đệ quy thích ứng & đa luồng (`summarization.py`)
-- Ngân sách tóm tắt: `DEFAULT_INPUT_TOKEN_BUDGET = 3500` (được tối ưu hóa an toàn cho trần 8.000 TPM), `SUMMARY_OUTPUT_TOKENS = 900`.
-- Hàm `_groups_by_budget`: Đóng gói các đoạn văn bản vào từng nhóm dựa theo ngân sách token thực tế đã trừ hao overhead.
-- Hàm `_invoke`:
-  * Tự động điều chỉnh quy tắc ngôn ngữ theo `target_language` (`auto`, `Vietnamese`, `English`).
-  * Đo lường token qua `log_token_usage`.
-  * Bắt lỗi Rate Limit 429: Retry lỗi TPM theo chính sách hiện có; với lỗi quota ngày hoặc model không khả dụng, thử các model dự phòng đã cấu hình.
-  * Resume: Lưu checkpoint Map/Reduce vào MongoDB, dùng lại kết quả khi tiếp tục cùng tài liệu và ngôn ngữ.
-- Hàm `summarize_documents`:
-  * Tự thích ứng: Nếu tài liệu $\le 3.500$ tokens, tóm tắt trực tiếp trong 1 pass duy nhất.
-  * Nếu tài liệu dài: chạy Map tuần tự kiểm soát quota TPM, sau đó Reduce đệ quy đa tầng.
+
+Pipeline đọc các chunk đã được kiểm tra quyền. File vừa một lần gọi dùng `single`. File dài chạy map với số worker giới hạn, ghi MongoDB sau từng nhóm và reduce theo thứ tự. Nếu hết quota, lượt tiếp tục dùng lại các checkpoint của job. [Sơ đồ xử lý, schema MongoDB và ví dụ code](research/map_reduce.md)
 
 ### 6.7. Thị giác máy tính (`image_analysis.py`)
 - Giới hạn kích thước ảnh: $\le 14\text{ MB}$.

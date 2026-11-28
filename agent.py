@@ -60,12 +60,13 @@ class _OutputStartedTracker(BaseCallbackHandler):
     def __init__(self) -> None:
         self.output_started = False
 
+    # gom tất cả các tham số truyền theo tên (key=value) còn lại vào thành một dict tên là kwargs
     def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
-        if token:
+        if token: # khi llm chưa in ra token => suy luận
             self.output_started = True
             return
         chunk = kwargs.get("chunk")
-        msg = getattr(chunk, "message", None)
+        msg = getattr(chunk, "message", None) # lấy message từ chunk nếu có, để check reasoning_content/reasoning
         additional_kwargs = getattr(msg, "additional_kwargs", None) or {}
         if additional_kwargs.get("reasoning_content") or additional_kwargs.get("reasoning"):
             self.output_started = True
@@ -187,7 +188,7 @@ def normalize_model_name(model_name: str | None) -> str:
     return model_name
 
 
-
+# bật streaming reasoning cho các model Groq, tránh lỗi 400 khi reasoning quá dài
 # xây dựng format reasoning kwargs cho từng model Groq
 def _build_reasoning_kwargs(model_name: str) -> dict[str, Any]:
     """Tạo tham số reasoning phù hợp với từng dòng model Groq (tránh lỗi 400)."""
@@ -281,7 +282,7 @@ def build_agent(model_name: str) -> Any:
         response = invoke_with_rate_limit_retry(
             lambda: llm_with_tools.invoke(
                 final_messages,
-                config={"callbacks": [output_tracker]},
+                config={"callbacks": [output_tracker]}, # callback để theo dõi xem LLM đã in ra token hay reasoning chưa, tránh retry khi đã in ra
             ),
             max_retries=CHAT_RATE_LIMIT_MAX_RETRIES,
             operation=f"Chatbot ({selected_model})",

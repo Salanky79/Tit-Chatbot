@@ -5,6 +5,7 @@ from contextvars import ContextVar
 _current_thread_id: ContextVar[str] = ContextVar("current_thread_id", default="default")
 _current_user_id: ContextVar[str] = ContextVar("current_user_id", default="")
 _current_model_name: ContextVar[str] = ContextVar("current_model_name", default="")
+_attachment_document_id: ContextVar[str] = ContextVar("attachment_document_id", default="")
 _current_attachment_source: ContextVar[str] = ContextVar("current_attachment_source", default="")
 _current_project_id: ContextVar[str] = ContextVar("current_project_id", default="")
 _current_project_memory_mode: ContextVar[str] = ContextVar("current_project_memory_mode", default="")
@@ -36,9 +37,14 @@ def set_current_model_name(model_name: str | None) -> None:
     _current_model_name.set(model_name or "")
 
 
-def set_current_attachment_source(source: str | None) -> None:
+def set_current_attachment_source(source: str | None, document_id: str | None = None) -> None:
     """Identify the upload attached to this request, without changing access scope."""
     _current_attachment_source.set(source or "")
+    _attachment_document_id.set(document_id or "")
+
+
+def get_attachment_document_id() -> str:
+    return _attachment_document_id.get()
 
 
 def get_current_attachment_source() -> str:

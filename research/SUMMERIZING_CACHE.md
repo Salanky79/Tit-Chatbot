@@ -1,8 +1,10 @@
 # Luồng tóm tắt và lưu tiến độ
 
-## Thiết kế hiện tại sau refactor ngày 26 tháng 11 năm 2026
+Thiết kế đang dùng được mô tả trong [Map–reduce cho tài liệu upload](map_reduce.md).
 
-Phần này mô tả code hiện tại. Các phần phía dưới mục **Thiết kế trước refactor**
+## Thiết kế ngày 26 tháng 11 năm 2026
+
+Phần này ghi lại thiết kế tại thời điểm đó. Các phần phía dưới mục **Thiết kế trước refactor**
 được giữ làm lịch sử; một số chữ ký hàm, đoạn code và cơ chế nhận biết trạng thái
 trong đó không còn áp dụng.
 

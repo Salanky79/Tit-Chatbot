@@ -262,10 +262,11 @@ def _apply_chat_context(
     project_context: str,
     personalization: dict[str, Any] | None,
     attachment_source: str = "",
+    attachment_document_id: str = "",
 ) -> None:
     """Thiết lập toàn bộ ContextVar cho request chat hiện tại."""
     set_current_thread_id(thread_id)
-    set_current_attachment_source(attachment_source)
+    set_current_attachment_source(attachment_source, attachment_document_id)
     set_current_user_id(user_id or "")
     set_current_model_name(selected_model)
     set_current_language(user_lang)
@@ -294,13 +295,14 @@ def _chat_event_generator(
     project_context: str = "",
     personalization: dict[str, Any] | None = None,
     attachment_source: str = "",
+    attachment_document_id: str = "",
 ) -> Iterator[str]:
     """Stream câu trả lời và giữ ContextVar xuyên suốt mọi lần yield qua threadpool."""
-    # Starlette iterate_in_threadpool chạy mỗi bước next() qua anyio.to_thread.run_sync (copy context mới mỗi lần).
-    # Gói agent.stream vào một stream_ctx cố định để user_id/project/personalization không bị reset sau yield đầu tiên.
+
+    # sao chép context hiện tại để chạy trong threadpool, tránh mất context khi yield ra StreamingResponse
     stream_ctx = contextvars.copy_context()
     stream_ctx.run(
-        _apply_chat_context,
+        _apply_chat_context, # gọi các hàm thiết lập ContextVar trong context của threadpool
         thread_id=thread_id,
         user_id=user_id,
         selected_model=selected_model,
@@ -311,30 +313,33 @@ def _chat_event_generator(
         project_context=project_context,
         personalization=personalization,
         attachment_source=attachment_source,
+        attachment_document_id=attachment_document_id,
     )
 
-    final_answer = ""
-    reasoning_splitter = _ReasoningTagSplitter()
-    stream_sentinel = object()
+    final_answer = "" #tích lũy câu trả lời cuối cùng để lưu vào DB, reasoning sẽ không lưu vào DB
+    reasoning_splitter = _ReasoningTagSplitter() # tách thẻ <think>...</think> nếu model trả reasoning lẫn vào chunk.content
+    stream_sentinel = object() # Một object đánh dấu "hết iterator" dùng làm giá trị fallback cho hàm next(stream_iter, stream_sentinel)
 
     try:
         inputs = {
             "messages": [
-                HumanMessage(content=user_message)
+                HumanMessage(content=user_message) #Khi chạy, LangGraph tự nạp lịch sử cũ của thread_id từ MongoDB rồi dùng add_messages nối HumanMessage mới này vào cuối.
             ]
         }
 
+        # Khởi tạo iterator stream
         stream_iter = stream_ctx.run(
-            lambda: iter(agent.stream(inputs, config=config, stream_mode="messages"))
+            lambda: iter(agent.stream(inputs, config=config, stream_mode="messages")) #sử dụng stream_mode="messages" để nhận từng chunk message thay vì toàn bộ message
         )
         while True:
-            item = stream_ctx.run(next, stream_iter, stream_sentinel)
+            item = stream_ctx.run(next, stream_iter, stream_sentinel) #trả về stream_sentinel nếu iterator hết, tránh StopIteration exception
             if item is stream_sentinel:
                 break
             chunk, metadata = item
             if not should_stream_chunk(chunk, metadata):
                 continue
 
+            # bắn reasoning và token ra frontend theo từng chunk, reasoning sẽ không lưu vào DB
             parsed_reasoning = extract_reasoning_from_chunk(chunk)
             raw_text = extract_text_from_chunk(chunk)
             tag_reasoning, token = reasoning_splitter.feed(raw_text) if raw_text else ("", "")
@@ -435,7 +440,8 @@ async def chat_stream(request: Request):
 
     user_message = data.get("message", "")
     attachment_source = data.get("attachment_source") or ""
-    if not isinstance(attachment_source, str):
+    attachment_document_id = data.get("attachment_document_id") or ""
+    if not isinstance(attachment_source, str) or not isinstance(attachment_document_id, str):
         return JSONResponse({"error": "Invalid attachment source."}, status_code=400)
     thread_id = data.get("thread_id", "default")
     selected_model = normalize_model_name(data.get("model", "openai/gpt-oss-20b"))
@@ -513,6 +519,7 @@ async def chat_stream(request: Request):
         project_context=project_context,
         personalization=personalization,
         attachment_source=attachment_source,
+        attachment_document_id=attachment_document_id,
     )
 
     return StreamingResponse(
@@ -530,7 +537,8 @@ async def chat_stream(request: Request):
             project_context=project_context,
             personalization=personalization,
             attachment_source=attachment_source,
-        ),
+            attachment_document_id=attachment_document_id,
+        ), # trả lại từng phần token và reasoning cho frontend qua SSE
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -538,8 +546,8 @@ async def chat_stream(request: Request):
             "X-Accel-Buffering": "no"
         }
     )
-
-
+# _chat_event_generator(...) chỉ đóng gói tất cả tham số (agent, thread_id, user_message...) thành một generator object chưa chạy, rồi đưa cho StreamingResponse.
+# Sau khi chat_stream return xong, Starlette/FastAPI mới bắt đầu bấm Play bằng cách gọi next(generator) lặp đi lặp lại
 
 # =============================================================================
 # 06. Schema và endpoint câu hỏi gợi ý

@@ -13,6 +13,7 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from services.summary_jobs import delete_summary_jobs
 from storage.mongo_client import get_collection
 
 
@@ -234,16 +235,12 @@ def delete_project(project_id: str, user_id: str) -> dict[str, int] | None:
     for thread_id in thread_ids:
         get_collection("chat_messages").delete_many({"thread_id": thread_id})
         get_collection("conversations").delete_one({"thread_id": thread_id, "project_id": project_oid})
-        jobs = get_collection("summary_jobs")
-        job_ids = [row["_id"] for row in jobs.find({"context.thread_id": thread_id}, {"_id": 1})]
-        if job_ids:
-            get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
-        jobs.delete_many({"context.thread_id": thread_id})
         try:
             from services.rag import delete_thread_documents
             delete_thread_documents(thread_id)
         except Exception:
             pass
+    delete_summary_jobs({"context.project_id": str(project_oid)})
     files = list(get_collection("project_files").find({"project_id": project_oid}, {"document_id": 1, "path": 1}))
     try:
         from services.rag import delete_project_documents

@@ -6,6 +6,7 @@ from typing import Any
 
 from bson import ObjectId
 
+from services.summary_jobs import delete_summary_jobs
 from storage.mongo_client import get_collection as _mongo_get_collection
 from storage._helpers import (
     MAX_CUSTOM_INSTRUCTIONS_LEN,
@@ -250,14 +251,7 @@ def delete_user(user_id: str | ObjectId) -> dict:
     # Keep memberships that belong to other users if this user originally sent
     # the invitation; invited_by is audit metadata, not an ownership relation.
     project_members.update_many({"invited_by": query_id}, {"$unset": {"invited_by": ""}})
-    summary_jobs = get_collection("summary_jobs")
-    job_ids = [
-        job["_id"]
-        for job in summary_jobs.find({"context.user_id": str(query_id)}, {"_id": 1})
-    ]
-    if job_ids:
-        get_collection("summary_job_checkpoints").delete_many({"job_id": {"$in": job_ids}})
-    summary_jobs.delete_many({"context.user_id": str(query_id)})
+    delete_summary_jobs({"context.user_id": str(query_id)})
 
     for collection_name in ("sessions", "long_term_memory"):
         get_collection(collection_name).delete_many(owner_filter)

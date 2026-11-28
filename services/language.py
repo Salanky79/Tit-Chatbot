@@ -22,6 +22,18 @@ _current_language: ContextVar[str] = ContextVar("current_language", default="vi"
 # 01. Xác định ngôn ngữ từ request
 # =============================================================================
 
+def normalize_summary_language(language: str | None) -> str:
+    """Canonicalize the output language used in summary prompts and job lookups."""
+    value = (language or "auto").strip().casefold()
+    if value in {"", "auto", "original", "default", "ngôn ngữ gốc"}:
+        return "auto"
+    if value in {"vi", "vietnamese", "tiếng việt", "tieng viet"}:
+        return "Vietnamese"
+    if value in {"en", "english", "tiếng anh", "tieng anh"}:
+        return "English"
+    return value
+
+
 def extract_primary_language(raw_lang: str | None) -> str:
     """Extract primary language subtag (BCP 47), preserving 2-letter or 3-letter ISO codes."""
     if not raw_lang:

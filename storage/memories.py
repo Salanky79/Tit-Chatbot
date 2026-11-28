@@ -201,7 +201,7 @@ def get_user_memories(
             doc_vec = _generate_embedding(doc.get("memory", ""))
             if doc_vec:
                 coll.update_one({"_id": doc["_id"]}, {"$set": {"embedding": doc_vec}})
-        score = _cosine_similarity(query_vec, doc_vec)
+        score = _cosine_similarity(query_vec, doc_vec) #chorma
         if score >= SIMILARITY_THRESHOLD:
             scored_docs.append((score, doc))
 

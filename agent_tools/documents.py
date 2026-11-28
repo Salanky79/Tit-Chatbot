@@ -10,6 +10,7 @@ from agent_tools.context import (
     SUMMARY_RESULT_PREFIX,
     SUMMARY_RESULT_PREFIX_VI,
     get_current_attachment_source,
+    get_attachment_document_id,
     get_current_model_name as _get_current_model_name,
     get_current_project_id as _get_current_project_id,
     get_current_project_memory_mode as _get_current_project_memory_mode,
@@ -17,14 +18,14 @@ from agent_tools.context import (
     get_current_user_id as _get_current_user_id,
 )
 from services.image_analysis import analyze_image as _analyze_image
+from services.language import normalize_summary_language
 from services.rag import (
     get_document_chunks as _get_document_chunks,
-    list_document_sources as _list_document_sources,
+    list_text_uploads,
     list_uploaded_images as _list_uploaded_images,
     retrieve_from_rag as _retrieve_from_rag,
 )
-from services.summarization import summarize_documents as _summarize_documents
-from services.summary_result import SummaryResult, normalize_language
+from services.summarization import SummaryResult, summarize_documents as _summarize_documents
 from services.token_limit_handler import (
     format_tool_limit_notice as _format_tool_limit_notice,
     is_daily_token_limit as _is_daily_token_limit,
@@ -37,7 +38,6 @@ get_current_thread_id = tool_callable("get_current_thread_id", _get_current_thre
 get_current_user_id = tool_callable("get_current_user_id", _get_current_user_id)
 analyze_image = tool_callable("analyze_image", _analyze_image)
 get_document_chunks = tool_callable("get_document_chunks", _get_document_chunks)
-list_document_sources = tool_callable("list_document_sources", _list_document_sources)
 list_uploaded_images = tool_callable("list_uploaded_images", _list_uploaded_images)
 retrieve_from_rag = tool_callable("retrieve_from_rag", _retrieve_from_rag)
 summarize_documents = tool_callable("summarize_documents", _summarize_documents)
@@ -153,7 +153,7 @@ def summarize_uploaded_document(filename: str = "", target_language: str = "auto
 def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
     """Resolve a source, invoke the service, and format one terminal tool outcome."""
     selected = (filename or "").strip().strip('"\'') or "document"
-    language = normalize_language(target_language)
+    language = normalize_summary_language(target_language)
     try:
         thread_id = get_current_thread_id()
         user_id = get_current_user_id() or None
@@ -163,12 +163,19 @@ def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
             "project_id": project_id,
             "current_chat_only": get_current_project_memory_mode() == "current_chat_only",
         }
-        sources = list_document_sources(thread_id, **scope)
+        uploads = list_text_uploads(thread_id, **scope)
+        sources = sorted(set(uploads.values()), key=str.casefold)
+        attachment_id = get_attachment_document_id()
+        attached = uploads.get(attachment_id, "") if attachment_id else get_current_attachment_source()
         if not sources:
             return SummaryResult("No uploaded documents were found in this conversation or your account.", "clarification")
         requested = (filename or "").strip().strip('"\'')
+        if attachment_id and attachment_id not in uploads and (
+            not requested or _clean_source_name(requested) == _clean_source_name(get_current_attachment_source())
+        ):
+            return SummaryResult("The attached document is no longer available in this conversation.", "clarification")
         selected, matches = _select_uploaded_name(
-            sources, requested, attached_source=get_current_attachment_source(),
+            sources, requested, attached_source=attached,
         )
         if selected is None:
             if matches:
@@ -176,21 +183,29 @@ def _summarize_upload(filename: str, target_language: str) -> SummaryResult:
                 return SummaryResult(f"Which uploaded file did you mean: {names}?", "clarification")
             available = ", ".join(f'"{source}"' for source in sources)
             return SummaryResult(f'No uploaded file named "{requested}" was found. Available files: {available}.', "clarification")
-        chunks = get_document_chunks(selected, thread_id, **scope)
+        ids = [doc_id for doc_id, source in uploads.items() if source == selected]
+        if attachment_id in ids:
+            document_id = attachment_id
+        elif len(ids) == 1:
+            document_id = ids[0]
+        else:
+            return SummaryResult(f'Multiple uploads are named "{selected}". Attach the intended file.', "clarification")
+
         result = summarize_documents(
-            chunks, target_language=language,
+            lambda: get_document_chunks(selected, thread_id, document_id=document_id, **scope),
+            target_language=language,
             job_context={
                 "user_id": str(user_id or ""), "thread_id": thread_id,
-                "project_id": str(project_id or ""), "source": selected,
+                "project_id": str(project_id or ""), "document_id": document_id,
                 "model": get_current_model_name(),
             },
         )
         if result.status == "partial":
             return result
         if language == "Vietnamese":
-            prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}" (toàn bộ {len(chunks)} phần nội dung):\n\n'
+            prefix = f'{SUMMARY_RESULT_PREFIX_VI}"{selected}":\n\n'
         else:
-            prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}" (all {len(chunks)} stored chunks):\n\n'
+            prefix = f'{SUMMARY_RESULT_PREFIX}"{selected}":\n\n'
         return SummaryResult(prefix + result.text, result.status)
     except Exception:
         logger.exception("Document summarization failed for %s", selected)

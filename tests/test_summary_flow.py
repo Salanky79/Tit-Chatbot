@@ -14,26 +14,9 @@ from pymongo.errors import DuplicateKeyError
 import agent
 from agent_tools import documents
 from agent_tools.context import SUMMARY_ERROR_PREFIX, SUMMARY_RESULT_PREFIX
-from services.summary_jobs import SummaryJobStore
-from services.summary_result import SummaryResult
+from services.summarization import SummaryResult
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, START, END
-
-
-class UniqueJobCollection:
-    """Model the legacy unique job_id index, including a missing-field row."""
-
-    def __init__(self):
-        self.rows = {"legacy": {"_id": "legacy"}}
-
-    def update_one(self, query, update, upsert=False):
-        key = query["_id"]
-        row = dict(self.rows.get(key, {"_id": key}))
-        row.update(update["$set"])
-        if any(other != key and value.get("job_id") == row.get("job_id")
-               for other, value in self.rows.items()):
-            raise DuplicateKeyError("duplicate job_id")
-        self.rows[key] = row
 
 
 class SummaryFlowTests(unittest.TestCase):
@@ -59,7 +42,7 @@ class SummaryFlowTests(unittest.TestCase):
 
     def test_clarification_is_terminal_without_running_summary(self):
         with (
-            patch.object(documents, "list_document_sources", return_value=["a.pdf", "b.pdf"]),
+            patch.object(documents, "list_text_uploads", return_value={"a": "a.pdf", "b": "b.pdf"}),
             patch.object(documents, "summarize_documents") as summarize,
         ):
             message = documents.summarize_uploaded_document.invoke({
@@ -72,50 +55,12 @@ class SummaryFlowTests(unittest.TestCase):
 
     def test_source_lookup_failure_also_uses_terminal_error_contract(self):
         with (
-            patch.object(documents, "list_document_sources", side_effect=RuntimeError("storage unavailable")),
+            patch.object(documents, "list_text_uploads", side_effect=RuntimeError("storage unavailable")),
             self.assertLogs(documents.logger, level="ERROR"),
         ):
             result = documents._summarize_upload("file.pdf", "auto")
         self.assertEqual(result.status, "error")
         self.assertNotIn("storage unavailable", result.text)
-
-    def test_checkpoints_with_legacy_unique_step_index(self):
-        rows = {}
-
-        def save(query, update, upsert=False):
-            key = query["_id"]
-            row = dict(rows.get(key, {"_id": key}))
-            row.update(update["$set"])
-            if any(
-                other != key and (value.get("job_id"), value.get("step_index"))
-                == (row.get("job_id"), row.get("step_index"))
-                for other, value in rows.items()
-            ):
-                raise DuplicateKeyError("duplicate job_id/step_index")
-            rows[key] = row
-
-        from unittest.mock import Mock
-        checkpoints = Mock()
-        checkpoints.update_one.side_effect = save
-        with patch("services.summary_jobs.get_collection", return_value=checkpoints):
-            store = SummaryJobStore("job", {"user_id": "user"})
-        # A checkpoint created by the previous code has no step_index.
-        rows["job:map:0"] = {"job_id": "job", "stage": "map", "group_index": 0}
-        store.save_result("map", 1, "second map")
-        store.save_result("reduce:1", 0, "reduce")
-        store.save_result("map", 0, "updated first map")
-        store.save_result("map", 1, "resumed second map")
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows["job:map:1"]["content"], "resumed second map")
-        self.assertEqual(len({row["step_index"] for row in rows.values()}), 3)
-
-    def test_distinct_jobs_and_resume_with_legacy_unique_index(self):
-        jobs = UniqueJobCollection()
-        with patch("services.summary_jobs.get_collection", return_value=jobs):
-            for job_id in ("first", "second", "first", "legacy"):
-                SummaryJobStore(job_id, {"user_id": "user"}).start()
-        self.assertEqual(set(jobs.rows), {"legacy", "first", "second"})
-        self.assertTrue(all(row["job_id"] == key for key, row in jobs.rows.items()))
 
     def test_failure_stops_graph_even_when_direct_return_disabled(self):
         error = SUMMARY_ERROR_PREFIX + '"CV.pdf" do lỗi xử lý nội bộ.'
@@ -138,7 +83,7 @@ class SummaryFlowTests(unittest.TestCase):
 
     def test_tool_database_failure_is_safe_and_terminal(self):
         with (
-            patch.object(documents, "list_document_sources", return_value=["NguyenThaiSon_CV.pdf"]),
+            patch.object(documents, "list_text_uploads", return_value={"id": "NguyenThaiSon_CV.pdf"}),
             patch.object(documents, "get_document_chunks", return_value=[object()]),
             patch.object(documents, "summarize_documents", side_effect=DuplicateKeyError("job_id: null")) as summarize,
             self.assertLogs(documents.logger, level="ERROR"),
