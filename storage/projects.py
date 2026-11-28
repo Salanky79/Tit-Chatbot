@@ -396,11 +396,12 @@ def respond_to_invitation_token(token: str, user_id: str, accept: bool) -> str |
     if not invitation:
         return None
     now = _now()
+    # Atomic Update: chỉ chấp nhận hoặc từ chối nếu invitation vẫn còn hợp lệ và chưa hết hạn.
     result = get_collection("project_members").update_one(
-        {"_id": _oid(invitation["_id"]), "user_id": _oid(user_id), "status": "invited",
+        {"_id": _oid(invitation["_id"]), "user_id": _oid(user_id), "status": "invited", # invitation vẫn còn hợp lệ và chưa hết hạn
          "invitation_token_hash": _token_hash(token), **_valid_invitation(now)},
         {"$set": {"status": "accepted" if accept else "declined", "accepted_at": now if accept else None},
-         "$unset": {"invitation_token_hash": ""}},
+         "$unset": {"invitation_token_hash": ""}}, # xóa token hash để không thể dùng lại
     )
     return invitation["project_id"] if result.modified_count == 1 else None
 

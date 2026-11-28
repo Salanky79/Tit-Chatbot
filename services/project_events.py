@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 async def project_event_stream(request, user_id: str, current_user):
     """Revalidate the session and detect changes across processes every two seconds."""
     previous = None  # Lưu snapshot hash lần trước để chỉ push khi có thay đổi
-    started = heartbeat = time.monotonic()
+    started = heartbeat = time.monotonic() # monotonic() không bị ảnh hưởng bởi chỉnh đồng hồ hệ thống, dùng cho timeout/heartbeat
     while time.monotonic() - started < STREAM_SECONDS:
         if await request.is_disconnected():
             return  # Client đã đóng tab hoặc rớt mạng -> dừng vòng lặp
@@ -28,7 +28,7 @@ async def project_event_stream(request, user_id: str, current_user):
             # Kiểm tra lại session mỗi vòng vì token có thể bị logout/thu hồi giữa chừng
             user = await run_in_threadpool(current_user, request)
             if not user or str(user["id"]) != user_id:
-                yield 'event: session_expired\ndata: {}\n\n'
+                yield 'event: session_expired\ndata: {}\n\n' # SSE event để client tự logout và redirect về login page
                 return
 
             # Tính SHA-256 trạng thái Project + Member từ MongoDB (dùng chung cho mọi worker)
@@ -40,7 +40,7 @@ async def project_event_stream(request, user_id: str, current_user):
                 heartbeat = time.monotonic()
             elif time.monotonic() - heartbeat >= cfg.PROJECT_HEARTBEAT_SECONDS:
                 # Gửi comment SSE mỗi 15s giữ kết nối không bị proxy/trình duyệt đóng
-                yield ': keep-alive\n\n'
+                yield ': keep-alive\n\n' # dấu ":" là comment SSE, không bị trình duyệt hiển thị, nhưng vẫn reset timeout proxy/nginx
                 heartbeat = time.monotonic()
         except Exception:
             logger.warning("Project notification stream interrupted", exc_info=True)

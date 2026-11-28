@@ -53,7 +53,7 @@ def _invitation_url(request: Request, token: str) -> str:
     parsed = urlsplit(base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment or parsed.username:
         raise ValueError("PUBLIC_APP_URL must be an absolute HTTP(S) application URL without query or fragment.")
-    # Fragments are kept out of server access logs and Referer headers.
+    # Trả về URL mời tham gia Project, ví dụ: https://app.example.com/#project-invite=TOKEN (sau dấu # là fragment, không gửi về server)
     return f"{base}/#project-invite={token}"
 
 

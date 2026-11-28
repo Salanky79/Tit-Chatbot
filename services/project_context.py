@@ -25,9 +25,11 @@ def build_project_context(
     memory_mode: str = cfg.DEFAULT_MEMORY_MODE,
 ) -> str:
     """Tạo ngữ cảnh giới hạn từ chat gần đây và memory của Project."""
+    # Cách ly ngữ cảnh nếu ID không hợp lệ hoặc Project đang bật chế độ chỉ nhớ trong chat hiện tại
     if not ObjectId.is_valid(project_id) or memory_mode == "current_chat_only":
         return ""
     project_oid = ObjectId(project_id)
+    # Loại trừ current_thread_id vì lịch sử của thread đang chat đã được LangGraph tự nạp
     conversations = list(
         get_collection("conversations").find(
             {"project_id": project_oid, "thread_id": {"$ne": current_thread_id}},
@@ -43,11 +45,13 @@ def build_project_context(
                 {"role": 1, "content": 1, "thread_id": 1, "created_at": 1, "sender_id": 1, "user_id": 1},
             ).sort("created_at", -1).limit(cfg.PROJECT_CONTEXT_MESSAGES) # tối đa 24 tin nhắn mới nhất từ chat_message
         )
+        # Đảo lại từ cũ -> mới để LLM đọc đúng trình tự hội thoại
         messages.reverse()
 
     pieces: list[str] = []
     if messages:
         title_by_thread = {row["thread_id"]: row.get("title", "Project chat") for row in conversations}
+        # Gom danh sách sender_id để query tên user 1 lần duy nhất, tránh N+1 query
         sender_ids = {
             sender_id
             for message in messages
@@ -62,6 +66,7 @@ def build_project_context(
         } if sender_ids else {}
         dialogue = []
         for message in messages:
+            # Gắn tên thành viên cho tin nhắn user để LLM biết ai đang nói trong Project chung
             if message.get("role") == "user":
                 sender_id = message.get("sender_id") or message.get("user_id")
                 role = f"User ({user_names.get(str(sender_id), 'Project member')})" if sender_id else "User"
@@ -73,9 +78,11 @@ def build_project_context(
         if dialogue:
             pieces.append("Recent conversations in this project:\n" + "\n".join(dialogue))
 
+    # Bổ sung thêm các fact/quyết định dài hạn của riêng Project khớp ngữ nghĩa với câu hỏi
     memories = search_project_memories(project_id, query, limit=cfg.MEMORY_TOP_K)
     if memories:
         pieces.append("Saved project facts and decisions:\n" + "\n".join(f"- {item}" for item in memories))
 
     content = "\n\n".join(pieces)
+    # Cắt từ cuối lên để ưu tiên giữ phần mới nhất và saved facts, giới hạn trong MAX_PROJECT_CONTEXT_CHARS
     return content[-MAX_PROJECT_CONTEXT_CHARS:] if content else ""

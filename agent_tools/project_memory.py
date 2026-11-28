@@ -31,7 +31,7 @@ def _project_memory_enabled() -> bool:
     """Return whether project memory is enabled for the current request."""
     return bool(get_current_project_id()) and get_current_project_memory_mode() != "current_chat_only"
 
-# trước khi update hoặc delete một project memory, cần kiểm tra xem memory đó có được search ra trong cùng request hay không
+# check xem trong cùng request có search ra memory_id và version này chưa, nếu chưa thì không cho update/delete, tránh bị race condition giữa các worker
 def _current_turn_project_memory_results(state: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Return project memories retrieved during the current chat turn."""
     memories: list[dict[str, Any]] = []
